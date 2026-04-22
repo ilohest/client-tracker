@@ -1,0 +1,126 @@
+/* --- ORDRE DE PRIORITÉ OBLIGATOIRE --- */
+/* 1. base (Reset Tailwind) - Le plus faible */
+/* 2. primevue (Composants UI) - Doit écraser le reset */
+/* 3. components (Vos composants custom) */
+/* 4. utilities (Classes utilitaires genre !text-[10px]) - Le plus fort */
+@layer base, primevue, components, utilities;
+
+@import "tailwindcss";
+
+/* --- 1. VARIABLES GLOBALES STATIQUES --- */
+:root {
+  /* Référence brute pour usage hors Tailwind/PrimeVue */
+  --primary-color: #4C5EF7;
+  --secondary-color: #F8F8F6;
+}
+
+/* --- 2. THEME TAILWIND V4 --- */
+@theme {
+  /* --- TYPOGRAPHIE (MISE A JOUR : 3 POLICES) --- */
+  /* On définit les 3 familles au lieu d'une seule "--font-sans" */
+  --font-brand: "Poppins", system-ui, sans-serif;
+  --font-heading: "Poppins", system-ui, sans-serif;
+  --font-body: "Raleway", system-ui, sans-serif;
+
+  /* --- COULEURS (TON APPROCHE INTELLIGENTE) --- */
+  /* On mappe les classes Tailwind sur les variables CSS de PrimeVue */
+  /* Cela permet d'avoir bg-primary-100, hover:bg-primary-600 automatiquement */
+  
+  --color-primary: var(--p-primary-500);
+  --color-primary-50: var(--p-primary-50);
+  --color-primary-100: var(--p-primary-100);
+  --color-primary-200: var(--p-primary-200);
+  --color-primary-300: var(--p-primary-300);
+  --color-primary-400: var(--p-primary-400);
+  --color-primary-500: var(--p-primary-500);
+  --color-primary-600: var(--p-primary-600);
+  --color-primary-700: var(--p-primary-700);
+  --color-primary-800: var(--p-primary-800);
+  --color-primary-900: var(--p-primary-900);
+  --color-primary-950: var(--p-primary-950);
+
+  --color-secondary: var(--secondary-color);
+
+  /* --- COULEURS EXTRA (PICKCOLOR) --- */
+  
+    
+  --color-accent-1: #ECE7E1;
+    
+  --color-accent-2: #302B29;
+    
+  
+  
+  /* --- NEUTRES (MAPPING POUR TAILWIND) --- */
+  /* Cela permet d'utiliser "bg-surface-card" ou "text-surface-dark" dans le HTML */
+  
+  --color-surface-dark: #090b1e;
+  --color-surface-light: #fafaff;
+  --color-surface-card: #f4f5ff;
+  
+}
+
+/* --- 3. RESET & BASE --- */
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  display: inline-block;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+body {
+  margin: 0;
+  /* On applique la police de corps par défaut */
+  font-family: var(--font-body);
+  
+  /* Gestion intelligente du fond (comme tu l'avais fait) */
+  
+  background-color: #fafaff;
+  color: #090b1e;
+  
+  
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* --- 4. RÈGLES TYPO GLOBALES --- */
+/* On applique automatiquement la police Heading aux titres */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+}
+
+.p-component {
+   box-sizing: border-box;
+}
+
+/* PrimeVue buttons occasionally receive icon-only sizing even when slot text is present.
+   Force a normal inline layout so labels stay on one line and buttons keep a readable width. */
+.p-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.p-button .p-button-label {
+  white-space: nowrap;
+}
+
+.p-button.p-button-icon-only {
+  width: auto;
+  min-width: 2.75rem;
+}
+
+/* --- 5. UTILITAIRES MANUELS --- */
+@layer utilities {
+  .font-brand {
+    font-family: var(--font-brand);
+  }
+}

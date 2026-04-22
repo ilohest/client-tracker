@@ -1,0 +1,40 @@
+{
+  "name": "client-tracker",
+  "title": "Client tracker",
+  "generatedAt": "2026-04-20T16:34:14.850Z",
+  "features": {
+    "firebase": true,
+    "backend": false,
+    "cron": false,
+    "bot": false,
+    "ai": true,
+    "chat": false,
+    "allowRegistration": false
+  },
+  "theme": {
+    "primary": "#4C5EF7",
+    "secondary": "#F8F8F6",
+    "fontBrand": "Poppins",
+    "fontHeading": "Poppins",
+    "fontBody": "Raleway",
+    "extraColors": [
+      "#ECE7E1",
+      "#302B29"
+    ],
+    "neutrals": {
+      "dark": "#090b1e",
+      "light": "#fafaff",
+      "surface": "#f4f5ff"
+    },
+    "importedPalette": [
+      "#4C5EF7",
+      "#ECE7E1",
+      "#F8F8F6",
+      "#302B29"
+    ],
+    "font": "Ubuntu"
+  },
+  "ui": {
+    "layout": "sidebar"
+  }
+}

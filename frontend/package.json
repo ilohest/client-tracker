@@ -1,0 +1,32 @@
+{
+  "name": "client-tracker-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@client-tracker/contracts": "*",
+    "@primeuix/themes": "^1.0.0",
+    "date-fns": "^4.1.0",
+    "firebase": "^11.3.0",
+    "marked": "^15.0.0",
+    "pinia": "^2.3.1",
+    "primevue": "^4.2.5",
+    "quill": "^2.0.3",
+    "tailwindcss": "^4.0.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.13.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vue-tsc": "^2.2.0"
+  }
+}
