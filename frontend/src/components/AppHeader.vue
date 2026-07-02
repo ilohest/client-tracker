@@ -76,7 +76,7 @@ const toggleMenu = (event: Event) => menu.value.toggle(event);
       <span
         class="font-brand text-2xl font-bold text-slate-800 group-hover:text-[var(--color-primary)] transition-colors"
       >
-        Client tracker
+        Devisio
       </span>
     </div>
 

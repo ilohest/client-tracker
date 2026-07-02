@@ -1,4 +1,4 @@
-import type { Quote, QuoteInput, QuoteStatus } from '@client-tracker/contracts';
+import type { QuoteTemplate, QuoteTemplateInput } from '@client-tracker/contracts';
 import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { auth, db } from '@/services/firebase';
 
@@ -23,20 +23,20 @@ const toMillis = (value: unknown): number => {
   return 0;
 };
 
-export const quotesService = {
-  async fetchAll(): Promise<Quote[]> {
+export const quoteTemplatesService = {
+  async fetchAll(): Promise<QuoteTemplate[]> {
     const userId = ensureUser();
-    const snapshot = await getDocs(query(collection(db, 'quotes'), where('userId', '==', userId)));
+    const snapshot = await getDocs(query(collection(db, 'quoteTemplates'), where('userId', '==', userId)));
 
     return snapshot.docs
-      .map((item) => ({ id: item.id, ...item.data() }) as Quote)
-      .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+      .map((item) => ({ id: item.id, ...item.data() }) as QuoteTemplate)
+      .sort((a, b) => toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt));
   },
 
-  async create(payload: QuoteInput & Pick<Quote, 'subtotal' | 'totalWithVat'>): Promise<Quote> {
+  async create(payload: QuoteTemplateInput): Promise<QuoteTemplate> {
     const userId = ensureUser();
     const now = new Date().toISOString();
-    const docRef = await addDoc(collection(db, 'quotes'), {
+    const docRef = await addDoc(collection(db, 'quoteTemplates'), {
       ...payload,
       userId,
       createdAt: serverTimestamp(),
@@ -52,12 +52,9 @@ export const quotesService = {
     };
   },
 
-  async update(
-    id: string,
-    payload: QuoteInput & Pick<Quote, 'subtotal' | 'totalWithVat'>,
-  ): Promise<Quote> {
+  async update(id: string, payload: QuoteTemplateInput): Promise<QuoteTemplate> {
     const userId = ensureUser();
-    await updateDoc(doc(db, 'quotes', id), {
+    await updateDoc(doc(db, 'quoteTemplates', id), {
       ...payload,
       updatedAt: serverTimestamp(),
     });
@@ -71,14 +68,14 @@ export const quotesService = {
     };
   },
 
-  async setStatus(id: string, status: QuoteStatus): Promise<void> {
-    await updateDoc(doc(db, 'quotes', id), {
-      status,
+  async setDefault(id: string, isDefault: boolean): Promise<void> {
+    await updateDoc(doc(db, 'quoteTemplates', id), {
+      isDefault,
       updatedAt: serverTimestamp(),
     });
   },
 
   async delete(id: string): Promise<void> {
-    await deleteDoc(doc(db, 'quotes', id));
+    await deleteDoc(doc(db, 'quoteTemplates', id));
   },
 };

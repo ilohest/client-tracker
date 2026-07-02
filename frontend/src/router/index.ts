@@ -39,14 +39,14 @@ const router = createRouter({
            component: () => import('../views/QuotesWorkspace.vue'),
            meta: { title: 'Devis' }
         },
+        {
+           path: 'quote-templates',
+           name: 'quote-templates',
+           component: () => import('../views/QuoteTemplatesWorkspace.vue'),
+           meta: { title: 'Templates de devis' }
+        },
         
         // --- RESSOURCES & OUTILS ---
-        {
-           path: 'design-system',
-           name: 'design-system',
-           component: () => import('../views/DesignSystem.vue'),
-           meta: { title: 'Design System' }
-        },
         {
           path: '/documentation',
           name: 'documentation',
@@ -126,9 +126,9 @@ router.beforeEach(async (to, from, next) => {
   // 1. Titre de page dynamique
   const title = to.meta.title as string;
   if (title) {
-    document.title = `${title} | client-tracker`;
+    document.title = `${title} | Devisio`;
   } else {
-    document.title = 'client-tracker';
+    document.title = 'Devisio';
   }
 
   // 2. Initialisation Auth (Fix Refresh)

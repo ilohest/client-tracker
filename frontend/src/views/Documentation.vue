@@ -11,7 +11,7 @@ import TabPanel from 'primevue/tabpanel';
 
 // --- DATA STATIQUE (Générée par EJS) ---
 const projectInfo = {
-  name: 'client-tracker',
+  name: 'Devisio',
   version: '1.0.0',
   mode: 'Monorepo',
   builder: 'Vite 6 + Turbolink'

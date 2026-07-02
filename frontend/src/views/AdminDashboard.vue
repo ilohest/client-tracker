@@ -2,8 +2,6 @@
 
 <script setup lang="ts">
   import { useRouter } from "vue-router";
-  import ConfigurationWidget from "../components/widgets/ConfigurationWidget.vue";
-  
 
   const router = useRouter();
 </script>
@@ -18,11 +16,6 @@
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <div class="col-span-1 min-h-[220px]">
-        <ConfigurationWidget />
-      </div>
-
-        
       <div
         class="col-span-1 bg-white border border-slate-200 rounded-3xl p-6 flex flex-col justify-between cursor-pointer hover:border-primary-200 hover:shadow-md transition-all group min-h-[220px]"
         @click="router.push({ name: 'admin-users' })"

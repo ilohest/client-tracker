@@ -1,4 +1,4 @@
-import type { Quote, QuoteAddon, QuoteConditionItem, QuoteDiscountType, QuoteInput, VatRate } from '@client-tracker/contracts';
+import type { Quote, QuoteAddon, QuoteConditionItem, QuoteDiscountType, QuoteInput, QuotePart, QuoteSection, VatRate } from '@client-tracker/contracts';
 
 export const createEntityId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -55,8 +55,51 @@ export const getQuoteValidityDate = (quoteDate: string): string => {
   return `${year}-${month}-${day}`;
 };
 
+/** Crée une partie vide (prête à remplir dans le builder). */
+export const createEmptyQuotePart = (): QuotePart => ({
+  id: createEntityId(),
+  title: '',
+  displayStyle: 'text',
+  price: 0,
+  optional: false,
+  priceNote: '',
+  sections: [],
+});
+
+/** Sous-total = somme des prix des parties non optionnelles (hors add-ons). */
+export const calculatePartsSubtotal = (parts: QuotePart[] = []): number =>
+  Number(
+    parts
+      .filter((part) => !part.optional)
+      .reduce((sum, part) => sum + Number(part.price || 0), 0)
+      .toFixed(2),
+  );
+
+export const calculateQuotePartsTotals = (
+  parts: QuotePart[],
+  vatRate: VatRate,
+  discountType: QuoteDiscountType,
+  discountValue: number,
+): { partsSubtotal: number; discountAmount: number; subtotal: number; vatAmount: number; totalWithVat: number } => {
+  const partsSubtotal = calculatePartsSubtotal(parts);
+  const discountAmount = calculateDiscountAmount(partsSubtotal, discountType, discountValue);
+  const subtotal = Math.max(partsSubtotal - discountAmount, 0);
+  const vatAmount = subtotal * (vatRate / 100);
+  const totalWithVat = subtotal * (1 + vatRate / 100);
+  return {
+    partsSubtotal,
+    discountAmount,
+    subtotal: Number(subtotal.toFixed(2)),
+    vatAmount: Number(vatAmount.toFixed(2)),
+    totalWithVat: Number(totalWithVat.toFixed(2)),
+  };
+};
+
 export const calculateAddonTotal = (addons: QuoteAddon[]): number =>
-  addons.reduce((total, item) => total + Number(item.price || 0), 0);
+  addons.reduce((total, item) => {
+    if (item.enabled === false) return total;
+    return total + Number(item.price || 0);
+  }, 0);
 
 export const calculateDiscountAmount = (
   amountBeforeDiscount: number,
@@ -71,28 +114,6 @@ export const calculateDiscountAmount = (
       : normalizedDiscount;
 
   return Number(Math.min(rawDiscount, normalizedAmount).toFixed(2));
-};
-
-export const calculateQuoteTotals = (
-  basePrice: number,
-  addons: QuoteAddon[],
-  vatRate: VatRate,
-  discountType: QuoteDiscountType,
-  discountValue: number,
-): { addonsTotal: number; discountAmount: number; subtotal: number; vatAmount: number; totalWithVat: number } => {
-  const addonsTotal = calculateAddonTotal(addons);
-  const amountBeforeDiscount = Number(basePrice || 0) + addonsTotal;
-  const discountAmount = calculateDiscountAmount(amountBeforeDiscount, discountType, discountValue);
-  const subtotal = Math.max(amountBeforeDiscount - discountAmount, 0);
-  const vatAmount = subtotal * (vatRate / 100);
-  const totalWithVat = subtotal * (1 + vatRate / 100);
-  return {
-    addonsTotal: Number(addonsTotal.toFixed(2)),
-    discountAmount,
-    subtotal: Number(subtotal.toFixed(2)),
-    vatAmount: Number(vatAmount.toFixed(2)),
-    totalWithVat: Number(totalWithVat.toFixed(2)),
-  };
 };
 
 export const formatCurrency = (value: number, locale: string = 'fr-FR'): string =>
@@ -117,6 +138,24 @@ const cloneConditionItems = (items: QuoteConditionItem[] = []): QuoteConditionIt
     })),
   }));
 
+const cloneSections = (sections: QuoteSection[] = []): QuoteSection[] =>
+  sections.map((section) => ({
+    ...section,
+    id: createEntityId(),
+    items: cloneConditionItems(section.items || []),
+    subSections: (section.subSections || []).map((subSection) => ({
+      ...subSection,
+      id: createEntityId(),
+    })),
+  }));
+
+export const cloneQuoteParts = (parts: QuotePart[] = []): QuotePart[] =>
+  parts.map((part) => ({
+    ...part,
+    id: createEntityId(),
+    sections: cloneSections(part.sections || []),
+  }));
+
 export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
   const nextQuoteDate = getTodayQuoteDate();
 
@@ -136,21 +175,30 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     emailDraft: quote.emailDraft,
     emailSubject: quote.emailSubject || '',
     emailBody: quote.emailBody || '',
-    basePrice: quote.basePrice || 0,
     discountType: quote.discountType || 'percent',
     discountValue: quote.discountValue || 0,
-    sections: quote.sections.map((section) => ({
-      ...section,
-      id: createEntityId(),
-      subSections: (section.subSections || []).map((subSection) => ({
-        ...subSection,
-        id: createEntityId(),
-      })),
-    })),
+    version: 1,
+    versionGroupId: createEntityId(),
+    parts: cloneQuoteParts(quote.parts),
     conditions: quote.conditions.map((condition) => ({
       ...condition,
       id: createEntityId(),
       items: cloneConditionItems(condition.items || []),
+    })),
+    roadmap: (quote.roadmap || []).map((phase) => ({
+      ...phase,
+      id: createEntityId(),
+      items: cloneConditionItems(phase.items || []),
+    })),
+    acceptance: (quote.acceptance || []).map((entry) => ({
+      ...entry,
+      id: createEntityId(),
+      items: cloneConditionItems(entry.items || []),
+    })),
+    principles: (quote.principles || []).map((principle) => ({
+      ...principle,
+      id: createEntityId(),
+      items: cloneConditionItems(principle.items || []),
     })),
     addons: quote.addons.map((addon) => ({
       ...addon,
@@ -161,74 +209,14 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
   };
 };
 
-export const buildQuotePlainText = (quote: Quote): string[] => {
-  const lines: string[] = [];
-
-  lines.push(`DEVIS ${quote.quoteRef}`);
-  if (quote.title) lines.push(`Titre: ${quote.title}`);
-  if (quote.quoteDate) {
-    lines.push(`Date du devis: ${formatQuoteDate(quote.quoteDate)}`);
-    lines.push(`Validite: ${formatQuoteDate(getQuoteValidityDate(quote.quoteDate))}`);
-  }
-  lines.push('');
-  lines.push(`Client: ${quote.clientName}`);
-  if (quote.clientAddress) lines.push(`Adresse: ${quote.clientAddress}`);
-  if (quote.clientWebsite) lines.push(`Site: ${quote.clientWebsite}`);
-  lines.push(`Plateforme: ${getQuotePlatformLabel(quote.platform, quote.customPlatformLabel)}`);
-  lines.push(`Langue: ${quote.language}`);
-  lines.push('');
-  lines.push('Description du projet');
-  lines.push(quote.projectSummary || 'A completer');
-  lines.push('');
-  lines.push('Prestations');
-  quote.sections.forEach((section) => {
-    lines.push(`- ${section.title}`);
-    lines.push(`  ${section.description}`);
-    (section.subSections || []).forEach((subSection) => {
-      lines.push(`  > ${subSection.title}`);
-      lines.push(`    ${subSection.body}`);
-    });
-  });
-  if (quote.addons.length > 0) {
-    lines.push('');
-    lines.push('Add-ons');
-    quote.addons.forEach((addon) => {
-      lines.push(`- ${addon.title} | ${formatCurrency(addon.price)}`);
-      if (addon.items?.length) {
-        addon.items.forEach((item) => {
-          lines.push(`  • ${item.text}`);
-          (item.subItems || []).forEach((subItem) => {
-            lines.push(`    ◦ ${subItem.text}`);
-          });
-        });
-      } else {
-        lines.push(`  ${addon.description}`);
-      }
-    });
-  }
-  lines.push('');
-  lines.push('Conditions');
-  quote.conditions.forEach((condition) => {
-    lines.push(`- ${condition.title}`);
-    if (condition.items?.length) {
-      condition.items.forEach((item) => {
-        lines.push(`  • ${item.text}`);
-        (item.subItems || []).forEach((subItem) => {
-          lines.push(`    ◦ ${subItem.text}`);
-        });
-      });
-    } else if (condition.body) {
-      lines.push(`  ${condition.body}`);
-    }
-  });
-  lines.push('');
-  lines.push(`Prix de base HT: ${formatCurrency(quote.basePrice || 0)}`);
-  if ((quote.discountValue || 0) > 0) {
-    const label = quote.discountType === 'fixed' ? formatCurrency(quote.discountValue || 0) : `${quote.discountValue || 0}%`;
-    lines.push(`Reduction: ${label}`);
-  }
-  lines.push(`Sous-total HT: ${formatCurrency(quote.subtotal)}`);
-  lines.push(`TVA: ${quote.vatRate}%`);
-  lines.push(`Total TTC: ${formatCurrency(quote.totalWithVat)}`);
-  return lines;
-};
+/**
+ * Crée l'input d'une NOUVELLE VERSION d'un devis : même famille
+ * (`versionGroupId`) et même référence, contenu cloné, statut remis à
+ * `draft`. À utiliser quand le client demande des modifications après envoi.
+ */
+export const createQuoteVersionInput = (quote: Quote, nextVersion: number): QuoteInput => ({
+  ...duplicateQuoteInput(quote),
+  quoteRef: quote.quoteRef,
+  version: nextVersion,
+  versionGroupId: quote.versionGroupId || quote.id,
+});

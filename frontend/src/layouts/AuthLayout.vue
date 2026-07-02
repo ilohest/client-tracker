@@ -41,7 +41,7 @@ const year = new Date().getFullYear();
       </div>
 
       <div class="absolute bottom-8 text-white/20 text-xs font-mono">
-        &copy; {{ year }} client-tracker Inc.
+        &copy; {{ year }} Devisio Inc.
       </div>
     </div>
 

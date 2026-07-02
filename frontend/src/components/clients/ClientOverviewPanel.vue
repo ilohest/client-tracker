@@ -5,6 +5,7 @@ import Button from 'primevue/button';
 import Select from 'primevue/select';
 import Tag from 'primevue/tag';
 import { getCountryFlag, getCountryLabel } from '@/lib/countries';
+import { quoteStatusMeta } from '@/lib/clientPresets';
 import { formatClientAddress, formatClientFullName } from '@/utils/address';
 import { formatQuoteDate } from '@/utils/quote';
 
@@ -122,19 +123,13 @@ const taskCardClass: Record<OnboardingTaskStatus, string> = {
   done: 'border-emerald-500/20 bg-emerald-500/5',
 };
 
-const quoteStatusLabel: Record<QuoteStatus, string> = {
-  draft: 'Brouillon',
-  sent: 'Envoyé',
-  accepted: 'Accepté',
-  refused: 'Refusé',
-};
+const quoteStatusLabel = (status: QuoteStatus): string => quoteStatusMeta[status].label;
+const quoteStatusTagClass = (status: QuoteStatus): string => quoteStatusMeta[status].tagClass;
 
-const quoteStatusTagClass: Record<QuoteStatus, string> = {
-  draft: '!bg-surface-dark/8 !text-surface-dark',
-  sent: '!bg-primary/12 !text-primary',
-  accepted: '!bg-emerald-500/12 !text-emerald-700',
-  refused: '!bg-rose-500/12 !text-rose-700',
-};
+const shouldShowPlatformTag = computed(() => {
+  const platform = props.client?.platform?.trim().toLowerCase();
+  return Boolean(platform && platform !== 'other');
+});
 </script>
 
 <template>
@@ -144,7 +139,7 @@ const quoteStatusTagClass: Record<QuoteStatus, string> = {
         <div>
           <div class="flex flex-wrap items-center gap-2 mb-2">
             <h2 class="text-2xl font-heading font-bold text-surface-dark">{{ formatClientFullName(client) }}</h2>
-            <Tag :value="client.platform" rounded class="!bg-primary/10 !text-primary" />
+            <Tag v-if="shouldShowPlatformTag" :value="client.platform" rounded class="!bg-primary/10 !text-primary" />
           </div>
           <p v-if="client.companyName" class="text-sm font-medium text-surface-dark/70 mb-1">{{ client.companyName }}</p>
           <a
@@ -248,7 +243,7 @@ const quoteStatusTagClass: Record<QuoteStatus, string> = {
                 <p class="font-semibold text-surface-dark truncate">{{ quote.title || quote.quoteRef }}</p>
                 <p class="text-sm text-surface-dark/55 mt-1">{{ quote.quoteRef }}</p>
               </div>
-              <Tag :value="quoteStatusLabel[quote.status]" :class="quoteStatusTagClass[quote.status]" rounded />
+              <Tag :value="quoteStatusLabel(quote.status)" :class="quoteStatusTagClass(quote.status)" rounded />
             </div>
             <div class="mt-3 flex items-center justify-between gap-3 text-sm text-surface-dark/65">
               <span>{{ quote.quoteDate ? formatQuoteDate(quote.quoteDate) : 'Date non renseignée' }}</span>

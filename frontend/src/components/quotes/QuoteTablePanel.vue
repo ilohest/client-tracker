@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { Client, Quote } from '@client-tracker/contracts';
+import type { Client, Quote, QuoteStatus } from '@client-tracker/contracts';
 import Button from 'primevue/button';
 import DatePicker from 'primevue/datepicker';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
-import Tag from 'primevue/tag';
-import { formatQuoteDate, getQuotePlatformLabel } from '@/utils/quote';
+import { formatCurrency, formatQuoteDate, getQuotePlatformLabel } from '@/utils/quote';
+import { quoteStatusMeta, quoteStatusOptions } from '@/lib/clientPresets';
 
 defineProps<{
   quotes: Quote[];
@@ -13,15 +13,16 @@ defineProps<{
   search: string;
   filterClientId: string;
   filterDate: Date | null;
+  filterStatus: QuoteStatus | '';
 }>();
 
 const emit = defineEmits<{
   create: [];
   select: [id: string];
-  duplicate: [id: string];
   'update:search': [value: string];
   'update:filterClientId': [value: string];
   'update:filterDate': [value: Date | null];
+  'update:filterStatus': [value: QuoteStatus | ''];
 }>();
 </script>
 
@@ -33,17 +34,26 @@ const emit = defineEmits<{
           <p class="text-sm font-semibold text-surface-dark">Liste des devis</p>
           <p class="text-xs text-surface-dark/55">Vue compacte pour retrouver rapidement un devis.</p>
         </div>
-        <Button class="!rounded-2xl !px-4 !py-3 font-semibold shadow-sm" @click="emit('create')">
+        <Button class="!rounded-xl !px-4 !py-3 font-semibold shadow-sm" @click="emit('create')">
           <template #icon><span class="material-symbols-outlined text-lg">post_add</span></template>
           Nouveau devis
         </Button>
       </div>
 
-      <div class="grid grid-cols-1 gap-3">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <InputText
           :model-value="search"
           placeholder="Rechercher un devis"
           @update:model-value="emit('update:search', $event || '')"
+        />
+        <Select
+          :model-value="filterStatus"
+          :options="quoteStatusOptions"
+          option-label="label"
+          option-value="value"
+          placeholder="Filtrer par statut"
+          show-clear
+          @update:model-value="emit('update:filterStatus', $event || '')"
         />
         <Select
           :model-value="filterClientId"
@@ -59,6 +69,7 @@ const emit = defineEmits<{
           date-format="dd/mm/yy"
           show-icon
           icon-display="input"
+          show-button-bar
           placeholder="Filtrer par date"
           @update:model-value="emit('update:filterDate', $event instanceof Date ? $event : null)"
         />
@@ -74,13 +85,12 @@ const emit = defineEmits<{
             <th class="px-4 py-3 font-medium">Date</th>
             <th class="px-4 py-3 font-medium">Statut</th>
             <th class="px-4 py-3 font-medium text-right">Total</th>
-            <th class="px-4 py-3 font-medium text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="quotes.length === 0">
-            <td colspan="6" class="px-4 py-8 text-center text-sm text-surface-dark/55">
-              Aucun devis pour l’instant.
+            <td colspan="5" class="px-4 py-8 text-center text-sm text-surface-dark/55">
+              Aucun devis ne correspond.
             </td>
           </tr>
           <tr
@@ -94,8 +104,11 @@ const emit = defineEmits<{
                 <p class="font-heading font-semibold text-surface-dark">
                   {{ quote.title || quote.clientName || 'Devis sans titre' }}
                 </p>
-                <p class="mt-1 text-xs text-surface-dark/55">{{ quote.quoteRef }}</p>
-                <p class="mt-2 text-xs text-surface-dark/55">
+                <p class="mt-1 text-xs text-surface-dark/55">
+                  {{ quote.quoteRef }}
+                  <span v-if="(quote.version || 1) > 1" class="ml-1 font-semibold">v{{ quote.version }}</span>
+                </p>
+                <p class="mt-2 text-xs capitalize text-surface-dark/55">
                   {{ getQuotePlatformLabel(quote.platform, quote.customPlatformLabel) }}
                 </p>
               </div>
@@ -107,18 +120,14 @@ const emit = defineEmits<{
               {{ quote.quoteDate ? formatQuoteDate(quote.quoteDate) : 'Non renseignée' }}
             </td>
             <td class="px-4 py-4 align-top">
-              <Tag :value="quote.status" class="!bg-surface-dark/8 !text-surface-dark" rounded />
+              <span
+                class="inline-block rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                :class="quoteStatusMeta[quote.status].tagClass"
+                >{{ quoteStatusMeta[quote.status].label }}</span
+              >
             </td>
-            <td class="px-4 py-4 align-top text-right text-sm font-semibold text-surface-dark">
-              {{ quote.totalWithVat.toFixed(2) }} €
-            </td>
-            <td class="px-4 py-4 align-top">
-              <div class="flex justify-end">
-                <Button text severity="secondary" @click.stop="emit('duplicate', quote.id)">
-                  <template #icon><span class="material-symbols-outlined text-lg">content_copy</span></template>
-                  Dupliquer
-                </Button>
-              </div>
+            <td class="px-4 py-4 align-top text-right text-sm font-bold text-surface-dark">
+              {{ formatCurrency(quote.totalWithVat) }}
             </td>
           </tr>
         </tbody>

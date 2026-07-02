@@ -58,7 +58,7 @@ const handleRegister = async () => {
         Créer un compte
       </h2>
       <p class="text-surface-dark/60 font-body text-sm">
-        Rejoignez client-tracker en quelques secondes.
+        Rejoignez Devisio en quelques secondes.
       </p>
     </div>
 

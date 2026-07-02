@@ -23,9 +23,9 @@ const toggleUserMenu = (event: any) => {
 // 1. Liens Principaux (Accessibles à tous ou connectés)
 const mainLinks = computed(() => [
     { label: 'Tableau de bord', icon: 'home', to: '/' },
-    { label: 'Clients', icon: 'groups', to: '/clients' },
     { label: 'Devis', icon: 'receipt_long', to: '/quotes' },
-    { label: 'Design System', icon: 'palette', to: '/design-system' },
+    { label: 'Clients', icon: 'groups', to: '/clients' },
+    { label: 'Templates devis', icon: 'library_books', to: '/quote-templates' },
     { label: 'Documentation', icon: 'menu_book', to: '/documentation' },
 ]);
 
@@ -80,7 +80,7 @@ const userInitials = computed(() =>
         />
         
         <span class="font-brand font-bold text-xl text-surface-dark"
-          >client-tracker</span
+          >Devisio</span
         >
       </div>
 
@@ -165,7 +165,7 @@ const userInitials = computed(() =>
             <template #icon><span class="material-symbols-outlined text-lg">menu</span></template>
           </Button>
           <span class="font-brand font-bold text-lg text-surface-dark"
-            >client-tracker</span
+            >Devisio</span
           >
         </div>
         <Avatar
@@ -193,7 +193,7 @@ const userInitials = computed(() =>
             class="h-6 w-auto"
           />
           
-          <span class="font-brand font-bold text-xl">client-tracker</span>
+          <span class="font-brand font-bold text-xl">Devisio</span>
         </div>
       </template>
       <nav class="flex flex-col gap-2 mt-4">

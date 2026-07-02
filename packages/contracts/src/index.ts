@@ -217,14 +217,6 @@ export const quoteSubsectionSchema = z.object({
   body: z.string(),
 });
 
-export const quoteSectionSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  price: z.number(),
-  subSections: z.array(quoteSubsectionSchema).default([]),
-});
-
 export const quoteConditionSubItemSchema = z.object({
   id: z.string(),
   text: z.string(),
@@ -234,6 +226,27 @@ export const quoteConditionItemSchema = z.object({
   id: z.string(),
   text: z.string(),
   subItems: z.array(quoteConditionSubItemSchema).default([]),
+});
+
+export const quoteSectionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  items: z.array(quoteConditionItemSchema).default([]),
+  price: z.number(),
+  subSections: z.array(quoteSubsectionSchema).default([]),
+});
+
+export const quotePartDisplayStyleSchema = z.enum(['text', 'table']);
+
+export const quotePartSchema = z.object({
+  id: z.string(),
+  title: z.string().default(''),
+  displayStyle: quotePartDisplayStyleSchema.default('text'),
+  price: z.number().default(0),
+  optional: z.boolean().default(false),
+  priceNote: z.string().default(''),
+  sections: z.array(quoteSectionSchema).default([]),
 });
 
 export const quoteConditionSchema = z.object({
@@ -249,10 +262,35 @@ export const quoteAddonSchema = z.object({
   description: z.string(),
   items: z.array(quoteConditionItemSchema).default([]),
   price: z.number(),
+  unitLabel: z.string().default(''),
   enabled: z.boolean().default(true),
 });
 
-export const quoteStatusSchema = z.enum(['draft', 'sent', 'accepted', 'refused']);
+export const quoteTemplateLocalizedContentSchema = z.object({
+  projectSummary: z.string().default(''),
+  parts: z.array(quotePartSchema).default([]),
+  conditions: z.array(quoteConditionSchema).default([]),
+  roadmap: z.array(quoteConditionSchema).default([]),
+  acceptance: z.array(quoteConditionSchema).default([]),
+  principles: z.array(quoteConditionSchema).default([]),
+  addons: z.array(quoteAddonSchema).default([]),
+});
+
+export const quoteTemplateLocalizedContentMapSchema = z.object({
+  fr: quoteTemplateLocalizedContentSchema,
+  en: quoteTemplateLocalizedContentSchema,
+  es: quoteTemplateLocalizedContentSchema,
+});
+
+export const quoteStatusSchema = z.enum([
+  'draft', // brouillon, éditable librement
+  'finalized', // finalisé/verrouillé (prêt, PDF généré) — ne devrait plus changer
+  'sent', // envoyé au client
+  'accepted', // approuvé par le client
+  'refused', // refusé par le client
+  'revision_requested', // le client demande des modifications
+  'superseded', // remplacé par une version plus récente
+]);
 export const quoteDiscountTypeSchema = z.enum(['percent', 'fixed']);
 
 export const quoteSchema = z.object({
@@ -273,11 +311,15 @@ export const quoteSchema = z.object({
   emailDraft: z.string().default(''),
   emailSubject: z.string().default(''),
   emailBody: z.string().default(''),
-  basePrice: z.number().default(0),
   discountType: quoteDiscountTypeSchema.default('percent'),
   discountValue: z.number().default(0),
-  sections: z.array(quoteSectionSchema).default([]),
+  version: z.number().default(1),
+  versionGroupId: z.string().default(''),
+  parts: z.array(quotePartSchema).default([]),
   conditions: z.array(quoteConditionSchema).default([]),
+  roadmap: z.array(quoteConditionSchema).default([]),
+  acceptance: z.array(quoteConditionSchema).default([]),
+  principles: z.array(quoteConditionSchema).default([]),
   addons: z.array(quoteAddonSchema).default([]),
   subtotal: z.number(),
   totalWithVat: z.number(),
@@ -291,6 +333,40 @@ export const quoteInputSchema = quoteSchema.omit({
   userId: true,
   subtotal: true,
   totalWithVat: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const quoteTemplateSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string(),
+  isDefault: z.boolean().default(false),
+  platform: clientPlatformSchema,
+  customPlatformLabel: z.string().optional().default(''),
+  language: quoteLanguageSchema,
+  vatRate: vatRateSchema,
+  projectSummary: z.string().default(''),
+  discountType: quoteDiscountTypeSchema.default('percent'),
+  discountValue: z.number().default(0),
+  parts: z.array(quotePartSchema).default([]),
+  conditions: z.array(quoteConditionSchema).default([]),
+  roadmap: z.array(quoteConditionSchema).default([]),
+  acceptance: z.array(quoteConditionSchema).default([]),
+  principles: z.array(quoteConditionSchema).default([]),
+  addons: z.array(quoteAddonSchema).default([]),
+  localizedContent: quoteTemplateLocalizedContentMapSchema.default({
+    fr: { projectSummary: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [] },
+    en: { projectSummary: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [] },
+    es: { projectSummary: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [] },
+  }),
+  createdAt: z.union([z.string(), z.date(), z.any()]),
+  updatedAt: z.union([z.string(), z.date(), z.any()]).optional(),
+});
+
+export const quoteTemplateInputSchema = quoteTemplateSchema.omit({
+  id: true,
+  userId: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -318,11 +394,18 @@ export type ClientProject = z.infer<typeof clientProjectSchema>;
 export type Client = z.infer<typeof clientSchema>;
 export type ClientInput = z.infer<typeof clientInputSchema>;
 export type QuoteSection = z.infer<typeof quoteSectionSchema>;
+export type QuotePartDisplayStyle = z.infer<typeof quotePartDisplayStyleSchema>;
+export type QuotePart = z.infer<typeof quotePartSchema>;
 export type QuoteConditionSubItem = z.infer<typeof quoteConditionSubItemSchema>;
 export type QuoteConditionItem = z.infer<typeof quoteConditionItemSchema>;
 export type QuoteCondition = z.infer<typeof quoteConditionSchema>;
 export type QuoteAddon = z.infer<typeof quoteAddonSchema>;
+export type QuoteTemplateLocalizedContent = z.infer<
+  typeof quoteTemplateLocalizedContentSchema
+>;
 export type QuoteStatus = z.infer<typeof quoteStatusSchema>;
 export type QuoteDiscountType = z.infer<typeof quoteDiscountTypeSchema>;
 export type Quote = z.infer<typeof quoteSchema>;
 export type QuoteInput = z.infer<typeof quoteInputSchema>;
+export type QuoteTemplate = z.infer<typeof quoteTemplateSchema>;
+export type QuoteTemplateInput = z.infer<typeof quoteTemplateInputSchema>;

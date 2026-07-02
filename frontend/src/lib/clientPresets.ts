@@ -1,4 +1,4 @@
-import type { ClientPlatform, ClientProject, ClientStage, OnboardingTask, QuoteAddon, QuoteCondition, QuoteConditionItem, QuoteDiscountType, QuoteLanguage, QuoteSection, QuoteStatus, VatRate } from '@client-tracker/contracts';
+import type { ClientPlatform, ClientProject, ClientStage, OnboardingTask, QuoteAddon, QuoteCondition, QuoteConditionItem, QuoteDiscountType, QuoteLanguage, QuoteStatus, QuoteTemplateInput, QuoteTemplateLocalizedContent, VatRate } from '@client-tracker/contracts';
 import { isEuroCountry } from '@/lib/countries';
 
 const createId = (): string =>
@@ -9,6 +9,8 @@ const createId = (): string =>
 type LocalizedCopy = Record<QuoteLanguage, string>;
 
 const pick = (copy: LocalizedCopy, language: QuoteLanguage): string => copy[language];
+
+const emptyLocalizedCopy = (): LocalizedCopy => ({ fr: '', en: '', es: '' });
 
 const bulletItemsFromCopy = (value: string): QuoteConditionItem[] => {
   const lines = value
@@ -49,8 +51,6 @@ export const platformOptions: Array<{ label: string; value: ClientPlatform }> = 
   { label: 'Autre', value: 'other' },
 ];
 
-type PlatformTemplateKey = Exclude<ClientPlatform, ''>;
-
 export const languageOptions: Array<{ label: string; value: QuoteLanguage }> = [
   { label: 'Français', value: 'fr' },
   { label: 'English', value: 'en' },
@@ -62,12 +62,27 @@ export const vatOptions: Array<{ label: string; value: VatRate }> = [
   { label: 'TVA 0%', value: 0 },
 ];
 
-export const quoteStatusOptions: Array<{ label: string; value: QuoteStatus }> = [
-  { label: 'Brouillon', value: 'draft' },
-  { label: 'Envoyé', value: 'sent' },
-  { label: 'Accepté', value: 'accepted' },
-  { label: 'Refusé', value: 'refused' },
-];
+/** Métadonnées d'un statut de devis : libellé, couleur de tag, ordre du cycle de vie. */
+export interface QuoteStatusMeta {
+  label: string;
+  tagClass: string;
+  /** true = le devis est considéré comme figé (ne devrait plus être édité). */
+  locked: boolean;
+}
+
+export const quoteStatusMeta: Record<QuoteStatus, QuoteStatusMeta> = {
+  draft: { label: 'Brouillon', tagClass: '!bg-surface-dark/8 !text-surface-dark', locked: false },
+  finalized: { label: 'Finalisé', tagClass: '!bg-indigo-500/12 !text-indigo-700', locked: true },
+  sent: { label: 'Envoyé', tagClass: '!bg-primary/12 !text-primary', locked: true },
+  accepted: { label: 'Accepté', tagClass: '!bg-emerald-500/12 !text-emerald-700', locked: true },
+  refused: { label: 'Refusé', tagClass: '!bg-rose-500/12 !text-rose-700', locked: true },
+  revision_requested: { label: 'Révision demandée', tagClass: '!bg-amber-500/15 !text-amber-700', locked: false },
+  superseded: { label: 'Remplacé', tagClass: '!bg-purple-500/12 !text-purple-700', locked: true },
+};
+
+export const quoteStatusOptions: Array<{ label: string; value: QuoteStatus }> = (
+  Object.keys(quoteStatusMeta) as QuoteStatus[]
+).map((value) => ({ label: quoteStatusMeta[value].label, value }));
 
 export const discountTypeOptions: Array<{ label: string; value: QuoteDiscountType }> = [
   { label: 'Pourcentage', value: 'percent' },
@@ -91,210 +106,43 @@ export const euCountryCodes = new Set([
   'SE', 'SI', 'SK',
 ]);
 
-type LocalizedSectionTemplate = {
-  title: LocalizedCopy;
-  description: LocalizedCopy;
-  price: number;
-  subSections?: Array<{
-    title: LocalizedCopy;
-    body: LocalizedCopy;
-  }>;
-};
-
-const quoteSectionTemplates: Record<PlatformTemplateKey, LocalizedSectionTemplate[]> = {
-  shopify: [
-    {
-      title: { fr: '1. Design & expérience utilisateur', en: '1. Design & user experience', es: '1. Diseño y experiencia de usuario' },
-      description: {
-        fr: '• Sélection d’un thème Shopify aligné sur les besoins du projet\n• Direction visuelle personnalisée adaptée à ton univers\n• Affinage du layout, de la hiérarchie et de la navigation pour améliorer l’expérience utilisateur\n• Ajustements continus sur base des retours tout au long du projet\n• L’objectif n’est pas seulement esthétique: créer une expérience claire et intentionnelle qui soutient ton activité',
-        en: '• Selection of a Shopify theme aligned with the project\'s needs\n• Custom visual direction adapted to your artistic universe\n• Refinement of layout, hierarchy, and navigation to improve user experience\n• Ongoing adjustments based on feedback throughout the project\n• The focus is not only on aesthetics, but on creating a clear and intentional experience that supports your work and drives engagement.',
-        es: '• Selección de un tema Shopify alineado con las necesidades del proyecto\n• Dirección visual personalizada adaptada a tu universo\n• Refinamiento del layout, la jerarquía y la navegación para mejorar la experiencia de usuario\n• Ajustes continuos a partir del feedback durante el proyecto\n• El objetivo no es solo estético: crear una experiencia clara e intencional que apoye tu actividad',
-      },
-      price: 950,
-    },
-    {
-      title: { fr: '2. Développement & setup Shopify', en: '2. Development & Shopify setup', es: '2. Desarrollo y configuración Shopify' },
-      description: {
-        fr: 'Mise en place de la boutique, des pages clés, des paramètres e-commerce et des fondations techniques Shopify.',
-        en: 'Store setup, key pages, e-commerce settings, and the technical Shopify foundations.',
-        es: 'Configuración de la tienda, páginas clave, ajustes e-commerce y bases técnicas de Shopify.',
-      },
-      price: 1850,
-      subSections: [
-        {
-          title: { fr: 'Setup boutique', en: 'Store setup', es: 'Configuración de tienda' },
-          body: {
-            fr: '• Configuration initiale Shopify: devise, paiements, livraison et paramètres de base\n• Installation du thème et setup technique\n• Pour une audience internationale, une attention particulière est portée à la configuration des paiements et des devises pendant la phase d’analyse',
-            en: '• Initial Shopify configuration (currency, payments, shipping, basic settings)\n• Theme installation and technical setup\n• Note: given your international audience and India-based setup, particular attention will be given to payment configuration and currency handling during the analysis phase',
-            es: '• Configuración inicial de Shopify: moneda, pagos, envíos y ajustes básicos\n• Instalación del tema y configuración técnica\n• Para una audiencia internacional, se presta especial atención a la configuración de pagos y divisas durante la fase de análisis',
-          },
-        },
-        {
-          title: { fr: 'Customisation & développement des pages', en: 'Customisation & page development', es: 'Personalización y desarrollo de páginas' },
-          body: {
-            fr: '• Customisation visuelle complète: couleurs, typographies, layout et branding\n• Développement jusqu’à 4 pages clés: Accueil, Work / Portfolio, Shop, Produit\n• Mise en place des pages essentielles: mentions légales, panier, checkout, compte client\n• Configuration des collections, filtres, navigation, tunnel et fonctionnalités promotionnelles de base',
-            en: '• Full visual customization (colors, typography, layout, branding elements)\n• Development of up to 4 key pages: Home, Work / Portfolio, Shop, Product\n• Setup of essential pages (legal pages, cart, checkout, customer account)\n• Product and collection setup, including store structure, filters and navigation\n• Configuration of payments, shipping rules, and basic promotional features',
-            es: '• Personalización visual completa: colores, tipografías, layout y branding\n• Desarrollo de hasta 4 páginas clave: Home, Work / Portfolio, Shop, Product\n• Implementación de páginas esenciales: legales, carrito, checkout y cuenta cliente\n• Configuración de colecciones, filtros, navegación y funciones promocionales básicas',
-          },
-        },
-        {
-          title: { fr: 'Capture email & automatisations simples', en: 'Email capture & simple automations', es: 'Captación email y automatizaciones simples' },
-          body: {
-            fr: '• Mise en place d’une capture newsletter simple en footer ou dans une section dédiée',
-            en: '• Simple newsletter signup (footer)',
-            es: '• Implementación de una captación newsletter simple en footer o sección dedicada',
-          },
-        },
-        {
-          title: { fr: 'SEO', en: 'SEO', es: 'SEO' },
-          body: {
-            fr: '• Mise en place de la structure SEO de base',
-            en: '• Basic structure setup',
-            es: '• Configuración de la estructura SEO base',
-          },
-        },
-      ],
-    },
-    {
-      title: { fr: '3. Tests & mise en ligne', en: '3. Testing & launch', es: '3. Testing y lanzamiento' },
-      description: {
-        fr: '• Vérifications responsive et contrôle qualité final\n• Tests de navigation, d’expérience d’achat et des points critiques\n• Ajustements avant livraison et préparation de la mise en ligne',
-        en: '• Responsive checks and final quality control\n• Testing of navigation, shopping flow, and critical touchpoints\n• Final adjustments before delivery and launch preparation',
-        es: '• Verificaciones responsive y control de calidad final\n• Tests de navegación, flujo de compra y puntos críticos\n• Ajustes finales antes de la entrega y del lanzamiento',
-      },
-      price: 420,
-    },
-  ],
-  wordpress: [
-    {
-      title: { fr: 'Conception WordPress', en: 'WordPress implementation', es: 'Implementación WordPress' },
-      description: {
-        fr: 'Configuration du thème, structure des pages, responsive et paramétrages essentiels.',
-        en: 'Theme setup, page structure, responsive implementation, and core settings.',
-        es: 'Configuración del tema, estructura de páginas, responsive y ajustes esenciales.',
-      },
-      price: 1700,
-    },
-    {
-      title: { fr: 'Extensions & optimisation', en: 'Plugins & optimisation', es: 'Plugins y optimización' },
-      description: {
-        fr: 'Mise en place des extensions utiles, optimisation des performances et sécurité de base.',
-        en: 'Useful plugin setup, performance optimisation, and baseline security.',
-        es: 'Configuración de plugins útiles, optimización de rendimiento y seguridad básica.',
-      },
-      price: 520,
-    },
-  ],
-  webflow: [
-    {
-      title: { fr: 'Conception Webflow', en: 'Webflow implementation', es: 'Implementación Webflow' },
-      description: {
-        fr: 'Construction des pages, animations utiles, CMS Webflow et responsive complet.',
-        en: 'Page building, meaningful animations, Webflow CMS setup, and full responsiveness.',
-        es: 'Construcción de páginas, animaciones útiles, CMS Webflow y responsive completo.',
-      },
-      price: 1900,
-    },
-    {
-      title: { fr: 'CMS & SEO', en: 'CMS & SEO setup', es: 'CMS y SEO' },
-      description: {
-        fr: 'Structuration des collections CMS, métadonnées et bonnes pratiques SEO on-page.',
-        en: 'CMS collection structure, metadata, and on-page SEO best practices.',
-        es: 'Estructuración de colecciones CMS, metadatos y buenas prácticas SEO on-page.',
-      },
-      price: 480,
-    },
-  ],
-  squarespace: [
-    {
-      title: { fr: 'Configuration Squarespace', en: 'Squarespace setup', es: 'Configuración Squarespace' },
-      description: {
-        fr: 'Construction des pages, adaptation du template, responsive et paramétrages principaux.',
-        en: 'Page building, template adaptation, responsive work, and core settings.',
-        es: 'Construcción de páginas, adaptación del template, responsive y ajustes principales.',
-      },
-      price: 1400,
-    },
-    {
-      title: { fr: 'SEO & contenus', en: 'SEO & content setup', es: 'SEO y contenidos' },
-      description: {
-        fr: 'Intégration des contenus, optimisations on-page et préparation des métadonnées.',
-        en: 'Content integration, on-page optimisation, and metadata preparation.',
-        es: 'Integración de contenidos, optimización on-page y preparación de metadatos.',
-      },
-      price: 450,
-    },
-  ],
-  custom: [
-    {
-      title: { fr: 'Design & intégration sur mesure', en: 'Custom design & development', es: 'Diseño y desarrollo a medida' },
-      description: {
-        fr: 'Architecture front-end, composants, responsive et intégration de l’interface.',
-        en: 'Front-end architecture, components, responsive behavior, and UI integration.',
-        es: 'Arquitectura front-end, componentes, responsive e integración de la interfaz.',
-      },
-      price: 2600,
-    },
-    {
-      title: { fr: 'Recette & mise en ligne', en: 'QA & launch', es: 'QA y lanzamiento' },
-      description: {
-        fr: 'Tests, corrections, préparation du déploiement et accompagnement au lancement.',
-        en: 'Testing, fixes, launch preparation, and go-live support.',
-        es: 'Tests, correcciones, preparación del despliegue y apoyo al lanzamiento.',
-      },
-      price: 900,
-    },
-  ],
-  other: [
-    {
-      title: { fr: 'Prestation web', en: 'Web project delivery', es: 'Entrega de proyecto web' },
-      description: {
-        fr: 'Cadrage, exécution, coordination et livraison de la prestation selon le besoin client.',
-        en: 'Scoping, execution, coordination, and delivery according to the client needs.',
-        es: 'Definición, ejecución, coordinación y entrega según las necesidades del cliente.',
-      },
-      price: 1500,
-    },
-  ],
-};
-
 const getPlatformSpecificCondition = (platform: ClientPlatform): LocalizedCopy => {
   switch (platform) {
     case 'shopify':
       return {
-        fr: 'La prestation s’appuie sur les capacités natives de Shopify et sur le thème retenu. Les applications tierces, abonnements, licences premium, frais Shopify, passerelles de paiement et coûts récurrents éventuels ne sont pas inclus sauf mention explicite dans le devis.',
-        en: 'The delivery relies on Shopify native capabilities and the selected theme. Third-party apps, subscriptions, premium licenses, Shopify fees, payment gateways, and any recurring costs are excluded unless explicitly stated in the quote.',
-        es: 'La prestación se basa en las capacidades nativas de Shopify y en el tema seleccionado. Las apps de terceros, suscripciones, licencias premium, comisiones de Shopify, pasarelas de pago y costes recurrentes no están incluidos salvo mención expresa en el presupuesto.',
+        fr: '• Le projet est conçu sur base des capacités natives de Shopify et du thème retenu\n  • Le périmètre couvre les réglages, gabarits, sections et personnalisations raisonnables prévus au devis\n  • Toute fonctionnalité nécessitant une app tierce, un développement spécifique ou une logique avancée sort du cadre standard sauf mention explicite\n• Frais et outils non inclus\n  • Abonnement Shopify, applications tierces, licences premium, passerelles de paiement et frais récurrents éventuels\n  • Ces coûts restent à charge du client sauf mention contraire dans le devis',
+        en: '• The project is built around Shopify native capabilities and the selected theme\n  • The scope covers the settings, templates, sections, and reasonable customizations listed in the quote\n  • Any feature requiring a third-party app, custom development, or advanced logic falls outside the standard scope unless explicitly included\n• Fees and tools not included\n  • Shopify subscription, third-party apps, premium licenses, payment gateways, and any recurring costs\n  • These costs remain the client’s responsibility unless otherwise stated in the quote',
+        es: '• El proyecto se desarrolla en base a las capacidades nativas de Shopify y al tema seleccionado\n  • El alcance cubre ajustes, plantillas, secciones y personalizaciones razonables previstas en el presupuesto\n  • Cualquier funcionalidad que requiera una app externa, desarrollo a medida o lógica avanzada queda fuera del alcance estándar salvo mención expresa\n• Gastos y herramientas no incluidos\n  • Suscripción de Shopify, apps de terceros, licencias premium, pasarelas de pago y posibles costes recurrentes\n  • Estos costes corren a cargo del cliente salvo indicación contraria en el presupuesto',
       };
     case 'wordpress':
       return {
-        fr: 'La prestation repose sur WordPress, le thème et les extensions validés au cadrage. Les licences premium, renouvellements, hébergement, maintenance, services tiers et développements hors périmètre restent à charge du client sauf mention contraire.',
-        en: 'The delivery is based on WordPress, the agreed theme, and the plugins approved during scoping. Premium licenses, renewals, hosting, maintenance, third-party services, and out-of-scope development remain the client’s responsibility unless stated otherwise.',
-        es: 'La prestación se basa en WordPress, el tema acordado y los plugins validados durante el alcance. Licencias premium, renovaciones, hosting, mantenimiento, servicios de terceros y desarrollos fuera de alcance corren por cuenta del cliente salvo indicación contraria.',
+        fr: '• Le projet repose sur WordPress, le thème validé et les extensions retenues au cadrage\n  • Le périmètre comprend l’intégration et les ajustements explicitement prévus au devis\n  • Toute extension complexe, fonctionnalité sur mesure ou intégration tierce avancée peut nécessiter un complément\n• Frais et outils non inclus\n  • Licences premium, renouvellements, hébergement, maintenance, services tiers et coûts récurrents\n  • Ces frais restent à charge du client sauf mention contraire',
+        en: '• The project relies on WordPress, the approved theme, and the plugins selected during scoping\n  • The scope includes the integrations and adjustments explicitly listed in the quote\n  • Any complex plugin setup, custom feature, or advanced third-party integration may require an additional estimate\n• Fees and tools not included\n  • Premium licenses, renewals, hosting, maintenance, third-party services, and recurring costs\n  • These costs remain the client’s responsibility unless otherwise stated',
+        es: '• El proyecto se basa en WordPress, el tema validado y los plugins definidos durante el alcance\n  • El alcance incluye las integraciones y ajustes previstos expresamente en el presupuesto\n  • Cualquier plugin complejo, funcionalidad a medida o integración avanzada con terceros puede requerir un complemento\n• Gastos y herramientas no incluidos\n  • Licencias premium, renovaciones, hosting, mantenimiento, servicios de terceros y costes recurrentes\n  • Estos gastos corren a cargo del cliente salvo indicación contraria',
       };
     case 'webflow':
       return {
-        fr: 'La prestation repose sur les capacités natives de Webflow, son CMS et des interactions raisonnables. Les limites techniques propres à Webflow, les plans payants, l’hébergement, la localisation avancée ou des logiques métier spécifiques peuvent nécessiter un chiffrage complémentaire.',
-        en: 'The delivery relies on Webflow native capabilities, its CMS, and reasonable interactions. Webflow-specific technical limits, paid plans, hosting, advanced localisation, or custom business logic may require an additional quote.',
-        es: 'La prestación se basa en las capacidades nativas de Webflow, su CMS y unas interacciones razonables. Los límites técnicos de Webflow, planes de pago, hosting, localización avanzada o lógica de negocio específica pueden requerir un presupuesto adicional.',
+        fr: '• Le projet s’appuie sur les capacités natives de Webflow, son CMS et des interactions raisonnables\n  • Le périmètre couvre la structure, les collections CMS, les animations et l’intégration prévues au devis\n  • Toute logique métier spécifique, localisation avancée ou besoin dépassant les limites natives de Webflow peut nécessiter un chiffrage complémentaire\n• Frais et outils non inclus\n  • Plan Webflow, hébergement, localisation payante, apps ou services tiers éventuels\n  • Ces coûts restent à charge du client sauf mention contraire',
+        en: '• The project relies on Webflow native capabilities, its CMS, and reasonable interactions\n  • The scope covers the structure, CMS collections, animations, and integrations listed in the quote\n  • Any custom business logic, advanced localisation, or need beyond Webflow native limits may require an additional estimate\n• Fees and tools not included\n  • Webflow plan, hosting, paid localisation, apps, or any third-party services\n  • These costs remain the client’s responsibility unless otherwise stated',
+        es: '• El proyecto se apoya en las capacidades nativas de Webflow, su CMS y unas interacciones razonables\n  • El alcance cubre la estructura, las colecciones CMS, animaciones e integraciones previstas en el presupuesto\n  • Cualquier lógica de negocio específica, localización avanzada o necesidad que supere los límites nativos de Webflow puede requerir presupuesto adicional\n• Gastos y herramientas no incluidos\n  • Plan de Webflow, hosting, localización de pago, apps o servicios de terceros\n  • Estos costes corren a cargo del cliente salvo indicación contraria',
       };
     case 'squarespace':
       return {
-        fr: 'La prestation s’appuie sur les capacités natives de Squarespace et sur des ajustements front-end raisonnables. Toute personnalisation avancée, intégration tierce ou besoin dépassant les possibilités du template validé peut faire l’objet d’un complément.',
-        en: 'The delivery relies on native Squarespace capabilities and reasonable front-end adjustments. Advanced customisation, third-party integrations, or needs beyond the validated template scope may require an additional quote.',
-        es: 'La prestación se basa en las capacidades nativas de Squarespace y en ajustes front-end razonables. Cualquier personalización avanzada, integración de terceros o necesidad fuera del alcance del template validado puede requerir un complemento.',
+        fr: '• Le projet s’appuie sur les capacités natives de Squarespace, son éditeur visuel et des ajustements front-end raisonnables\n  • Le périmètre couvre la construction des pages, l’intégration des contenus et les réglages explicitement listés au devis\n  • Toute personnalisation avancée, intégration tierce, injection de code complexe ou besoin dépassant les possibilités natives de Squarespace peut faire l’objet d’un complément\n• Frais et services non inclus\n  • Abonnement Squarespace, nom de domaine, email professionnel, extensions tierces et coûts récurrents éventuels\n  • Si la prise de rendez-vous en ligne repose sur Acuity Scheduling, l’abonnement Acuity ainsi que toute option payante associée restent à charge du client\n  • Ces coûts restent à charge du client sauf mention contraire dans le devis',
+        en: '• The project relies on native Squarespace capabilities, its visual editor, and reasonable front-end adjustments\n  • The scope covers page building, content integration, and the settings explicitly listed in the quote\n  • Any advanced customization, third-party integration, complex code injection, or need beyond Squarespace native capabilities may require an additional estimate\n• Fees and services not included\n  • Squarespace subscription, domain name, professional email, third-party extensions, and any recurring costs\n  • If online booking relies on Acuity Scheduling, the Acuity subscription and any related paid options remain the client’s responsibility\n  • These costs remain the client’s responsibility unless otherwise stated in the quote',
+        es: '• El proyecto se basa en las capacidades nativas de Squarespace, su editor visual y ajustes front-end razonables\n  • El alcance cubre la construcción de páginas, la integración de contenidos y los ajustes indicados expresamente en el presupuesto\n  • Cualquier personalización avanzada, integración de terceros, inyección de código compleja o necesidad fuera de las capacidades nativas de Squarespace puede requerir un presupuesto adicional\n• Gastos y servicios no incluidos\n  • Suscripción de Squarespace, dominio, email profesional, extensiones de terceros y posibles costes recurrentes\n  • Si la reserva online se apoya en Acuity Scheduling, la suscripción de Acuity y cualquier opción de pago asociada corren a cargo del cliente\n  • Estos costes corren a cargo del cliente salvo indicación contraria en el presupuesto',
       };
     case 'custom':
       return {
-        fr: 'Pour un projet sur mesure, seules les fonctionnalités, intégrations et livrables explicitement décrits dans le devis sont inclus. Toute demande complémentaire, nouvelle logique métier ou extension de périmètre fera l’objet d’un accord et d’un chiffrage additionnels.',
-        en: 'For a custom project, only the features, integrations, and deliverables explicitly described in the quote are included. Any additional request, new business logic, or scope extension will require approval and an extra estimate.',
-        es: 'Para un proyecto a medida, solo se incluyen las funcionalidades, integraciones y entregables descritos explícitamente en el presupuesto. Cualquier solicitud adicional, nueva lógica de negocio o ampliación de alcance requerirá validación y presupuesto extra.',
+        fr: '• Pour un projet sur mesure, seules les fonctionnalités, intégrations et livrables explicitement décrits dans le devis sont inclus\n  • Les développements spécifiques, logiques métier, automatisations ou connexions externes sont limités à ce qui est détaillé au devis\n  • Toute demande complémentaire ou extension de périmètre fera l’objet d’un accord et d’un chiffrage additionnels\n• Frais et outils non inclus\n  • Hébergement, infrastructure, services tiers, licences, APIs payantes, maintenance ou coûts récurrents éventuels\n  • Ces coûts restent à charge du client sauf mention contraire',
+        en: '• For a custom project, only the features, integrations, and deliverables explicitly described in the quote are included\n  • Custom development, business logic, automations, or external connections are limited to what is detailed in the quote\n  • Any additional request or scope extension will require approval and an extra estimate\n• Fees and tools not included\n  • Hosting, infrastructure, third-party services, licenses, paid APIs, maintenance, or recurring costs\n  • These costs remain the client’s responsibility unless otherwise stated',
+        es: '• Para un proyecto a medida, solo se incluyen las funcionalidades, integraciones y entregables descritos explícitamente en el presupuesto\n  • El desarrollo específico, la lógica de negocio, automatizaciones o conexiones externas se limitan a lo detallado en el presupuesto\n  • Cualquier solicitud adicional o ampliación de alcance requerirá validación y presupuesto extra\n• Gastos y herramientas no incluidos\n  • Hosting, infraestructura, servicios de terceros, licencias, APIs de pago, mantenimiento o costes recurrentes\n  • Estos costes corren a cargo del cliente salvo indicación contraria',
       };
     default:
       return {
-        fr: 'La prestation couvre exclusivement le périmètre décrit dans le devis. Toute demande technique, fonctionnelle ou créative non explicitement incluse fera l’objet d’une validation et, si nécessaire, d’un complément budgétaire.',
-        en: 'The delivery only covers the scope described in the quote. Any technical, functional, or creative request not explicitly included will require approval and, if necessary, an additional budget.',
-        es: 'La prestación cubre únicamente el alcance descrito en el presupuesto. Cualquier solicitud técnica, funcional o creativa no incluida expresamente requerirá validación y, si procede, un presupuesto adicional.',
+        fr: '• La prestation couvre exclusivement le périmètre décrit dans le devis\n  • Les outils, intégrations et livrables sont limités à ce qui est explicitement validé\n  • Toute demande technique, fonctionnelle ou créative non incluse pourra nécessiter validation et complément budgétaire\n• Frais et outils non inclus\n  • Tout service tiers, licence, abonnement, hébergement ou coût récurrent non mentionné au devis\n  • Ces coûts restent à charge du client sauf mention contraire',
+        en: '• The delivery only covers the scope described in the quote\n  • Tools, integrations, and deliverables are limited to what has been explicitly approved\n  • Any technical, functional, or creative request not included may require approval and an additional budget\n• Fees and tools not included\n  • Any third-party service, license, subscription, hosting, or recurring cost not listed in the quote\n  • These costs remain the client’s responsibility unless otherwise stated',
+        es: '• La prestación cubre únicamente el alcance descrito en el presupuesto\n  • Las herramientas, integraciones y entregables se limitan a lo expresamente validado\n  • Cualquier solicitud técnica, funcional o creativa no incluida puede requerir validación y presupuesto adicional\n• Gastos y herramientas no incluidos\n  • Cualquier servicio externo, licencia, suscripción, hosting o coste recurrente no indicado en el presupuesto\n  • Estos costes corren a cargo del cliente salvo indicación contraria',
       };
   }
 };
@@ -379,7 +227,139 @@ const createQuoteConditionTemplates = (
   },
 ];
 
-const addonTemplates: Array<{ title: LocalizedCopy; description: LocalizedCopy; price: number }> = [
+const getQuoteRoadmapTemplates = (
+  platform: ClientPlatform,
+): Array<{ title: LocalizedCopy; body: LocalizedCopy }> => {
+  if (platform === 'squarespace') {
+    return [
+      {
+        title: {
+          fr: '1. Analyse & structure',
+          en: '1. Analysis & structure',
+          es: '1. Análisis y estructura',
+        },
+        body: {
+          fr: '• Analyse de l’existant, des objectifs et des contenus à valoriser\n• Définition de la structure du site, des pages et des priorités de navigation\n• Choix de l’approche de mise en page Squarespace la plus adaptée\n• Préparation de la direction visuelle et des bases du projet',
+          en: '• Analysis of the current situation, goals, and the content to highlight\n• Definition of the site structure, pages, and navigation priorities\n• Choice of the most suitable Squarespace page-building approach\n• Preparation of the visual direction and the project foundations',
+          es: '• Análisis del contexto actual, los objetivos y los contenidos a destacar\n• Definición de la estructura del sitio, las páginas y las prioridades de navegación\n• Elección del enfoque de maquetación en Squarespace más adecuado\n• Preparación de la dirección visual y de las bases del proyecto',
+        },
+      },
+      {
+        title: {
+          fr: '2. Design & construction',
+          en: '2. Design & build',
+          es: '2. Diseño y construcción',
+        },
+        body: {
+          fr: '• Construction des pages dans Squarespace et mise en place d’une structure cohérente\n• Mise en place des styles, sections et layouts dans un cadre cohérent\n• Ajustements responsive et réglages principaux du site\n• Intégration des éléments clés pour une expérience claire et fluide',
+          en: '• Page building in Squarespace and setup of a coherent page structure\n• Setup of styles, sections, and layouts within a cohesive framework\n• Responsive refinements and core site settings\n• Integration of the key elements for a clear and seamless experience',
+          es: '• Construcción de páginas en Squarespace y definición de una estructura coherente\n• Configuración de estilos, secciones y layouts dentro de un marco coherente\n• Ajustes responsive y configuración principal del sitio\n• Integración de los elementos clave para una experiencia clara y fluida',
+        },
+      },
+      {
+        title: {
+          fr: '3. Contenus, SEO & tests',
+          en: '3. Content, SEO & testing',
+          es: '3. Contenidos, SEO y testing',
+        },
+        body: {
+          fr: '• Intégration des contenus dans les pages prévues\n• Paramétrage du SEO on-page, des métadonnées, des formulaires et des réglages essentiels\n• Vérifications desktop et mobile, puis ajustements finaux\n• Contrôle de cohérence globale avant mise en ligne',
+          en: '• Integration of the content into the planned pages\n• Setup of on-page SEO, metadata, forms, and essential settings\n• Desktop and mobile checks, followed by final refinements\n• Global consistency review before launch',
+          es: '• Integración de los contenidos en las páginas previstas\n• Configuración del SEO on-page, metadatos, formularios y ajustes esenciales\n• Verificaciones en desktop y móvil, seguidas de ajustes finales\n• Revisión de la coherencia global antes del lanzamiento',
+        },
+      },
+      {
+        title: {
+          fr: '4. Mise en ligne, handover & support',
+          en: '4. Launch, handover & support',
+          es: '4. Lanzamiento, handover y soporte',
+        },
+        body: {
+          fr: '• Mise en ligne du site Squarespace et validation des points essentiels\n• Transmission des accès et handover sur la gestion du site\n• Support post-livraison pour sécuriser les derniers ajustements',
+          en: '• Squarespace website launch and validation of the key checkpoints\n• Access handover and guidance on how to manage the site\n• Post-delivery support to secure the final adjustments',
+          es: '• Lanzamiento del sitio Squarespace y validación de los puntos clave\n• Entrega de accesos y handover sobre la gestión del sitio\n• Soporte post-entrega para asegurar los últimos ajustes',
+        },
+      },
+      {
+        title: {
+          fr: 'Timeline estimée',
+          en: 'Estimated timeline',
+          es: 'Calendario estimado',
+        },
+        body: {
+          fr: '• Environ 4 à 5 semaines, selon la disponibilité des contenus et les délais de validation.',
+          en: '• Approximately 4 to 5 weeks, depending on content readiness and validation timelines.',
+          es: '• Aproximadamente 4 a 5 semanas, según la disponibilidad de los contenidos y los tiempos de validación.',
+        },
+      },
+    ];
+  }
+
+  return [
+    {
+      title: {
+        fr: '1. Analyse & préparation',
+        en: '1. Analysis & preparation',
+        es: '1. Análisis y preparación',
+      },
+      body: {
+        fr: '',
+        en: '',
+        es: '',
+      },
+    },
+    {
+      title: {
+        fr: '2. Développement & intégration',
+        en: '2. Development & integration',
+        es: '2. Desarrollo e integración',
+      },
+      body: {
+        fr: '',
+        en: '',
+        es: '',
+      },
+    },
+    {
+      title: {
+        fr: '3. Ajustements & tests',
+        en: '3. Refinements & testing',
+        es: '3. Ajustes y testing',
+      },
+      body: {
+        fr: '',
+        en: '',
+        es: '',
+      },
+    },
+    {
+      title: {
+        fr: '4. Livraison, handover & support',
+        en: '4. Delivery, handover & support',
+        es: '4. Entrega, handover y soporte',
+      },
+      body: {
+        fr: '',
+        en: '',
+        es: '',
+      },
+    },
+    {
+      title: {
+        fr: 'Estimated timeline',
+        en: 'Estimated timeline',
+        es: 'Calendario estimado',
+      },
+      body: {
+        fr: '',
+        en: '',
+        es: '',
+      },
+    },
+  ];
+};
+
+const addonTemplates: Array<{ title: LocalizedCopy; description: LocalizedCopy; price: number; unitLabel?: LocalizedCopy }> = [
   {
     title: { fr: 'Support horaire - pack 5 heures', en: 'Hourly support - 5-hour pack', es: 'Soporte por horas - pack 5 horas' },
     description: {
@@ -410,18 +390,19 @@ const addonTemplates: Array<{ title: LocalizedCopy; description: LocalizedCopy; 
   {
     title: { fr: 'Mise en ligne des contenus', en: 'Content upload', es: 'Carga de contenido' },
     description: {
-      fr: '• Intégration manuelle des contenus fournis par le client\n• Mise en page simple dans les gabarits existants\n• Contrôle visuel rapide après intégration',
-      en: '• Manual upload of client-provided content\n• Simple layout within the existing templates\n• Quick visual check after integration',
-      es: '• Integración manual del contenido facilitado por el cliente\n• Maquetación simple dentro de las plantillas existentes\n• Revisión visual rápida tras la integración',
+      fr: '• Intégration manuelle des contenus fournis par le client, comme des fiches produits ou des projets portfolio\n• Mise en page simple dans les structures existantes\n• Contrôle visuel rapide après intégration',
+      en: '• Manual upload of client-provided content, such as product listings or portfolio projects\n• Simple layout within the existing page structures\n• Quick visual check after integration',
+      es: '• Integración manual del contenido facilitado por el cliente, como fichas de producto o proyectos de portfolio\n• Maquetación simple dentro de las estructuras existentes\n• Revisión visual rápida tras la integración',
     },
     price: 180,
+    unitLabel: { fr: '15 items', en: '15 items', es: '15 items' },
   },
   {
     title: { fr: 'Guidance / optimisation copywriting site', en: 'Website copywriting guidance / optimisation', es: 'Guía / optimización de copywriting web' },
     description: {
-      fr: '• Inclut :\n  • Homepage, About et Contact page copy (structure + sections clés)\n  • Product page copy (1 template)\n  • Tone alignment\n  • 2 revision rounds\n  • Focus sur la clarté et la conversion\n• Exclut :\n  • Stratégie de marque complète\n  • Révisions illimitées',
-      en: '• Includes:\n  • Homepage, About, Contact pages copy (structure + key sections)\n  • Product page copy (1 template)\n  • Tone alignment\n  • 2 revision rounds\n  • Focused on clarity and conversion\n• Excludes:\n  • Full brand strategy\n  • Unlimited revisions',
-      es: '• Incluye:\n  • Copy de Homepage, About y Contact (estructura + secciones clave)\n  • Copy de product page (1 template)\n  • Alineación del tono\n  • 2 rondas de revisión\n  • Foco en claridad y conversión\n• Excluye:\n  • Estrategia de marca completa\n  • Revisiones ilimitadas',
+      fr: '• Inclut :\n  • Homepage, About et Contact page copy (structure + sections clés)\n  • Product page copy (1 structure de page)\n  • Tone alignment\n  • 2 revision rounds\n  • Focus sur la clarté et la conversion\n• Exclut :\n  • Stratégie de marque complète\n  • Révisions illimitées',
+      en: '• Includes:\n  • Homepage, About, Contact pages copy (structure + key sections)\n  • Product page copy (1 page structure)\n  • Tone alignment\n  • 2 revision rounds\n  • Focused on clarity and conversion\n• Excludes:\n  • Full brand strategy\n  • Unlimited revisions',
+      es: '• Incluye:\n  • Copy de Homepage, About y Contact (estructura + secciones clave)\n  • Copy de product page (1 estructura de página)\n  • Alineación del tono\n  • 2 rondas de revisión\n  • Foco en claridad y conversión\n• Excluye:\n  • Estrategia de marca completa\n  • Revisiones ilimitadas',
     },
     price: 320,
   },
@@ -437,9 +418,9 @@ const addonTemplates: Array<{ title: LocalizedCopy; description: LocalizedCopy; 
   {
     title: { fr: 'Setup email basique & drop', en: 'Basic email & drop setup', es: 'Setup básico email y drop' },
     description: {
-      fr: '• Mise en place d’un flow email simple pour lancement produit ou nouveau drop\n• Structuration d’une capture d’audience de base et d’un scénario d’annonce\n• Inclut 1 template email additionnel',
-      en: '• Setup of a simple email flow for product launches or new drops\n• Structuring of a basic audience capture and announcement flow\n• Includes 1 additional email template',
-      es: '• Configuración de un flujo email simple para lanzamiento de producto o nuevo drop\n• Estructuración de una captación de audiencia básica y de un flujo de anuncio\n• Incluye 1 plantilla email adicional',
+      fr: '• Mise en place d’un flow email simple pour lancement produit ou nouveau drop\n• Structuration d’une capture d’audience de base et d’un scénario d’annonce\n• Inclut 1 email additionnel',
+      en: '• Setup of a simple email flow for product launches or new drops\n• Structuring of a basic audience capture and announcement flow\n• Includes 1 additional email',
+      es: '• Configuración de un flujo email simple para lanzamiento de producto o nuevo drop\n• Estructuración de una captación de audiencia básica y de un flujo de anuncio\n• Incluye 1 email adicional',
     },
     price: 180,
   },
@@ -493,22 +474,6 @@ const onboardingTemplates: Array<Omit<OnboardingTask, 'id' | 'status'>> = [
   },
 ];
 
-export const createDefaultQuoteSections = (
-  platform: ClientPlatform,
-  language: QuoteLanguage,
-): QuoteSection[] =>
-  quoteSectionTemplates[(platform || 'other') as PlatformTemplateKey].map((section) => ({
-    id: createId(),
-    title: pick(section.title, language),
-    description: pick(section.description, language),
-    price: section.price,
-    subSections: (section.subSections || []).map((subSection) => ({
-      id: createId(),
-      title: pick(subSection.title, language),
-      body: pick(subSection.body, language),
-    })),
-  }));
-
 export const createDefaultQuoteConditions = (
   platform: ClientPlatform,
   language: QuoteLanguage,
@@ -521,6 +486,67 @@ export const createDefaultQuoteConditions = (
     items: bulletItemsFromCopy(pick(condition.body, language)),
   }));
 
+export const createDefaultQuoteRoadmap = (
+  platform: ClientPlatform,
+  language: QuoteLanguage,
+): QuoteCondition[] =>
+  getQuoteRoadmapTemplates(platform || 'other').map((phase) => ({
+    id: createId(),
+    title: pick(phase.title, language),
+    body: pick(phase.body, language),
+    items: bulletItemsFromCopy(pick(phase.body, language)),
+  }));
+
+const acceptanceTemplates: Array<{ title: LocalizedCopy; body: LocalizedCopy }> = [
+  {
+    title: {
+      fr: 'Acceptation de la proposition',
+      en: 'Acceptance of proposal',
+      es: 'Aceptación de la propuesta',
+    },
+    body: {
+      fr: '• La signature de ce devis vaut acceptation de la proposition, du périmètre décrit et des conditions générales.\n• Un acompte de 50 % est demandé à la signature pour démarrer le projet.\n• Le solde est dû à la livraison finale, avant la mise en ligne.',
+      en: '• Signing this quote constitutes acceptance of the proposal, the described scope and the general terms.\n• A 50% deposit is required upon signature to start the project.\n• The balance is due on final delivery, before going live.',
+      es: '• La firma de este presupuesto implica la aceptación de la propuesta, del alcance descrito y de las condiciones generales.\n• Se solicita un anticipo del 50 % a la firma para iniciar el proyecto.\n• El saldo se abona en la entrega final, antes de la publicación.',
+    },
+  },
+];
+
+export const createDefaultQuoteAcceptance = (
+  language: QuoteLanguage,
+): QuoteCondition[] =>
+  acceptanceTemplates.map((entry) => ({
+    id: createId(),
+    title: pick(entry.title, language),
+    body: pick(entry.body, language),
+    items: bulletItemsFromCopy(pick(entry.body, language)),
+  }));
+
+const principleTemplates: Array<{ title: LocalizedCopy; body: LocalizedCopy }> = [
+  {
+    title: {
+      fr: 'Nos principes de collaboration',
+      en: 'Our working principles',
+      es: 'Nuestros principios de colaboración',
+    },
+    body: {
+      fr: '• Communication claire et régulière tout au long du projet.\n• Processus itératif avec intégration progressive de vos retours.\n• Livrables validés étape par étape pour garantir la qualité.',
+      en: '• Clear and regular communication throughout the project.\n• Iterative process with your feedback integrated progressively.\n• Deliverables validated step by step to ensure quality.',
+      es: '• Comunicación clara y regular durante todo el proyecto.\n• Proceso iterativo con integración progresiva de tus comentarios.\n• Entregables validados paso a paso para garantizar la calidad.',
+    },
+  },
+];
+
+export const createDefaultQuotePrinciples = (
+  language: QuoteLanguage,
+): QuoteCondition[] =>
+  principleTemplates.map((entry) => ({
+    id: createId(),
+    title: pick(entry.title, language),
+    body: pick(entry.body, language),
+    items: bulletItemsFromCopy(pick(entry.body, language)),
+  }));
+
 export const createAddonPresets = (language: QuoteLanguage): QuoteAddon[] =>
   addonTemplates.map((addon) => ({
     id: createId(),
@@ -528,6 +554,7 @@ export const createAddonPresets = (language: QuoteLanguage): QuoteAddon[] =>
     description: pick(addon.description, language),
     items: bulletItemsFromCopy(pick(addon.description, language)),
     price: addon.price,
+    unitLabel: addon.unitLabel ? pick(addon.unitLabel, language) : '',
     enabled: true,
   }));
 
@@ -537,8 +564,54 @@ export const createBlankAddon = (): QuoteAddon => ({
   description: '',
   items: [],
   price: 0,
+  unitLabel: '',
   enabled: true,
 });
+
+export const createDefaultQuoteTemplateLocalizedContent = (
+  platform: ClientPlatform,
+  clientCountry: string = '',
+): Record<QuoteLanguage, QuoteTemplateLocalizedContent> => {
+  const build = (language: QuoteLanguage): QuoteTemplateLocalizedContent => ({
+    projectSummary: '',
+    parts: [],
+    conditions: createDefaultQuoteConditions(platform, language, clientCountry),
+    roadmap: createDefaultQuoteRoadmap(platform, language),
+    acceptance: createDefaultQuoteAcceptance(language),
+    principles: createDefaultQuotePrinciples(language),
+    addons: createAddonPresets(language),
+  });
+  return { fr: build('fr'), en: build('en'), es: build('es') };
+};
+
+export const createDefaultQuoteTemplate = (
+  name: string = 'Template de devis',
+  platform: ClientPlatform = 'shopify',
+  language: QuoteLanguage = 'fr',
+  clientCountry: string = '',
+): QuoteTemplateInput => {
+  const localizedContent = createDefaultQuoteTemplateLocalizedContent(platform, clientCountry);
+  const activeContent = localizedContent[language];
+
+  return {
+    name,
+    isDefault: false,
+    platform,
+    customPlatformLabel: '',
+    language,
+    vatRate: 21,
+    projectSummary: activeContent.projectSummary,
+    discountType: 'percent',
+    discountValue: 0,
+    parts: activeContent.parts,
+    conditions: activeContent.conditions,
+    roadmap: activeContent.roadmap,
+    acceptance: activeContent.acceptance,
+    principles: activeContent.principles,
+    addons: activeContent.addons,
+    localizedContent,
+  };
+};
 
 export const createOnboardingTasks = (): OnboardingTask[] =>
   onboardingTemplates.map((task) => ({

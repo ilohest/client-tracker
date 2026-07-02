@@ -15,9 +15,6 @@ const emit = defineEmits<{
   'update:emailBody': [value: string];
   copyEmailSubject: [];
   copyEmailBody: [];
-  downloadPdf: [];
-  save: [];
-  delete: [];
 }>();
 </script>
 
@@ -25,9 +22,7 @@ const emit = defineEmits<{
   <section class="bg-surface-card border border-surface-dark/5 rounded-3xl p-6 h-full">
     <div class="rounded-3xl bg-white border border-surface-dark/5 p-5">
       <div class="mb-3">
-        <div>
-          <h3 class="font-heading font-bold text-surface-dark">Mail d’envoi</h3>
-        </div>
+        <h3 class="font-heading font-bold text-surface-dark">Mail d’envoi</h3>
       </div>
       <div class="space-y-4">
         <div>
@@ -59,23 +54,6 @@ const emit = defineEmits<{
           />
         </div>
       </div>
-    </div>
-
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-      <Button severity="secondary" @click="emit('downloadPdf')">
-        <template #icon><span class="material-symbols-outlined text-lg">download</span></template>
-        Générer le PDF
-      </Button>
-      <Button @click="emit('save')">
-        <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
-        Sauvegarder
-      </Button>
-    </div>
-
-    <div class="mt-3">
-      <Button text severity="danger" @click="emit('delete')">
-        <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
-      </Button>
     </div>
   </section>
 </template>
