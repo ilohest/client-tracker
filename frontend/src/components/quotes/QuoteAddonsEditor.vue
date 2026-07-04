@@ -291,23 +291,21 @@ const toggleAddon = (addonId: string) => {
   <div class="mt-6 rounded-3xl border border-surface-dark/5 bg-white p-5">
     <div class="mb-4 flex items-center justify-between gap-3">
       <div>
-        <h3 class="font-heading font-bold text-surface-dark">Add-ons</h3>
+        <h3 class="font-heading font-bold text-surface-dark">Options complémentaires</h3>
       </div>
-      <Button severity="secondary" @click="emit('addAddon')">
+      <Button severity="secondary" @click="emit('addAddon')" label="Ajouter une option">
         <template #icon
           ><span class="material-symbols-outlined text-lg"
             >playlist_add</span
           ></template
-        >
-        Ajouter un add-on
-      </Button>
+        ></Button>
     </div>
 
     <div
       v-if="addons.length === 0"
       class="rounded-2xl border border-dashed border-surface-dark/10 p-5 text-sm text-surface-dark/55"
     >
-      Aucun add-on pour l’instant.
+      Aucune option complémentaire pour l’instant.
     </div>
 
     <div v-else class="flex flex-col gap-4">
@@ -335,7 +333,7 @@ const toggleAddon = (addonId: string) => {
               type="button"
               draggable="true"
               class="cursor-grab text-surface-dark/35 active:cursor-grabbing"
-              aria-label="Réordonner l’add-on"
+              aria-label="Réordonner l’option"
               @click.stop
               @dragstart="startAddonDrag(addon.id)"
               @dragend="
@@ -405,7 +403,7 @@ const toggleAddon = (addonId: string) => {
             <InputText
               class="w-full"
               :model-value="addon.title"
-              placeholder="Nouvel add-on"
+              placeholder="Nouvelle option"
               @update:model-value="
                 emit('updateAddon', {
                   id: addon.id,
@@ -435,7 +433,7 @@ const toggleAddon = (addonId: string) => {
             <InputText
               class="w-full"
               :model-value="addon.unitLabel"
-              placeholder="Ex: 15 items"
+              placeholder="Ex: 15 éléments"
               @update:model-value="
                 emit('updateAddon', {
                   id: addon.id,
@@ -614,15 +612,12 @@ const toggleAddon = (addonId: string) => {
                           addonId: addon.id,
                           itemId: item.id,
                         })
-                      "
-                    >
+                      " label="Ajouter un sous-point">
                       <template #icon
                         ><span class="material-symbols-outlined text-lg"
                           >add_circle</span
                         ></template
-                      >
-                      Ajouter un sous-point
-                    </Button>
+                      ></Button>
                   </div>
 
                   <Button
@@ -635,37 +630,31 @@ const toggleAddon = (addonId: string) => {
                         addonId: addon.id,
                         itemId: item.id,
                       })
-                    "
-                  >
+                    " label="Ajouter un sous-point">
                     <template #icon
                       ><span class="material-symbols-outlined text-lg"
                         >add_circle</span
                       ></template
-                    >
-                    Ajouter un sous-point
-                  </Button>
+                    ></Button>
                 </div>
               </div>
             </div>
           </div>
 
           <p v-else class="text-sm text-surface-dark/55">
-            Aucun point pour cet add-on.
+            Aucun point pour cette option.
           </p>
 
           <Button
             text
             severity="secondary"
             class="mt-4 w-full justify-start rounded-2xl border border-surface-dark/8 bg-surface-light px-4 py-3"
-            @click="emit('addAddonItem', addon.id)"
-          >
+            @click="emit('addAddonItem', addon.id)" label="Ajouter un point">
             <template #icon
               ><span class="material-symbols-outlined text-lg"
                 >add_circle</span
               ></template
-            >
-            Ajouter un point
-          </Button>
+            ></Button>
         </div>
       </div>
     </div>

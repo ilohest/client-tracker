@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import type { Quote, QuoteInput } from '@client-tracker/contracts';
 import { quotesService } from '@/services/quotesService';
+import { toDateObj } from '@/utils/date';
 
 interface QuotesState {
   quotes: Quote[];
@@ -10,6 +11,13 @@ interface QuotesState {
 }
 
 type PersistedQuotePayload = QuoteInput & Pick<Quote, 'subtotal' | 'totalWithVat'>;
+
+const sortQuotes = (quotes: Quote[]): Quote[] =>
+  [...quotes].sort((a, b) => {
+    const dateA = toDateObj(a.updatedAt || a.createdAt)?.getTime() || 0;
+    const dateB = toDateObj(b.updatedAt || b.createdAt)?.getTime() || 0;
+    return dateB - dateA;
+  });
 
 export const useQuotesStore = defineStore('quotes', {
   state: (): QuotesState => ({
@@ -54,10 +62,15 @@ export const useQuotesStore = defineStore('quotes', {
 
         const index = this.quotes.findIndex((entry) => entry.id === quote.id);
         if (index >= 0) {
-          this.quotes[index] = { ...this.quotes[index], ...quote };
+          this.quotes[index] = {
+            ...this.quotes[index],
+            ...quote,
+            createdAt: this.quotes[index].createdAt || quote.createdAt,
+          };
         } else {
           this.quotes.unshift(quote);
         }
+        this.quotes = sortQuotes(this.quotes);
         this.selectedQuoteId = quote.id;
         return quote;
       } catch (error: any) {
@@ -71,7 +84,12 @@ export const useQuotesStore = defineStore('quotes', {
       await quotesService.setStatus(id, status);
       const index = this.quotes.findIndex((entry) => entry.id === id);
       if (index >= 0) {
-        this.quotes[index] = { ...this.quotes[index], status };
+        this.quotes[index] = {
+          ...this.quotes[index],
+          status,
+          updatedAt: new Date().toISOString(),
+        };
+        this.quotes = sortQuotes(this.quotes);
       }
     },
 

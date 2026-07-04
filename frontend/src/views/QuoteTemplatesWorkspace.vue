@@ -6,6 +6,7 @@ import type {
   QuoteConditionItem,
   QuoteDiscountType,
   QuoteLanguage,
+  QuotePaymentScheduleStep,
   QuoteSection,
   QuoteTemplate,
   QuoteTemplateInput,
@@ -13,16 +14,27 @@ import type {
 } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import ConfirmDialog from "primevue/confirmdialog";
-import InputText from "primevue/inputtext";
+import Select from "primevue/select";
 import { useConfirm } from "primevue/useconfirm";
+import QuoteActionBar from "@/components/quotes/QuoteActionBar.vue";
 import QuoteBuilderForm from "@/components/quotes/QuoteBuilderForm.vue";
+import QuoteOutputPanel from "@/components/quotes/QuoteOutputPanel.vue";
 import {
   createBlankAddon,
   createDefaultQuoteTemplate,
   createDefaultQuoteTemplateLocalizedContent,
+  getEstimatedTimelineTitle,
+  languageOptions,
 } from "@/lib/clientPresets";
 import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
+import { formatDateTime } from "@/utils/date";
 import { cloneQuoteParts, createEntityId } from "@/utils/quote";
+import {
+  comparableQuoteTemplate,
+  normalizeConditionTitleKey,
+  quoteTemplateLanguages,
+  resolveCommonConditionReferences,
+} from "@/utils/quoteTemplateDraft";
 import { useToast } from "primevue/usetoast";
 
 const quoteTemplatesStore = useQuoteTemplatesStore();
@@ -33,6 +45,7 @@ const createTemplateDraft = (): QuoteTemplateInput =>
   createDefaultQuoteTemplate("Template de devis", "shopify", "fr");
 
 const form = reactive<QuoteTemplateInput>(createTemplateDraft());
+const selectedLibraryItem = ref<"base" | "mail" | "template">("base");
 let syncingLocalizedContent = false;
 let hydratingTemplate = false;
 
@@ -74,6 +87,7 @@ const cloneConditions = (
   conditions.map((condition) => ({
     ...condition,
     id: condition.id || createEntityId(),
+    commonConditionId: condition.commonConditionId || "",
     items: cloneItems(condition.items),
   }));
 
@@ -85,16 +99,29 @@ const cloneAddons = (addons: QuoteTemplateLocalizedContent["addons"] = []) =>
     items: cloneItems(addon.items),
   }));
 
+const clonePaymentSchedule = (
+  steps: QuotePaymentScheduleStep[] = [],
+): QuotePaymentScheduleStep[] =>
+  steps.map((step) => ({
+    id: step.id || createEntityId(),
+    label: step.label || "",
+    mode: step.mode || "percent",
+    value: Number(step.value || 0),
+  }));
+
 const cloneLocalizedSlice = (
   slice?: Partial<QuoteTemplateLocalizedContent> | null,
 ): QuoteTemplateLocalizedContent => ({
   projectSummary: slice?.projectSummary || "",
+  emailSubject: slice?.emailSubject || "",
+  emailBody: slice?.emailBody || "",
   parts: cloneParts(slice?.parts || []),
   conditions: cloneConditions(slice?.conditions || []),
   roadmap: cloneConditions(slice?.roadmap || []),
   acceptance: cloneConditions(slice?.acceptance || []),
   principles: cloneConditions(slice?.principles || []),
   addons: cloneAddons(slice?.addons || []),
+  paymentSchedule: clonePaymentSchedule(slice?.paymentSchedule || []),
 });
 
 const getLegacyLocalizedContent = (
@@ -107,6 +134,9 @@ const getLegacyLocalizedContent = (
     | "acceptance"
     | "principles"
     | "addons"
+    | "paymentSchedule"
+    | "emailSubject"
+    | "emailBody"
   >,
 ): Record<QuoteLanguage, QuoteTemplateLocalizedContent> => ({
   fr: cloneLocalizedSlice(source),
@@ -134,6 +164,9 @@ const getNormalizedLocalizedContent = (
       acceptance: source.acceptance || [],
       principles: source.principles || [],
       addons: source.addons || [],
+      paymentSchedule: source.paymentSchedule || [],
+      emailSubject: source.emailSubject || "",
+      emailBody: source.emailBody || "",
     });
   }
 
@@ -154,12 +187,14 @@ const normalizeItems = (
 
 const normalizeTemplate = (draft: QuoteTemplateInput) => ({
   name: draft.name,
-  isDefault: draft.isDefault ?? false,
+  kind: draft.kind || "custom",
   platform: draft.platform,
   customPlatformLabel: draft.customPlatformLabel,
   language: draft.language,
   vatRate: draft.vatRate,
   projectSummary: draft.projectSummary,
+  emailSubject: draft.emailSubject || "",
+  emailBody: draft.emailBody || "",
   discountType: draft.discountType,
   discountValue: draft.discountValue,
   localizedContent: {
@@ -173,11 +208,13 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
     displayStyle: part.displayStyle,
     price: part.price,
     optional: part.optional,
+    includeInInvestment: part.includeInInvestment !== false,
     priceNote: part.priceNote,
     sections: (part.sections || []).map((section) => ({
       id: section.id,
       title: section.title,
       description: section.description,
+      displayMode: section.displayMode || "bullets",
       items: normalizeItems(section.items).map((item) => ({
         id: item.id,
         text: item.text,
@@ -196,7 +233,9 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
   })),
   conditions: draft.conditions.map((condition) => ({
     id: condition.id,
+    commonConditionId: condition.commonConditionId || "",
     title: condition.title,
+    tag: condition.tag || "",
     body: condition.body,
     items: normalizeItems(condition.items).map((item) => ({
       id: item.id,
@@ -210,6 +249,7 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
   roadmap: draft.roadmap.map((phase) => ({
     id: phase.id,
     title: phase.title,
+    tag: phase.tag || "",
     body: phase.body,
     items: normalizeItems(phase.items).map((item) => ({
       id: item.id,
@@ -223,6 +263,7 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
   acceptance: draft.acceptance.map((entry) => ({
     id: entry.id,
     title: entry.title,
+    tag: entry.tag || "",
     body: entry.body,
     items: normalizeItems(entry.items).map((item) => ({
       id: item.id,
@@ -236,6 +277,7 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
   principles: draft.principles.map((principle) => ({
     id: principle.id,
     title: principle.title,
+    tag: principle.tag || "",
     body: principle.body,
     items: normalizeItems(principle.items).map((item) => ({
       id: item.id,
@@ -262,113 +304,161 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
     unitLabel: addon.unitLabel || "",
     enabled: addon.enabled ?? true,
   })),
+  paymentSchedule: clonePaymentSchedule(draft.paymentSchedule || []),
 });
 
 const templateId = computed(() => quoteTemplatesStore.selectedTemplateId);
+const baseTemplate = computed(() => quoteTemplatesStore.baseTemplate);
+const customTemplates = computed(() =>
+  quoteTemplatesStore.templates.filter((template) => template.kind !== "base"),
+);
 const currencyLocale = computed(() =>
   form.language === "en" ? "en-GB" : form.language === "es" ? "es-ES" : "fr-FR",
 );
+
+const getBaseConditionsForLanguage = (language: QuoteLanguage): QuoteCondition[] => {
+  const base = quoteTemplatesStore.baseTemplate;
+  if (!base) return [];
+  const localizedContent = getNormalizedLocalizedContent(base);
+  return localizedContent[language]?.conditions || [];
+};
+
+const resolveTemplateConditionReferencesForEditor = (
+  conditions: QuoteCondition[] = [],
+  language: QuoteLanguage,
+  enabled = true,
+): QuoteCondition[] => {
+  if (!enabled) return cloneConditions(conditions);
+  return resolveCommonConditionReferences(
+    conditions,
+    getBaseConditionsForLanguage(language),
+    { keepReference: true },
+  );
+};
+
 const baselineTemplate = computed<QuoteTemplateInput>(() => {
   const current = quoteTemplatesStore.selectedTemplate;
   if (!current) return createTemplateDraft();
 
   const localizedContent = getNormalizedLocalizedContent(current);
   const activeContent = localizedContent[current.language];
+  const shouldResolveCommonConditions = (current.kind || "custom") !== "base";
 
   return {
     name: current.name,
-    isDefault: current.isDefault ?? false,
+    kind: current.kind || "custom",
     platform: current.platform,
     customPlatformLabel: current.customPlatformLabel || "",
     language: current.language,
     vatRate: current.vatRate,
     projectSummary: activeContent.projectSummary,
+    emailSubject: activeContent.emailSubject,
+    emailBody: activeContent.emailBody,
     discountType: current.discountType || "percent",
     discountValue: current.discountValue || 0,
     parts: partsFromContent(activeContent),
-    conditions: cloneConditions(activeContent.conditions),
+    conditions: resolveTemplateConditionReferencesForEditor(
+      activeContent.conditions,
+      current.language,
+      shouldResolveCommonConditions,
+    ),
     roadmap: cloneConditions(activeContent.roadmap),
     acceptance: cloneConditions(activeContent.acceptance),
     principles: cloneConditions(activeContent.principles),
     addons: cloneAddons(activeContent.addons),
+    paymentSchedule: clonePaymentSchedule(activeContent.paymentSchedule),
     localizedContent,
   };
 });
 
-/**
- * Retire récursivement les `id` (non sémantiques, régénérés à chaque clonage)
- * pour comparer le contenu réel et éviter les faux « modifications non
- * sauvegardées ».
- */
-const stripIds = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(stripIds);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([key]) => key !== "id")
-        .map(([key, val]) => [key, stripIds(val)]),
-    );
-  }
-  return value;
-};
+const withVisibleLanguageContent = (
+  draft: QuoteTemplateInput,
+): QuoteTemplateInput => ({
+  ...draft,
+  localizedContent: {
+    ...draft.localizedContent,
+    [draft.language]: cloneLocalizedSlice({
+      projectSummary: draft.projectSummary,
+      emailSubject: draft.emailSubject,
+      emailBody: draft.emailBody,
+      parts: draft.parts,
+      conditions: draft.conditions,
+      roadmap: draft.roadmap,
+      acceptance: draft.acceptance,
+      principles: draft.principles,
+      addons: draft.addons,
+      paymentSchedule: draft.paymentSchedule,
+    }),
+  },
+});
 
 const hasUnsavedChanges = computed(
   () =>
-    JSON.stringify(stripIds(normalizeTemplate(form))) !==
-    JSON.stringify(stripIds(normalizeTemplate(baselineTemplate.value))),
+    JSON.stringify(comparableQuoteTemplate(withVisibleLanguageContent(form))) !==
+    JSON.stringify(
+      comparableQuoteTemplate(withVisibleLanguageContent(baselineTemplate.value)),
+    ),
 );
 
-const formatTemplateUpdatedAt = (template: QuoteTemplate) => {
-  const rawDate = template.updatedAt || template.createdAt;
-  if (!rawDate) return "Date inconnue";
+const formatTemplateCreatedAt = (template: QuoteTemplate) =>
+  formatDateTime(template.createdAt);
 
-  const parsed =
-    typeof rawDate === "object" &&
-    rawDate !== null &&
-    "toDate" in rawDate &&
-    typeof rawDate.toDate === "function"
-      ? rawDate.toDate()
-      : new Date(rawDate as string | Date);
+const formatTemplateUpdatedAt = (template: QuoteTemplate) =>
+  formatDateTime(template.updatedAt || template.createdAt);
 
-  if (Number.isNaN(parsed.getTime())) return "Date inconnue";
-
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(parsed);
-};
+const selectedTemplateMetadata = computed(() => {
+  const template = quoteTemplatesStore.selectedTemplate;
+  if (!templateId.value || !template) return null;
+  return {
+    createdAt: formatTemplateCreatedAt(template),
+    updatedAt: formatTemplateUpdatedAt(template),
+  };
+});
 
 const hydrateFromTemplate = (template: QuoteTemplate | null) => {
   hydratingTemplate = true;
 
   if (!template) {
     Object.assign(form, createTemplateDraft());
-    hydratingTemplate = false;
+    void Promise.resolve().then(() => {
+      hydratingTemplate = false;
+    });
     return;
   }
 
   const localizedContent = getNormalizedLocalizedContent(template);
   const activeContent = localizedContent[template.language];
+  const shouldResolveCommonConditions = (template.kind || "custom") !== "base";
 
   Object.assign(form, {
     name: template.name,
+    kind: template.kind || "custom",
     platform: template.platform,
     customPlatformLabel: template.customPlatformLabel || "",
     language: template.language,
     vatRate: template.vatRate,
     projectSummary: activeContent.projectSummary,
+    emailSubject: activeContent.emailSubject,
+    emailBody: activeContent.emailBody,
     discountType: template.discountType || "percent",
     discountValue: template.discountValue || 0,
     parts: partsFromContent(activeContent),
-    conditions: cloneConditions(activeContent.conditions),
+    conditions: resolveTemplateConditionReferencesForEditor(
+      activeContent.conditions,
+      template.language,
+      shouldResolveCommonConditions,
+    ),
     roadmap: cloneConditions(activeContent.roadmap),
     acceptance: cloneConditions(activeContent.acceptance),
     principles: cloneConditions(activeContent.principles),
     addons: cloneAddons(activeContent.addons),
+    paymentSchedule: clonePaymentSchedule(activeContent.paymentSchedule),
     localizedContent,
   });
 
-  hydratingTemplate = false;
+  void Promise.resolve().then(() => {
+    hydratingTemplate = false;
+  });
 };
 
 const persistActiveLanguageContent = (language: QuoteLanguage) => {
@@ -376,12 +466,15 @@ const persistActiveLanguageContent = (language: QuoteLanguage) => {
     ...form.localizedContent,
     [language]: cloneLocalizedSlice({
       projectSummary: form.projectSummary,
+      emailSubject: form.emailSubject,
+      emailBody: form.emailBody,
       parts: form.parts,
       conditions: form.conditions,
       roadmap: form.roadmap,
       acceptance: form.acceptance,
       principles: form.principles,
       addons: form.addons,
+      paymentSchedule: form.paymentSchedule,
     }),
   };
 };
@@ -390,12 +483,19 @@ const hydrateVisibleContentFromLanguage = (language: QuoteLanguage) => {
   const activeContent = cloneLocalizedSlice(form.localizedContent?.[language]);
   syncingLocalizedContent = true;
   form.projectSummary = activeContent.projectSummary;
+  form.emailSubject = activeContent.emailSubject;
+  form.emailBody = activeContent.emailBody;
   form.parts = partsFromContent(activeContent);
-  form.conditions = activeContent.conditions;
+  form.conditions = resolveTemplateConditionReferencesForEditor(
+    activeContent.conditions,
+    language,
+    (form.kind || "custom") !== "base",
+  );
   form.roadmap = activeContent.roadmap;
   form.acceptance = activeContent.acceptance;
   form.principles = activeContent.principles;
   form.addons = activeContent.addons;
+  form.paymentSchedule = clonePaymentSchedule(activeContent.paymentSchedule);
   syncingLocalizedContent = false;
 };
 
@@ -423,7 +523,7 @@ watch(
   (platform, oldPlatform) => {
     if (hydratingTemplate) return;
     if (platform === oldPlatform) return;
-    if (platform !== "other") form.customPlatformLabel = "";
+    if (platform !== "other" && platform !== "custom") form.customPlatformLabel = "";
   },
 );
 
@@ -447,6 +547,7 @@ watch(
       form.acceptance,
       form.principles,
       form.addons,
+      form.paymentSchedule,
     ] as const,
   () => {
     if (syncingLocalizedContent || hydratingTemplate) return;
@@ -461,6 +562,7 @@ const updateCondition = (
   value: string,
 ) => {
   const condition = form.conditions.find((entry) => entry.id === id);
+  if (condition?.commonConditionId) return;
   if (condition) (condition[field] as string) = value;
 };
 
@@ -485,6 +587,7 @@ const updateConditionItem = (
   value: string,
 ) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
+  if (condition?.commonConditionId) return;
   const item = condition?.items.find((entry) => entry.id === itemId);
   if (item) item.text = value;
 };
@@ -492,6 +595,7 @@ const updateConditionItem = (
 const removeConditionItem = (conditionId: string, itemId: string) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
   if (!condition) return;
+  if (condition.commonConditionId) return;
   condition.items = condition.items.filter((entry) => entry.id !== itemId);
 };
 
@@ -502,6 +606,7 @@ const moveConditionItem = (
 ) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
   if (!condition) return;
+  if (condition.commonConditionId) return;
   const draggedIndex = condition.items.findIndex(
     (entry) => entry.id === draggedId,
   );
@@ -523,6 +628,7 @@ const nestConditionItemUnderItem = (
 ) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
   if (!condition) return;
+  if (condition.commonConditionId) return;
   const draggedIndex = condition.items.findIndex(
     (entry) => entry.id === draggedId,
   );
@@ -538,6 +644,7 @@ const nestConditionItemUnderItem = (
 const addConditionItem = (conditionId: string) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
   if (!condition) return;
+  if (condition.commonConditionId) return;
   condition.items = [
     ...(condition.items || []),
     { id: createEntityId(), text: "", subItems: [] },
@@ -546,6 +653,7 @@ const addConditionItem = (conditionId: string) => {
 
 const addConditionSubItem = (conditionId: string, itemId: string) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
+  if (condition?.commonConditionId) return;
   const item = condition?.items.find((entry) => entry.id === itemId);
   if (!item) return;
   item.subItems = [
@@ -561,6 +669,7 @@ const updateConditionSubItem = (
   value: string,
 ) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
+  if (condition?.commonConditionId) return;
   const item = condition?.items.find((entry) => entry.id === itemId);
   const subItem = item?.subItems.find((entry) => entry.id === subItemId);
   if (subItem) subItem.text = value;
@@ -572,6 +681,7 @@ const removeConditionSubItem = (
   subItemId: string,
 ) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
+  if (condition?.commonConditionId) return;
   const item = condition?.items.find((entry) => entry.id === itemId);
   if (!item) return;
   item.subItems = item.subItems.filter((entry) => entry.id !== subItemId);
@@ -584,6 +694,7 @@ const moveConditionSubItem = (
   targetId: string,
 ) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
+  if (condition?.commonConditionId) return;
   const item = condition?.items.find((entry) => entry.id === itemId);
   if (!item) return;
   const draggedIndex = item.subItems.findIndex(
@@ -606,6 +717,7 @@ const moveConditionSubItemToItem = (
 ) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
   if (!condition) return;
+  if (condition.commonConditionId) return;
   const sourceItem = condition.items.find((entry) => entry.id === fromItemId);
   const targetItem = condition.items.find((entry) => entry.id === targetItemId);
   if (!sourceItem || !targetItem) return;
@@ -628,6 +740,7 @@ const promoteConditionSubItemToItem = (
 ) => {
   const condition = form.conditions.find((entry) => entry.id === conditionId);
   if (!condition) return;
+  if (condition.commonConditionId) return;
   const sourceIndex = condition.items.findIndex(
     (entry) => entry.id === fromItemId,
   );
@@ -654,6 +767,8 @@ const updateRoadmapPhase = (
   field: "title" | "body",
   value: string,
 ) => {
+  const estimatedIndex = form.roadmap.length - 1;
+  if (field === "title" && form.roadmap[estimatedIndex]?.id === id) return;
   const phase = form.roadmap.find((entry) => entry.id === id);
   if (phase) (phase[field] as string) = value;
 };
@@ -665,10 +780,17 @@ const moveRoadmapPhase = (draggedId: string, targetId: string) => {
   const targetIndex = form.roadmap.findIndex((phase) => phase.id === targetId);
   if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
     return;
+  const lockedIndex = form.roadmap.length - 1;
+  if (draggedIndex === lockedIndex || targetIndex === lockedIndex) return;
   const next = [...form.roadmap];
   const [dragged] = next.splice(draggedIndex, 1);
   next.splice(targetIndex, 0, dragged);
   form.roadmap = next;
+};
+
+const normalizeEstimatedTimelineTitle = () => {
+  const estimatedPhase = form.roadmap[form.roadmap.length - 1];
+  if (estimatedPhase) estimatedPhase.title = getEstimatedTimelineTitle(form.language);
 };
 
 const addRoadmapItem = (phaseId: string) => {
@@ -1013,7 +1135,7 @@ const promoteAcceptanceSubItemToItem = (
 
 const updatePrinciple = (
   id: string,
-  field: "title" | "body",
+  field: "title" | "body" | "tag",
   value: string,
 ) => {
   const principle = form.principles.find((entry) => entry.id === id);
@@ -1373,6 +1495,7 @@ const promoteAddonSubItemToItem = (
 const addCondition = () => {
   form.conditions.push({
     id: createEntityId(),
+    commonConditionId: "",
     title: "",
     body: "",
     items: [],
@@ -1380,12 +1503,14 @@ const addCondition = () => {
 };
 
 const addRoadmapPhase = () => {
-  form.roadmap.push({
+  const phase = {
     id: createEntityId(),
     title: "",
     body: "",
     items: [],
-  });
+  };
+  const insertIndex = Math.max(form.roadmap.length - 1, 0);
+  form.roadmap.splice(insertIndex, 0, phase);
 };
 
 const addAcceptance = () => {
@@ -1401,6 +1526,7 @@ const addPrinciple = () => {
   form.principles.push({
     id: createEntityId(),
     title: "",
+    tag: "",
     body: "",
     items: [],
   });
@@ -1444,6 +1570,7 @@ const moveAddon = (draggedId: string, targetId: string) => {
 
 const createTemplate = () => {
   guardUnsaved(() => {
+    selectedLibraryItem.value = "template";
     quoteTemplatesStore.selectTemplate(null);
     hydrateFromTemplate(null);
   });
@@ -1451,33 +1578,182 @@ const createTemplate = () => {
 
 const selectTemplate = (id: string) => {
   guardUnsaved(() => {
+    const target = quoteTemplatesStore.templates.find((template) => template.id === id);
+    selectedLibraryItem.value = target?.kind === "base" ? "base" : "template";
     quoteTemplatesStore.selectTemplate(id);
   });
 };
 
-const setDefaultTemplate = async (id: string) => {
-  const target = quoteTemplatesStore.templates.find((entry) => entry.id === id);
-  if (target?.isDefault) return;
-  try {
-    await quoteTemplatesStore.setDefaultTemplate(id);
-    toast.add({
-      severity: "success",
-      summary: "Template par défaut",
-      detail:
-        "Les nouveaux devis reprendront le contenu standard de ce template.",
-      life: 2500,
+const selectMailTemplate = () => {
+  const baseTemplate = quoteTemplatesStore.baseTemplate;
+  if (!baseTemplate) return;
+
+  guardUnsaved(() => {
+    selectedLibraryItem.value = "mail";
+    quoteTemplatesStore.selectTemplate(baseTemplate.id);
+  });
+};
+
+const isBaseSelected = computed(
+  () =>
+    selectedLibraryItem.value === "base" &&
+    quoteTemplatesStore.selectedTemplate?.kind === "base",
+);
+
+const isMailSelected = computed(
+  () =>
+    selectedLibraryItem.value === "mail" &&
+    quoteTemplatesStore.selectedTemplate?.kind === "base",
+);
+
+const commonConditionOptions = computed<QuoteCondition[]>(() => {
+  if (isBaseSelected.value || isMailSelected.value) return [];
+  const base = quoteTemplatesStore.baseTemplate;
+  if (!base) return [];
+  const localizedContent = getNormalizedLocalizedContent(base);
+  const activeConditions = localizedContent[form.language]?.conditions || [];
+  const usedCommonIds = new Set(
+    form.conditions
+      .map((condition) => condition.commonConditionId)
+      .filter(Boolean),
+  );
+  return activeConditions.filter(
+    (condition) =>
+      condition.id &&
+      !usedCommonIds.has(condition.id) &&
+      ((condition.title || "").trim() || condition.items.length),
+  );
+});
+
+const cloneCommonConditionReference = (condition: QuoteCondition): QuoteCondition => ({
+  ...condition,
+  id: createEntityId(),
+  commonConditionId: condition.id,
+  tag: condition.tag || "",
+  body: condition.body || "",
+  items: cloneItems(condition.items || []),
+});
+
+const addCommonCondition = (conditionId: string) => {
+  const source = commonConditionOptions.value.find(
+    (condition) => condition.id === conditionId,
+  );
+  if (!source) return;
+  form.conditions.push(cloneCommonConditionReference(source));
+};
+
+const wordpressRefonteTemplate = computed(() =>
+  customTemplates.value.find((template) => {
+    const name = (template.name || "").toLowerCase();
+    return template.platform === "wordpress" && name.includes("refonte");
+  }) || null,
+);
+
+const buildTemplatePayload = (
+  template: QuoteTemplate,
+  localizedContent: Record<QuoteLanguage, QuoteTemplateLocalizedContent>,
+): QuoteTemplateInput => {
+  const activeContent = localizedContent[template.language];
+  return {
+    name: template.name,
+    kind: template.kind || "custom",
+    platform: template.platform,
+    customPlatformLabel: template.customPlatformLabel || "",
+    language: template.language,
+    vatRate: template.vatRate,
+    projectSummary: activeContent.projectSummary,
+    emailSubject: activeContent.emailSubject,
+    emailBody: activeContent.emailBody,
+    discountType: template.discountType || "percent",
+    discountValue: template.discountValue || 0,
+    parts: partsFromContent(activeContent),
+    conditions: cloneConditions(activeContent.conditions),
+    roadmap: cloneConditions(activeContent.roadmap),
+    acceptance: cloneConditions(activeContent.acceptance),
+    principles: cloneConditions(activeContent.principles),
+    addons: cloneAddons(activeContent.addons),
+    paymentSchedule: clonePaymentSchedule(activeContent.paymentSchedule),
+    localizedContent,
+  };
+};
+
+const migrateWordPressRefonteConditionsToBase = async () => {
+  const sourceTemplate = wordpressRefonteTemplate.value;
+  const base = quoteTemplatesStore.baseTemplate;
+  if (!sourceTemplate || !base) return;
+
+  const baseLocalizedContent = getNormalizedLocalizedContent(base);
+  const sourceLocalizedContent = getNormalizedLocalizedContent(sourceTemplate);
+
+  quoteTemplateLanguages.forEach((language) => {
+    const baseSlice = cloneLocalizedSlice(baseLocalizedContent[language]);
+    const sourceSlice = cloneLocalizedSlice(sourceLocalizedContent[language]);
+    const commonConditions = cloneConditions(baseSlice.conditions);
+    const references: QuoteCondition[] = [];
+
+    sourceSlice.conditions.forEach((sourceCondition) => {
+      const existingReference = sourceCondition.commonConditionId
+        ? commonConditions.find(
+            (condition) => condition.id === sourceCondition.commonConditionId,
+          )
+        : null;
+
+      if (existingReference) {
+        references.push(cloneCommonConditionReference(existingReference));
+        return;
+      }
+
+      const titleKey = normalizeConditionTitleKey(sourceCondition);
+      const existingCommonCondition = commonConditions.find(
+        (condition) =>
+          titleKey && normalizeConditionTitleKey(condition) === titleKey,
+      );
+      const commonCondition = existingCommonCondition || {
+        ...sourceCondition,
+        id: createEntityId(),
+        commonConditionId: "",
+        tag: sourceCondition.tag || "",
+        body: sourceCondition.body || "",
+        items: cloneItems(sourceCondition.items || []),
+      };
+
+      if (!existingCommonCondition) commonConditions.push(commonCondition);
+      references.push(cloneCommonConditionReference(commonCondition));
     });
-  } catch {
-    toast.add({
-      severity: "error",
-      summary: "Erreur",
-      detail: "Impossible de définir ce template par défaut.",
-      life: 3000,
-    });
-  }
+
+    baseLocalizedContent[language] = {
+      ...baseSlice,
+      conditions: commonConditions,
+    };
+    sourceLocalizedContent[language] = {
+      ...sourceSlice,
+      conditions: references,
+    };
+  });
+
+  const updatedBase = await quoteTemplatesStore.saveTemplate(
+    base.id,
+    buildTemplatePayload(base, baseLocalizedContent),
+  );
+  await quoteTemplatesStore.saveTemplate(
+    sourceTemplate.id,
+    buildTemplatePayload(sourceTemplate, sourceLocalizedContent),
+  );
+
+  quoteTemplatesStore.selectTemplate(updatedBase.id);
+  selectedLibraryItem.value = "base";
+  hydrateFromTemplate(updatedBase);
+
+  toast.add({
+    severity: "success",
+    summary: "Conditions communes mises à jour",
+    detail: `Les conditions de ${sourceTemplate.name} sont maintenant dans la base commune.`,
+    life: 3200,
+  });
 };
 
 const saveTemplate = async () => {
+  normalizeEstimatedTimelineTitle();
   persistActiveLanguageContent(form.language);
   const payload = normalizeTemplate(form);
   const template = await quoteTemplatesStore.saveTemplate(
@@ -1500,6 +1776,17 @@ const deleteTemplate = async () => {
   }
 
   const current = quoteTemplatesStore.selectedTemplate;
+  if (current?.kind === "base") {
+    toast.add({
+      severity: "warn",
+      summary: "Suppression impossible",
+      detail:
+        "La base commune préremplit les nouveaux devis et ne peut pas être supprimée.",
+      life: 3000,
+    });
+    return;
+  }
+
   const templateName = current?.name?.trim() || "ce template";
   confirm.require({
     message: `Supprimer définitivement ${templateName} ?`,
@@ -1550,24 +1837,29 @@ const duplicateTemplate = async () => {
     ...(sourceClone.localizedContent || {}),
     [form.language]: cloneLocalizedSlice({
       projectSummary: form.projectSummary,
+      emailSubject: form.emailSubject,
+      emailBody: form.emailBody,
       parts: form.parts,
       conditions: form.conditions,
       roadmap: form.roadmap,
       acceptance: form.acceptance,
       principles: form.principles,
       addons: form.addons,
+      paymentSchedule: form.paymentSchedule,
     }),
   } as QuoteTemplateInput["localizedContent"];
 
   const payload: QuoteTemplateInput = {
     ...(sourceClone as QuoteTemplateInput),
     name: duplicatedName,
-    isDefault: false,
+    kind: "custom",
     platform: form.platform,
     customPlatformLabel: form.customPlatformLabel || "",
     language: form.language,
     vatRate: form.vatRate,
     projectSummary: form.projectSummary,
+    emailSubject: form.emailSubject,
+    emailBody: form.emailBody,
     discountType: form.discountType || "percent",
     discountValue: form.discountValue || 0,
     parts: cloneQuoteParts(form.parts),
@@ -1576,6 +1868,7 @@ const duplicateTemplate = async () => {
     acceptance: cloneConditions(form.acceptance),
     principles: cloneConditions(form.principles),
     addons: cloneAddons(form.addons),
+    paymentSchedule: clonePaymentSchedule(form.paymentSchedule),
     localizedContent,
   };
 
@@ -1603,158 +1896,234 @@ onMounted(async () => {
   <div class="flex flex-col gap-6">
     <ConfirmDialog />
 
-    <div
-      class="sticky top-0 z-20 bg-surface-light/95 py-1 backdrop-blur supports-[backdrop-filter]:bg-surface-light/80"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-3xl font-heading font-bold text-surface-dark">
-          Templates de devis
-        </h1>
-        <div class="flex items-center gap-2">
-          <Button
-            v-if="templateId"
-            severity="secondary"
-            @click="duplicateTemplate"
-          >
-            <template #icon
-              ><span class="material-symbols-outlined text-lg"
-                >content_copy</span
-              ></template
-            >
-            Dupliquer
-          </Button>
-          <Button severity="secondary" @click="discardChanges">Annuler</Button>
-          <Button @click="saveTemplate">Sauvegarder</Button>
-        </div>
-      </div>
+    <div class="flex items-center gap-3">
+      <span
+        class="material-symbols-outlined rounded-2xl bg-primary/10 p-2 text-2xl text-primary"
+        >library_books</span
+      >
+      <h1 class="text-3xl font-heading font-bold text-surface-dark">
+        Templates
+      </h1>
     </div>
 
     <div
       class="grid grid-cols-1 gap-6 xl:grid-cols-[320px_minmax(0,1fr)] items-start"
     >
-      <section
-        class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5 xl:sticky xl:top-6"
-      >
-        <div class="mb-4 flex items-center justify-between gap-3">
-          <div>
-            <h2 class="font-heading font-bold text-surface-dark">
-              Bibliothèque
-            </h2>
-          </div>
-          <Button severity="secondary" @click="createTemplate">
-            <template #icon
-              ><span class="material-symbols-outlined text-lg"
-                >add</span
-              ></template
-            >
-            Nouveau
-          </Button>
-        </div>
-
-        <div class="flex flex-col gap-3">
-          <div
-            v-for="template in quoteTemplatesStore.templates"
-            :key="template.id"
-            class="w-full cursor-pointer rounded-2xl border p-4 text-left transition-all"
-            :class="
-              templateId === template.id
-                ? 'border-primary/20 bg-primary/10'
-                : 'border-surface-dark/8 bg-white hover:border-primary/15'
-            "
-            @click="selectTemplate(template.id)"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <p class="font-heading font-bold text-surface-dark">
-                {{ template.name }}
-              </p>
-              <button
-                type="button"
-                class="shrink-0 rounded-lg p-1 transition-colors"
-                :class="
-                  template.isDefault
-                    ? 'text-amber-500'
-                    : 'text-surface-dark/25 hover:text-amber-500'
-                "
-                :title="
-                  template.isDefault
-                    ? 'Template par défaut'
-                    : 'Définir comme template par défaut'
-                "
-                @click.stop="setDefaultTemplate(template.id)"
-              >
-                <span class="material-symbols-outlined text-lg">{{
-                  template.isDefault ? "star" : "star_border"
-                }}</span>
-              </button>
+      <div class="flex flex-col gap-4 xl:sticky xl:top-6">
+        <section
+          class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5"
+        >
+            <div class="mb-3">
+              <h2 class="font-heading font-bold text-surface-dark">
+                Réglages communs
+              </h2>
             </div>
-            <div class="mt-1 flex items-center gap-2">
-              <span class="text-sm text-surface-dark/60">
-                {{ template.platform || "other" }}
-              </span>
-              <span
-                v-if="template.isDefault"
-                class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
-                >Par défaut</span
-              >
-            </div>
-            <p class="mt-2 text-xs text-surface-dark/45">
-              Dernière modification :
-              {{ formatTemplateUpdatedAt(template) }}
-            </p>
-          </div>
 
-          <div
-            v-if="quoteTemplatesStore.templates.length === 0"
-            class="rounded-2xl border border-dashed border-surface-dark/10 p-5 text-sm text-surface-dark/55"
-          >
-            Aucun template pour l’instant.
-          </div>
-        </div>
-      </section>
-
-      <div class="flex flex-col gap-6">
-        <section class="rounded-3xl border border-surface-dark/5 bg-white p-5">
-          <div
-            class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_180px_auto] items-end"
-          >
-            <label class="flex flex-col gap-2">
-              <span class="text-sm font-semibold text-surface-dark"
-                >Nom du template</span
-              >
-              <InputText
-                v-model="form.name"
-                placeholder="Ex: Shopify premium"
-              />
-            </label>
             <div
-              class="rounded-2xl border border-surface-dark/6 bg-surface-light px-4 py-3 text-sm text-surface-dark/65"
+              v-if="baseTemplate"
+              class="w-full cursor-pointer rounded-2xl border p-4 text-left transition-all"
+              :class="
+                isBaseSelected
+                  ? 'border-primary/20 bg-primary/10'
+                  : 'border-surface-dark/8 bg-white hover:border-primary/15'
+              "
+              @click="selectTemplate(baseTemplate.id)"
             >
-              {{
-                hasUnsavedChanges
-                  ? "Modifications non enregistrées"
-                  : "Template synchronisé"
-              }}
+              <div class="flex items-start justify-between gap-2">
+                <p class="font-heading font-bold text-surface-dark">
+                  Base commune
+                </p>
+                <span
+                  class="material-symbols-outlined shrink-0 text-lg text-primary"
+                  title="Base commune protégée — préremplit les nouveaux devis"
+                  >verified</span
+                >
+              </div>
+              <p class="mt-2 text-xs text-surface-dark/45">
+                Modifié : {{ formatTemplateUpdatedAt(baseTemplate) }}
+              </p>
+            </div>
+
+            <div
+              v-if="baseTemplate"
+              class="mt-3 w-full cursor-pointer rounded-2xl border p-4 text-left transition-all"
+              :class="
+                isMailSelected
+                  ? 'border-primary/20 bg-primary/10'
+                  : 'border-surface-dark/8 bg-white hover:border-primary/15'
+              "
+              @click="selectMailTemplate"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <p class="font-heading font-bold text-surface-dark">
+                  Mail d’envoi
+                </p>
+                <span
+                  class="material-symbols-outlined shrink-0 text-lg text-surface-dark/50"
+                  >mail</span
+                >
+              </div>
+              <p class="mt-2 text-xs text-surface-dark/45">
+                Modifié : {{ formatTemplateUpdatedAt(baseTemplate) }}
+              </p>
+            </div>
+        </section>
+
+        <section
+          class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5"
+        >
+            <div class="mb-4">
+              <div class="min-w-0">
+                <h2 class="font-heading font-bold text-surface-dark">
+                  Bibliothèque
+                </h2>
+              </div>
             </div>
             <Button
-              v-if="templateId"
-              text
-              severity="danger"
-              class="justify-self-start lg:justify-self-center"
-              @click="deleteTemplate"
+              class="mb-4 w-full !justify-center !rounded-xl !py-3 font-semibold shadow-sm"
+              @click="createTemplate"
+              label="Nouveau template"
             >
               <template #icon
                 ><span class="material-symbols-outlined text-lg"
-                  >delete</span
+                  >library_add</span
                 ></template
+              ></Button>
+
+            <div class="flex flex-col gap-3">
+              <div
+                v-for="template in customTemplates"
+                :key="template.id"
+                class="w-full cursor-pointer rounded-2xl border p-4 text-left transition-all"
+                :class="
+                  templateId === template.id
+                    ? 'border-primary/20 bg-primary/10'
+                    : 'border-surface-dark/8 bg-white hover:border-primary/15'
+                "
+                @click="selectTemplate(template.id)"
               >
-            </Button>
+                <div class="flex items-start justify-between gap-2">
+                  <p class="font-heading font-bold text-surface-dark">
+                    {{ template.name }}
+                  </p>
+                </div>
+                <div class="mt-1 flex items-center gap-2">
+                  <span class="text-sm text-surface-dark/60">
+                    {{ template.platform || "other" }}
+                  </span>
+                </div>
+                <p class="mt-2 text-xs text-surface-dark/45">
+                  Modifié : {{ formatTemplateUpdatedAt(template) }}
+                </p>
+              </div>
+
+              <div
+                v-if="customTemplates.length === 0"
+                class="rounded-2xl border border-dashed border-surface-dark/10 p-5 text-sm text-surface-dark/55"
+              >
+                Aucun template pour l’instant.
+              </div>
+            </div>
+        </section>
+      </div>
+
+      <div class="flex flex-col gap-6">
+        <QuoteActionBar
+          :can-duplicate="Boolean(templateId) && !isBaseSelected && !isMailSelected"
+          :can-delete="Boolean(templateId) && !isBaseSelected && !isMailSelected"
+          :has-unsaved-changes="hasUnsavedChanges"
+          @save="saveTemplate"
+          @discard="discardChanges"
+          @duplicate="duplicateTemplate"
+          @delete="deleteTemplate"
+        />
+
+        <div
+          v-if="isBaseSelected"
+          class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-surface-dark/75"
+        >
+          <div class="flex min-w-0 flex-1 items-center gap-3">
+            <span class="material-symbols-outlined text-lg text-primary"
+              >verified</span
+            >
+            <span>
+              Base commune : le mail, la validation et les principes sont appliqués à chaque
+              devis. Les conditions communes définies ici peuvent être placées librement dans
+              chaque template. Elle ne peut pas être supprimée.
+            </span>
           </div>
+          <Button
+            v-if="wordpressRefonteTemplate"
+            size="small"
+            severity="secondary"
+            outlined
+            class="shrink-0 !rounded-xl"
+            :label="`Importer ${wordpressRefonteTemplate.name}`"
+            @click="migrateWordPressRefonteConditionsToBase"
+          >
+            <template #icon>
+              <span class="material-symbols-outlined text-base">move_to_inbox</span>
+            </template>
+          </Button>
+        </div>
+
+        <section
+          v-if="isMailSelected"
+          class="rounded-3xl border border-surface-dark/5 bg-white p-5"
+        >
+          <div class="mb-4 flex flex-wrap items-start justify-between gap-4">
+            <div class="flex items-start gap-3">
+              <span
+                class="material-symbols-outlined mt-0.5 text-lg text-surface-dark/55"
+                >mail</span
+              >
+              <div>
+                <h2 class="font-heading text-lg font-bold text-surface-dark">
+                  Mail d’envoi
+                </h2>
+                <p class="text-sm text-surface-dark/55">
+                  Objet et contenu utilisés lors de l’envoi d’un devis.
+                </p>
+              </div>
+            </div>
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-surface-dark"
+                >Langue</label
+              >
+              <Select
+                v-model="form.language"
+                :options="languageOptions"
+                option-label="label"
+                option-value="value"
+                class="w-40"
+              />
+            </div>
+          </div>
+          <QuoteOutputPanel
+            embedded
+            :language="form.language"
+            :email-subject="form.emailSubject"
+            :email-body="form.emailBody"
+            @update:email-subject="form.emailSubject = $event"
+            @update:email-body="form.emailBody = $event"
+            @copy-email-subject="() => undefined"
+            @copy-email-body="() => undefined"
+          />
+          <p
+            v-if="selectedTemplateMetadata"
+            class="mt-4 border-t border-surface-dark/6 pt-3 text-xs text-surface-dark/45"
+          >
+            Créé : {{ selectedTemplateMetadata.createdAt }} · Dernière modification :
+            {{ selectedTemplateMetadata.updatedAt }}
+          </p>
         </section>
 
         <QuoteBuilderForm
-          mode="template"
+          v-if="!isMailSelected"
+          :mode="isBaseSelected ? 'base' : 'template'"
           quote-ref=""
           :title="form.name"
+          project-name=""
           :quote-date="null"
           valid-until=""
           client-id=""
@@ -1770,13 +2139,17 @@ onMounted(async () => {
           :discount-type="form.discountType"
           :discount-value="form.discountValue"
           :project-summary="form.projectSummary"
+          investment-summary=""
+          :investment-amount="0"
           :parts="form.parts"
           :currency-locale="currencyLocale"
           :conditions="form.conditions"
+          :reusable-conditions="commonConditionOptions"
           :roadmap="form.roadmap"
           :acceptance="form.acceptance"
           :principles="form.principles"
           :addons="form.addons"
+          :payment-schedule="form.paymentSchedule"
           :clients="[]"
           :addons-total="0"
           :discount-amount="0"
@@ -1785,6 +2158,7 @@ onMounted(async () => {
           :total-with-vat="0"
           vat-explanation=""
           @update:title="form.name = $event"
+          @update:project-name="() => undefined"
           @update:quote-date="() => undefined"
           @update:client-id="() => undefined"
           @update:platform="form.platform = $event"
@@ -1794,8 +2168,12 @@ onMounted(async () => {
           @update:discount-type="form.discountType = $event as QuoteDiscountType"
           @update:discount-value="form.discountValue = $event"
           @update:project-summary="form.projectSummary = $event"
+          @update:investment-summary="() => undefined"
+          @update:investment-amount="() => undefined"
           @update:parts="form.parts = $event"
+          @update:payment-schedule="form.paymentSchedule = $event"
           @add-condition="addCondition"
+          @add-reusable-condition="addCommonCondition"
           @move-condition="moveCondition($event.draggedId, $event.targetId)"
           @update-condition="
             updateCondition($event.id, $event.field, $event.value)
@@ -2150,6 +2528,13 @@ onMounted(async () => {
             )
           "
         />
+        <p
+          v-if="!isMailSelected && selectedTemplateMetadata"
+          class="rounded-2xl border border-surface-dark/6 bg-white px-4 py-3 text-xs text-surface-dark/45"
+        >
+          Créé : {{ selectedTemplateMetadata.createdAt }} · Dernière modification :
+          {{ selectedTemplateMetadata.updatedAt }}
+        </p>
       </div>
     </div>
   </div>

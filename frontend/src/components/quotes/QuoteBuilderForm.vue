@@ -7,6 +7,7 @@ import type {
   QuoteDiscountType,
   QuoteLanguage,
   QuotePart,
+  QuotePaymentScheduleStep,
   QuoteStatus,
   VatRate,
 } from "@client-tracker/contracts";
@@ -18,10 +19,12 @@ import Select from "primevue/select";
 import Textarea from "primevue/textarea";
 import QuoteAddonsEditor from "@/components/quotes/QuoteAddonsEditor.vue";
 import QuoteConditionsEditor from "@/components/quotes/QuoteConditionsEditor.vue";
+import QuotePaymentScheduleEditor from "@/components/quotes/QuotePaymentScheduleEditor.vue";
 import QuotePartsEditor from "@/components/quotes/QuotePartsEditor.vue";
 import { getCountryFlag, getCountryLabel } from "@/lib/countries";
 import {
   discountTypeOptions,
+  getEstimatedTimelineTitle,
   languageOptions,
   platformOptions,
   quoteStatusMeta,
@@ -31,11 +34,16 @@ import {
 import { computed } from "vue";
 
 const props = defineProps<{
-  mode?: "quote" | "template";
+  /**
+   * quote = devis complet ; template = template de stack ; base = base commune
+   * (mail, validation, principes et bibliothèque de conditions communes).
+   */
+  mode?: "quote" | "template" | "base";
   status?: QuoteStatus;
   version?: number;
   quoteRef: string;
   title: string;
+  projectName: string;
   quoteDate: Date | null;
   validUntil: string;
   clientId: string;
@@ -51,13 +59,17 @@ const props = defineProps<{
   discountType: QuoteDiscountType;
   discountValue: number;
   projectSummary: string;
+  investmentSummary: string;
+  investmentAmount: number;
   parts: QuotePart[];
   currencyLocale?: string;
   conditions: QuoteCondition[];
+  reusableConditions?: QuoteCondition[];
   roadmap: QuoteCondition[];
   acceptance: QuoteCondition[];
   principles: QuoteCondition[];
   addons: QuoteAddon[];
+  paymentSchedule: QuotePaymentScheduleStep[];
   clients: Client[];
   addonsTotal: number;
   discountAmount: number;
@@ -69,6 +81,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:title": [value: string];
+  "update:projectName": [value: string];
   "update:quoteDate": [value: Date | null];
   "update:clientId": [value: string];
   "update:platform": [value: ClientPlatform];
@@ -78,11 +91,15 @@ const emit = defineEmits<{
   "update:discountType": [value: QuoteDiscountType];
   "update:discountValue": [value: number];
   "update:projectSummary": [value: string];
+  "update:investmentSummary": [value: string];
+  "update:investmentAmount": [value: number];
   "update:parts": [value: QuotePart[]];
+  "update:paymentSchedule": [value: QuotePaymentScheduleStep[]];
   "update:status": [value: QuoteStatus];
   newVersion: [];
   createClient: [];
   addCondition: [];
+  addReusableCondition: [conditionId: string];
   updateCondition: [
     payload: { id: string; field: "title" | "body"; value: string },
   ];
@@ -243,7 +260,7 @@ const emit = defineEmits<{
   addPrinciple: [];
   movePrinciple: [payload: { draggedId: string; targetId: string }];
   updatePrinciple: [
-    payload: { id: string; field: "title" | "body"; value: string },
+    payload: { id: string; field: "title" | "body" | "tag"; value: string },
   ];
   removePrinciple: [id: string];
   addPrincipleItem: [principleId: string];
@@ -353,12 +370,35 @@ const emit = defineEmits<{
   duplicateAddon: [id: string];
 }>();
 
+const isTemplate = computed(() => props.mode === "template");
+const isBase = computed(() => props.mode === "base");
+const isQuote = computed(() => !isTemplate.value && !isBase.value);
+const canEditCustomPlatformLabel = computed(() =>
+  props.platform === "custom" || props.platform === "other",
+);
+
 const statusLocked = computed(() =>
   props.status ? quoteStatusMeta[props.status].locked : false,
+);
+const lockedCommonConditionIds = computed(() =>
+  isTemplate.value
+    ? props.conditions
+        .filter((condition) => condition.commonConditionId)
+        .map((condition) => condition.id)
+    : [],
+);
+const conditionBadges = computed(() =>
+  Object.fromEntries(
+    props.conditions
+      .filter((condition) => condition.commonConditionId)
+      .map((condition) => [condition.id, "Commune"]),
+  ),
 );
 
 const handleTitle = (value: string | undefined) =>
   emit("update:title", value || "");
+const handleProjectName = (value: string | undefined) =>
+  emit("update:projectName", value || "");
 const handleQuoteDate = (
   value: Date | (Date | null)[] | Date[] | null | undefined,
 ) => emit("update:quoteDate", value instanceof Date ? value : null);
@@ -376,6 +416,10 @@ const handleDiscountValue = (value: number | null | undefined) =>
   emit("update:discountValue", Number(value || 0));
 const handleProjectSummary = (value: string) =>
   emit("update:projectSummary", value);
+const handleInvestmentSummary = (value: string | undefined) =>
+  emit("update:investmentSummary", value || "");
+const handleInvestmentAmount = (value: number | null | undefined) =>
+  emit("update:investmentAmount", Number(value || 0));
 const amountFormatter = new Intl.NumberFormat("fr-FR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -389,7 +433,7 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
 <template>
   <section class="bg-surface-card border border-surface-dark/5 rounded-3xl p-6">
     <div
-      v-if="mode !== 'template'"
+      v-if="isQuote"
       class="mb-6 flex flex-wrap items-center justify-between gap-4"
     >
       <div class="flex items-center gap-3 rounded-2xl bg-white border border-surface-dark/5 px-4 py-3">
@@ -418,7 +462,23 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
             option-value="value"
             class="min-w-[11rem]"
             @update:model-value="emit('update:status', $event)"
-          />
+          >
+            <template #value="{ value }">
+              <span
+                v-if="value"
+                class="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                :class="quoteStatusMeta[value as QuoteStatus].tagClass"
+                >{{ quoteStatusMeta[value as QuoteStatus].label }}</span
+              >
+            </template>
+            <template #option="{ option }">
+              <span
+                class="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                :class="quoteStatusMeta[option.value as QuoteStatus].tagClass"
+                >{{ option.label }}</span
+              >
+            </template>
+          </Select>
         </div>
         <Button
           severity="secondary"
@@ -431,16 +491,14 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           "
           @click="emit('newVersion')"
         >
-          <template #icon
-            ><span class="material-symbols-outlined text-lg">difference</span></template
-          >
+          <span class="material-symbols-outlined text-lg">difference</span>
           <span class="hidden sm:inline">Nouvelle version</span>
         </Button>
       </div>
     </div>
 
     <div
-      v-if="mode !== 'template' && statusLocked"
+      v-if="isQuote && statusLocked"
       class="mb-6 flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-50 p-3 text-sm text-amber-800"
     >
       <span class="material-symbols-outlined text-lg">lock</span>
@@ -453,15 +511,9 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <label
-        :class="
-          mode === 'template'
-            ? 'lg:col-span-2 flex flex-col gap-2'
-            : 'lg:col-span-2 flex flex-col gap-2'
-        "
-      >
+      <label class="flex flex-col gap-2" :class="isQuote ? '' : 'lg:col-span-2'">
         <span class="text-sm font-semibold text-surface-dark">{{
-          mode === "template" ? "Nom du template" : "Titre du devis"
+          isQuote ? "Titre du devis" : "Nom du template"
         }}</span>
         <InputText
           :model-value="title"
@@ -469,7 +521,15 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           @update:model-value="handleTitle"
         />
       </label>
-      <label v-if="mode !== 'template'" class="flex flex-col gap-2">
+      <label v-if="isQuote" class="flex flex-col gap-2">
+        <span class="text-sm font-semibold text-surface-dark">Nom du projet</span>
+        <InputText
+          :model-value="projectName"
+          placeholder="Ex: AutoVOPro"
+          @update:model-value="handleProjectName"
+        />
+      </label>
+      <label v-if="isQuote" class="flex flex-col gap-2">
         <span class="text-sm font-semibold text-surface-dark"
           >Date du devis</span
         >
@@ -482,11 +542,11 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           @update:model-value="handleQuoteDate"
         />
       </label>
-      <label v-if="mode !== 'template'" class="flex flex-col gap-2">
+      <label v-if="isQuote" class="flex flex-col gap-2">
         <span class="text-sm font-semibold text-surface-dark">Validité</span>
         <InputText :model-value="validUntil" disabled />
       </label>
-      <div v-if="mode !== 'template'" class="lg:col-span-2">
+      <div v-if="isQuote" class="lg:col-span-2">
         <span class="text-sm font-semibold text-surface-dark block mb-2"
           >Client</span
         >
@@ -507,19 +567,17 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
             placeholder="Sélectionner un client existant"
             @update:model-value="handleClientId"
           />
-          <Button severity="secondary" @click="emit('createClient')">
+          <Button severity="secondary" @click="emit('createClient')" label="Nouveau client">
             <template #icon
               ><span class="material-symbols-outlined text-lg"
                 >person_add</span
               ></template
-            >
-            Nouveau client
-          </Button>
+            ></Button>
         </div>
       </div>
       <div
-        v-if="mode !== 'template'"
-        class="rounded-2xl bg-white border border-surface-dark/5 p-4"
+        v-if="isQuote"
+        class="rounded-2xl bg-white border border-surface-dark/5 p-4 lg:col-span-2"
       >
         <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-1">
           Client sélectionné
@@ -532,7 +590,7 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
         </p>
       </div>
       <div
-        v-if="mode !== 'template'"
+        v-if="isQuote"
         class="rounded-2xl bg-white border border-surface-dark/5 p-4"
       >
         <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-1">
@@ -545,7 +603,7 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
         <p class="text-sm text-surface-dark/60 mt-1">{{ clientVatLabel }}</p>
       </div>
       <div
-        v-if="mode !== 'template'"
+        v-if="isQuote"
         class="rounded-2xl bg-white border border-surface-dark/5 p-4"
       >
         <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-1">
@@ -555,8 +613,7 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           {{ clientAddress || "Adresse non renseignée" }}
         </p>
       </div>
-      <div v-if="mode !== 'template'" aria-hidden="true"></div>
-      <label class="flex flex-col gap-2">
+      <label v-if="!isBase" class="flex flex-col gap-2 lg:col-start-1">
         <span class="text-sm font-semibold text-surface-dark">Plateforme</span>
         <Select
           :model-value="platform"
@@ -568,20 +625,20 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           @update:model-value="handlePlatform"
         />
       </label>
-      <label class="flex flex-col gap-2">
+      <label v-if="!isBase" class="flex flex-col gap-2">
         <span class="text-sm font-semibold text-surface-dark"
           >Plateforme personnalisée</span
         >
         <InputText
           :model-value="customPlatformLabel"
-          :disabled="platform !== 'other'"
+          :disabled="!canEditCustomPlatformLabel"
           placeholder="Ex: Webflow, Framer, maintenance, audit..."
           @update:model-value="handleCustomPlatformLabel"
         />
       </label>
       <label class="flex flex-col gap-2">
         <span class="text-sm font-semibold text-surface-dark">
-          {{ mode === "template" ? "Langue à modifier" : "Langue" }}
+          {{ isQuote ? "Langue" : "Langue à modifier" }}
         </span>
         <Select
           :model-value="language"
@@ -591,7 +648,7 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           @update:model-value="handleLanguage"
         />
       </label>
-      <label v-if="mode !== 'template'" class="flex flex-col gap-2">
+      <label v-if="isQuote" class="flex flex-col gap-2">
         <span class="text-sm font-semibold text-surface-dark">TVA</span>
         <Select
           :model-value="vatRate"
@@ -602,13 +659,13 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
         />
       </label>
       <div
-        v-if="mode !== 'template'"
-        class="rounded-2xl bg-white border border-surface-dark/5 p-4"
+        v-if="isQuote"
+        class="rounded-2xl bg-white border border-surface-dark/5 p-4 lg:col-span-2"
       >
         <div class="grid grid-cols-1 gap-3">
           <div class="flex flex-col gap-1.5">
             <span class="text-sm font-semibold text-surface-dark"
-              >Total des parties (HT)</span
+              >Investissement</span
             >
             <div
               class="flex items-center justify-between rounded-xl border border-surface-dark/8 bg-surface-light px-3 py-2.5"
@@ -617,10 +674,37 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
                 {{ formatAmount(getAmountBeforeDiscount(subtotal, discountAmount)) }} €
               </span>
               <span class="text-xs text-surface-dark/45"
-                >somme des parties non optionnelles</span
+                >{{ investmentAmount > 0 ? "prix global de la prestation" : "somme des parties non optionnelles" }}</span
               >
             </div>
           </div>
+        </div>
+        <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+          <label class="flex flex-col gap-2">
+            <span class="text-sm font-semibold text-surface-dark"
+              >Résumé du service</span
+            >
+            <InputText
+              :model-value="investmentSummary"
+              placeholder="Ex: Conception et développement de la plateforme"
+              @update:model-value="handleInvestmentSummary"
+            />
+          </label>
+          <label class="flex flex-col gap-2">
+            <span class="text-sm font-semibold text-surface-dark"
+              >Prix global HT</span
+            >
+            <InputNumber
+              :model-value="investmentAmount"
+              mode="currency"
+              currency="EUR"
+              locale="fr-FR"
+              :min="0"
+              input-class="text-right"
+              class="w-full"
+              @update:model-value="handleInvestmentAmount"
+            />
+          </label>
         </div>
         <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <label class="flex flex-col gap-2">
@@ -712,7 +796,10 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       </div>
     </div>
 
-    <div class="mt-6 rounded-3xl bg-white border border-surface-dark/5 p-5">
+    <div
+      v-if="!isBase"
+      class="mt-6 rounded-3xl bg-white border border-surface-dark/5 p-5"
+    >
       <div class="mb-3">
         <div>
           <h3 class="font-heading font-bold text-surface-dark">
@@ -728,7 +815,10 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       />
     </div>
 
-    <div class="mt-6 rounded-3xl bg-white border border-surface-dark/5 p-5">
+    <div
+      v-if="!isBase"
+      class="mt-6 rounded-3xl bg-white border border-surface-dark/5 p-5"
+    >
       <div class="mb-4">
         <h3 class="font-heading font-bold text-surface-dark">
           Contenu du devis
@@ -746,6 +836,7 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
     </div>
 
     <QuoteAddonsEditor
+      v-if="!isBase"
       :addons="addons"
       @add-addon="emit('addAddonPreset')"
       @duplicate-addon="emit('duplicateAddon', $event)"
@@ -767,44 +858,27 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       "
     />
 
-    <QuoteConditionsEditor
-      :conditions="conditions"
-      @add-condition="emit('addCondition')"
-      @remove-condition="emit('removeCondition', $event)"
-      @update-condition-title="
-        emit('updateCondition', {
-          id: $event.id,
-          field: 'title',
-          value: $event.value,
-        })
-      "
-      @add-condition-item="emit('addConditionItem', $event)"
-      @update-condition-item="emit('updateConditionItem', $event)"
-      @remove-condition-item="emit('removeConditionItem', $event)"
-      @move-condition-item="emit('moveConditionItem', $event)"
-      @nest-condition-item-under-item="
-        emit('nestConditionItemUnderItem', $event)
-      "
-      @add-condition-sub-item="emit('addConditionSubItem', $event)"
-      @update-condition-sub-item="emit('updateConditionSubItem', $event)"
-      @remove-condition-sub-item="emit('removeConditionSubItem', $event)"
-      @move-condition-sub-item="emit('moveConditionSubItem', $event)"
-      @move-condition-sub-item-to-item="
-        emit('moveConditionSubItemToItem', $event)
-      "
-      @promote-condition-sub-item-to-item="
-        emit('promoteConditionSubItemToItem', $event)
-      "
+    <QuotePaymentScheduleEditor
+      v-if="!isTemplate"
+      class="mt-6"
+      :model-value="paymentSchedule"
+      :subtotal="subtotal"
+      :total-with-vat="totalWithVat"
+      :currency-locale="currencyLocale"
+      @update:model-value="emit('update:paymentSchedule', $event)"
     />
 
     <QuoteConditionsEditor
+      v-if="!isBase"
       :conditions="roadmap"
-      section-title="Roadmap & estimated timeline"
+      section-title="Feuille de route & calendrier estimé"
       add-button-label="Ajouter une phase"
       empty-label="Aucune phase pour l’instant."
       item-empty-label="Aucun point pour cette phase."
-      item-placeholder="Texte du point de roadmap"
+      item-placeholder="Texte du point de la feuille de route"
       title-placeholder="Nouvelle phase"
+      lock-last-condition-title
+      :locked-last-condition-title="getEstimatedTimelineTitle(language)"
       @add-condition="emit('addRoadmapPhase')"
       @move-condition="emit('moveRoadmapPhase', $event)"
       @remove-condition="emit('removeRoadmapPhase', $event)"
@@ -833,8 +907,59 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
     />
 
     <QuoteConditionsEditor
+      :conditions="conditions"
+      :section-title="
+        isBase
+          ? 'Conditions communes'
+          : isTemplate
+            ? 'Conditions du template'
+            : 'Conditions'
+      "
+      :add-button-label="
+        isBase ? 'Ajouter une condition commune' : 'Ajouter une condition'
+      "
+      :empty-label="
+        isBase
+          ? 'Aucune condition commune pour l’instant.'
+          : 'Aucune condition pour l’instant.'
+      "
+      :reusable-conditions="isTemplate ? reusableConditions || [] : []"
+      reusable-conditions-label="Ajouter une condition commune"
+      :condition-badges="conditionBadges"
+      :locked-condition-ids="lockedCommonConditionIds"
+      @add-condition="emit('addCondition')"
+      @add-reusable-condition="emit('addReusableCondition', $event)"
+      @remove-condition="emit('removeCondition', $event)"
+      @update-condition-title="
+        emit('updateCondition', {
+          id: $event.id,
+          field: 'title',
+          value: $event.value,
+        })
+      "
+      @add-condition-item="emit('addConditionItem', $event)"
+      @update-condition-item="emit('updateConditionItem', $event)"
+      @remove-condition-item="emit('removeConditionItem', $event)"
+      @move-condition-item="emit('moveConditionItem', $event)"
+      @nest-condition-item-under-item="
+        emit('nestConditionItemUnderItem', $event)
+      "
+      @add-condition-sub-item="emit('addConditionSubItem', $event)"
+      @update-condition-sub-item="emit('updateConditionSubItem', $event)"
+      @remove-condition-sub-item="emit('removeConditionSubItem', $event)"
+      @move-condition-sub-item="emit('moveConditionSubItem', $event)"
+      @move-condition-sub-item-to-item="
+        emit('moveConditionSubItemToItem', $event)
+      "
+      @promote-condition-sub-item-to-item="
+        emit('promoteConditionSubItemToItem', $event)
+      "
+    />
+
+    <QuoteConditionsEditor
+      v-if="!isTemplate"
       :conditions="acceptance"
-      section-title="Acceptance of proposal"
+      section-title="Acceptation de la proposition"
       add-button-label="Ajouter un élément"
       empty-label="Aucun élément d’acceptation pour l’instant."
       item-empty-label="Aucun point pour cet élément."
@@ -870,13 +995,16 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
     />
 
     <QuoteConditionsEditor
+      v-if="!isTemplate"
       :conditions="principles"
-      section-title="Our principles"
+      section-title="Nos principes"
       add-button-label="Ajouter un principe"
       empty-label="Aucun principe pour l’instant."
       item-empty-label="Aucun point pour ce principe."
       item-placeholder="Texte du principe"
       title-placeholder="Nouveau principe"
+      :show-tag-input="mode === 'base'"
+      tag-placeholder="Tag / hashtag optionnel"
       @add-condition="emit('addPrinciple')"
       @move-condition="emit('movePrinciple', $event)"
       @remove-condition="emit('removePrinciple', $event)"
@@ -884,6 +1012,13 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
         emit('updatePrinciple', {
           id: $event.id,
           field: 'title',
+          value: $event.value,
+        })
+      "
+      @update-condition-tag="
+        emit('updatePrinciple', {
+          id: $event.id,
+          field: 'tag',
           value: $event.value,
         })
       "

@@ -1,4 +1,4 @@
-import type { ClientPlatform, ClientProject, ClientStage, OnboardingTask, QuoteAddon, QuoteCondition, QuoteConditionItem, QuoteDiscountType, QuoteLanguage, QuoteStatus, QuoteTemplateInput, QuoteTemplateLocalizedContent, VatRate } from '@client-tracker/contracts';
+import type { ClientPlatform, ClientProject, ClientStage, OnboardingTask, QuoteAddon, QuoteCondition, QuoteConditionItem, QuoteDiscountType, QuoteLanguage, QuotePaymentScheduleStep, QuoteStatus, QuoteTemplateInput, QuoteTemplateLocalizedContent, VatRate } from '@client-tracker/contracts';
 import { isEuroCountry } from '@/lib/countries';
 
 const createId = (): string =>
@@ -11,6 +11,15 @@ type LocalizedCopy = Record<QuoteLanguage, string>;
 const pick = (copy: LocalizedCopy, language: QuoteLanguage): string => copy[language];
 
 const emptyLocalizedCopy = (): LocalizedCopy => ({ fr: '', en: '', es: '' });
+
+export const estimatedTimelineTitles: LocalizedCopy = {
+  fr: 'Calendrier estimé',
+  en: 'Estimated timeline',
+  es: 'Calendario estimado',
+};
+
+export const getEstimatedTimelineTitle = (language: QuoteLanguage): string =>
+  estimatedTimelineTitles[language] || estimatedTimelineTitles.fr;
 
 const bulletItemsFromCopy = (value: string): QuoteConditionItem[] => {
   const lines = value
@@ -88,6 +97,20 @@ export const discountTypeOptions: Array<{ label: string; value: QuoteDiscountTyp
   { label: 'Pourcentage', value: 'percent' },
   { label: 'Montant fixe', value: 'fixed' },
 ];
+
+export const createDefaultPaymentSchedule = (language: QuoteLanguage = 'fr'): QuotePaymentScheduleStep[] => {
+  const labels: Record<QuoteLanguage, string[]> = {
+    fr: ['Acompte à la validation du devis', 'Paiement intermédiaire', 'Solde à la livraison'],
+    en: ['Deposit on quote approval', 'Intermediate payment', 'Balance on delivery'],
+    es: ['Anticipo al aprobar el presupuesto', 'Pago intermedio', 'Saldo a la entrega'],
+  };
+
+  return [
+    { id: createId(), label: labels[language][0], mode: 'percent', value: 40 },
+    { id: createId(), label: labels[language][1], mode: 'percent', value: 40 },
+    { id: createId(), label: labels[language][2], mode: 'percent', value: 20 },
+  ];
+};
 
 export const clientStageOptions: Array<{ label: string; value: ClientStage }> = [
   { label: 'Lead', value: 'lead' },
@@ -270,22 +293,18 @@ const getQuoteRoadmapTemplates = (
       },
       {
         title: {
-          fr: '4. Mise en ligne, handover & support',
+          fr: '4. Mise en ligne, transmission & accompagnement',
           en: '4. Launch, handover & support',
           es: '4. Lanzamiento, handover y soporte',
         },
         body: {
-          fr: '• Mise en ligne du site Squarespace et validation des points essentiels\n• Transmission des accès et handover sur la gestion du site\n• Support post-livraison pour sécuriser les derniers ajustements',
+          fr: '• Mise en ligne du site Squarespace et validation des points essentiels\n• Transmission des accès et accompagnement sur la gestion du site\n• Accompagnement post-livraison pour sécuriser les derniers ajustements',
           en: '• Squarespace website launch and validation of the key checkpoints\n• Access handover and guidance on how to manage the site\n• Post-delivery support to secure the final adjustments',
           es: '• Lanzamiento del sitio Squarespace y validación de los puntos clave\n• Entrega de accesos y handover sobre la gestión del sitio\n• Soporte post-entrega para asegurar los últimos ajustes',
         },
       },
       {
-        title: {
-          fr: 'Timeline estimée',
-          en: 'Estimated timeline',
-          es: 'Calendario estimado',
-        },
+        title: estimatedTimelineTitles,
         body: {
           fr: '• Environ 4 à 5 semaines, selon la disponibilité des contenus et les délais de validation.',
           en: '• Approximately 4 to 5 weeks, depending on content readiness and validation timelines.',
@@ -334,7 +353,7 @@ const getQuoteRoadmapTemplates = (
     },
     {
       title: {
-        fr: '4. Livraison, handover & support',
+        fr: '4. Livraison, transmission & accompagnement',
         en: '4. Delivery, handover & support',
         es: '4. Entrega, handover y soporte',
       },
@@ -345,11 +364,7 @@ const getQuoteRoadmapTemplates = (
       },
     },
     {
-      title: {
-        fr: 'Estimated timeline',
-        en: 'Estimated timeline',
-        es: 'Calendario estimado',
-      },
+      title: estimatedTimelineTitles,
       body: {
         fr: '',
         en: '',
@@ -361,18 +376,18 @@ const getQuoteRoadmapTemplates = (
 
 const addonTemplates: Array<{ title: LocalizedCopy; description: LocalizedCopy; price: number; unitLabel?: LocalizedCopy }> = [
   {
-    title: { fr: 'Support horaire - pack 5 heures', en: 'Hourly support - 5-hour pack', es: 'Soporte por horas - pack 5 horas' },
+    title: { fr: 'Assistance horaire - pack 5 heures', en: 'Hourly support - 5-hour pack', es: 'Soporte por horas - pack 5 horas' },
     description: {
-      fr: '• Valable 12 mois\n• Accompagnement ponctuel, ajustements, optimisations ou support client\n• Tarif horaire indicatif : 48,00 EUR / h',
+      fr: '• Valable 12 mois\n• Accompagnement ponctuel, ajustements, optimisations ou assistance client\n• Tarif horaire indicatif : 48,00 EUR / h',
       en: '• Valid for 12 months\n• Ongoing support, adjustments, optimisations or client assistance\n• Indicative hourly rate: EUR 48.00 / h',
       es: '• Válido durante 12 meses\n• Soporte puntual, ajustes, optimizaciones o asistencia al cliente\n• Tarifa horaria orientativa: 48,00 EUR / h',
     },
     price: 240,
   },
   {
-    title: { fr: 'Support horaire - pack 10 heures', en: 'Hourly support - 10-hour pack', es: 'Soporte por horas - pack 10 horas' },
+    title: { fr: 'Assistance horaire - pack 10 heures', en: 'Hourly support - 10-hour pack', es: 'Soporte por horas - pack 10 horas' },
     description: {
-      fr: '• Valable 12 mois\n• Accompagnement ponctuel, ajustements, optimisations ou support client\n• Tarif horaire indicatif : 45,00 EUR / h',
+      fr: '• Valable 12 mois\n• Accompagnement ponctuel, ajustements, optimisations ou assistance client\n• Tarif horaire indicatif : 45,00 EUR / h',
       en: '• Valid for 12 months\n• Ongoing support, adjustments, optimisations or client assistance\n• Indicative hourly rate: EUR 45.00 / h',
       es: '• Válido durante 12 meses\n• Soporte puntual, ajustes, optimizaciones o asistencia al cliente\n• Tarifa horaria orientativa: 45,00 EUR / h',
     },
@@ -560,7 +575,7 @@ export const createAddonPresets = (language: QuoteLanguage): QuoteAddon[] =>
 
 export const createBlankAddon = (): QuoteAddon => ({
   id: createId(),
-  title: 'Nouvel add-on',
+  title: 'Nouvelle option',
   description: '',
   items: [],
   price: 0,
@@ -568,18 +583,58 @@ export const createBlankAddon = (): QuoteAddon => ({
   enabled: true,
 });
 
+/**
+ * Mail d'envoi standard par langue. Placeholders remplacés à la génération :
+ * {client} = prénom du client, {titre} = titre du devis, {ref} = référence.
+ */
+export const quoteEmailPresets: Record<QuoteLanguage, { subject: string; body: string }> = {
+  fr: {
+    subject: 'Proposition de devis - {titre} ({ref})',
+    body: `Bonjour {client},
+
+Vous trouverez ci-joint le devis pour {titre}.
+
+Si tout vous convient, vous pouvez simplement me le confirmer par retour d’email et je m’occuperai de la suite. Si vous souhaitez ajuster un point, je peux bien entendu mettre le devis à jour.
+
+Bien à vous,`,
+  },
+  en: {
+    subject: 'Quote proposal - {titre} ({ref})',
+    body: `Hi {client},
+
+Please find attached the quote for {titre}.
+
+If everything looks good to you, you can simply confirm by replying to this email and I will take care of the next steps. If you would like to adjust anything, I can of course update the quote accordingly.
+
+Kind regards,`,
+  },
+  es: {
+    subject: 'Propuesta de presupuesto - {titre} ({ref})',
+    body: `Hola {client},
+
+Te adjunto el presupuesto para {titre}.
+
+Si todo te encaja, puedes confirmármelo respondiendo a este correo y me encargaré de los siguientes pasos. Si quieres ajustar algún punto, por supuesto puedo actualizar el presupuesto.
+
+Un saludo,`,
+  },
+};
+
 export const createDefaultQuoteTemplateLocalizedContent = (
   platform: ClientPlatform,
   clientCountry: string = '',
 ): Record<QuoteLanguage, QuoteTemplateLocalizedContent> => {
   const build = (language: QuoteLanguage): QuoteTemplateLocalizedContent => ({
     projectSummary: '',
+    emailSubject: '',
+    emailBody: '',
     parts: [],
     conditions: createDefaultQuoteConditions(platform, language, clientCountry),
     roadmap: createDefaultQuoteRoadmap(platform, language),
     acceptance: createDefaultQuoteAcceptance(language),
     principles: createDefaultQuotePrinciples(language),
     addons: createAddonPresets(language),
+    paymentSchedule: createDefaultPaymentSchedule(language),
   });
   return { fr: build('fr'), en: build('en'), es: build('es') };
 };
@@ -595,12 +650,14 @@ export const createDefaultQuoteTemplate = (
 
   return {
     name,
-    isDefault: false,
+    kind: 'custom',
     platform,
     customPlatformLabel: '',
     language,
     vatRate: 21,
     projectSummary: activeContent.projectSummary,
+    emailSubject: activeContent.emailSubject,
+    emailBody: activeContent.emailBody,
     discountType: 'percent',
     discountValue: 0,
     parts: activeContent.parts,
@@ -609,6 +666,7 @@ export const createDefaultQuoteTemplate = (
     acceptance: activeContent.acceptance,
     principles: activeContent.principles,
     addons: activeContent.addons,
+    paymentSchedule: activeContent.paymentSchedule,
     localizedContent,
   };
 };

@@ -68,16 +68,9 @@ const toggleMenu = (event: Event) => menu.value.toggle(event);
       
       <img
         src="/img/logo.png"
-        alt="Logo"
-        class="h-10 w-auto object-contain transition-transform group-hover:scale-105"
+        alt="Devisio"
+        class="h-10 w-auto max-w-[160px] object-contain transition-transform group-hover:scale-105"
       />
-      
-
-      <span
-        class="font-brand text-2xl font-bold text-slate-800 group-hover:text-[var(--color-primary)] transition-colors"
-      >
-        Devisio
-      </span>
     </div>
 
     <div class="flex items-center gap-3">

@@ -1,5 +1,5 @@
 import type { QuoteTemplate, QuoteTemplateInput } from '@client-tracker/contracts';
-import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { auth, db } from '@/services/firebase';
 
 const ensureUser = (): string => {
@@ -54,7 +54,11 @@ export const quoteTemplatesService = {
 
   async update(id: string, payload: QuoteTemplateInput): Promise<QuoteTemplate> {
     const userId = ensureUser();
-    await updateDoc(doc(db, 'quoteTemplates', id), {
+    const docRef = doc(db, 'quoteTemplates', id);
+    const existingSnapshot = await getDoc(docRef);
+    const existing = existingSnapshot.exists() ? (existingSnapshot.data() as Partial<QuoteTemplate>) : {};
+    const now = new Date().toISOString();
+    await updateDoc(docRef, {
       ...payload,
       updatedAt: serverTimestamp(),
     });
@@ -63,14 +67,17 @@ export const quoteTemplatesService = {
       id,
       userId,
       ...payload,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: existing.createdAt || now,
+      updatedAt: now,
     };
   },
 
-  async setDefault(id: string, isDefault: boolean): Promise<void> {
+  /** Promeut un template existant en base commune (migration de l'ancien flag isDefault). */
+  async promoteToBase(id: string, name: string): Promise<void> {
     await updateDoc(doc(db, 'quoteTemplates', id), {
-      isDefault,
+      kind: 'base',
+      name,
+      isDefault: deleteField(),
       updatedAt: serverTimestamp(),
     });
   },

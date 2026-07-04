@@ -9,6 +9,7 @@ import {
   watch,
 } from "vue";
 import type {
+  Client,
   ClientInput,
   Quote,
   QuoteAddon,
@@ -18,13 +19,16 @@ import type {
   QuoteDiscountType,
   QuoteInput,
   QuoteLanguage,
+  QuotePaymentScheduleStep,
   QuoteStatus,
   QuoteTemplate,
   QuoteTemplateLocalizedContent,
 } from "@client-tracker/contracts";
 import Button from "primevue/button";
+import ConfirmDialog from "primevue/confirmdialog";
 import Dialog from "primevue/dialog";
 import Select from "primevue/select";
+import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import ClientFormDialog from "@/components/clients/ClientFormDialog.vue";
 import QuoteActionBar from "@/components/quotes/QuoteActionBar.vue";
@@ -33,12 +37,12 @@ import QuoteListPanel from "@/components/quotes/QuoteListPanel.vue";
 import QuoteOutputPanel from "@/components/quotes/QuoteOutputPanel.vue";
 import QuoteTablePanel from "@/components/quotes/QuoteTablePanel.vue";
 import {
-  createAddonPresets,
   createBlankAddon,
+  createDefaultPaymentSchedule,
   createDefaultQuoteAcceptance,
-  createDefaultQuoteConditions,
   createDefaultQuotePrinciples,
-  createDefaultQuoteRoadmap,
+  getEstimatedTimelineTitle,
+  quoteEmailPresets,
 } from "@/lib/clientPresets";
 import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
@@ -46,10 +50,12 @@ import { useQuotesStore } from "@/stores/quotesStore";
 import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
 import { formatClientAddress, formatClientFullName } from "@/utils/address";
 import { copyToClipboard } from "@/utils/clipboard";
-import { printQuoteDocument } from "@/utils/quotePdf";
+import { formatDateTime } from "@/utils/date";
+import { renderQuoteDocumentHtml } from "@/utils/quotePdf";
 import {
   calculateAddonTotal,
   calculateQuotePartsTotals,
+  clonePaymentSchedule,
   cloneQuoteParts,
   createEmptyQuotePart,
   createEntityId,
@@ -62,26 +68,35 @@ import {
   getTodayQuoteDate,
   parseQuoteDate,
 } from "@/utils/quote";
+import { resolveCommonConditionReferences as resolveSharedCommonConditionReferences } from "@/utils/quoteTemplateDraft";
 import { computeVatRateForClient, getVatExplanation } from "@/utils/vat";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 type QuoteDraft = QuoteInput;
 
+const route = useRoute();
 const router = useRouter();
 const quotesStore = useQuotesStore();
 const clientsStore = useClientsStore();
 const quoteTemplatesStore = useQuoteTemplatesStore();
 const authStore = useAuthStore();
 const toast = useToast();
+const confirm = useConfirm();
 const clientDialogVisible = ref(false);
+const previewDialogVisible = ref(false);
+const previewFrame = ref<HTMLIFrameElement | null>(null);
+const previewScrollPosition = ref({ left: 0, top: 0 });
+const shouldRestorePreviewScroll = ref(false);
 const mobileEditorVisible = ref(false);
 const isCompactQuotesView = ref(false);
 const quoteSearch = ref("");
 const quoteFilterClientId = ref("");
-const quoteFilterDate = ref<Date | null>(null);
+const quoteFilterDateRange = ref<Date[] | null>(null);
 const quoteFilterStatus = ref<QuoteStatus | "">("");
 const selectedTemplateId = ref<string | null>("");
 const lastAutoEmailDraft = ref("");
+const lastAutoEmailSubject = ref("");
+const lastAutoEmailBody = ref("");
 const unsavedAttention = ref(false);
 // Empêche les watchers de régénérer le contenu par défaut pendant le chargement
 // d'un devis (sinon le formulaire diffère toujours de la référence → faux « modifié »).
@@ -93,9 +108,14 @@ const syncCompactMode = () => {
   isCompactQuotesView.value = window.innerWidth < 1024;
 };
 
+// Brouillon vierge : le contenu de stack (conditions, roadmap, add-ons…) vient
+// d'un template ; le mail, la validation et les principes viennent de la base commune.
+// Les conditions communes sont référencées par les templates pour rester ordonnables.
 const createDraft = (): QuoteDraft => ({
   clientId: "",
+  templateId: "",
   title: "",
+  projectName: "",
   quoteDate: getTodayQuoteDate(),
   quoteRef: generateQuoteReference(""),
   platform: "shopify",
@@ -106,6 +126,8 @@ const createDraft = (): QuoteDraft => ({
   clientWebsite: "",
   vatRate: 21,
   projectSummary: "",
+  investmentSummary: "",
+  investmentAmount: 0,
   emailDraft: "",
   emailSubject: "",
   emailBody: "",
@@ -113,19 +135,25 @@ const createDraft = (): QuoteDraft => ({
   discountValue: 0,
   version: 1,
   versionGroupId: createEntityId(),
-  parts: [createEmptyQuotePart()],
-  conditions: createDefaultQuoteConditions("shopify", "fr"),
-  roadmap: createDefaultQuoteRoadmap("shopify", "fr"),
-  acceptance: createDefaultQuoteAcceptance("fr"),
-  principles: createDefaultQuotePrinciples("fr"),
-  addons: createAddonPresets("fr"),
+  parts: [],
+  conditions: [],
+  roadmap: [],
+  acceptance: [],
+  principles: [],
+  addons: [],
+  paymentSchedule: createDefaultPaymentSchedule("fr"),
   status: "draft",
 });
+
+const cloneDraft = (draft: QuoteDraft): QuoteDraft =>
+  JSON.parse(JSON.stringify(draft)) as QuoteDraft;
 
 const cloneTemplateLocalizedSlice = (
   slice?: Partial<QuoteTemplateLocalizedContent> | null,
 ): QuoteTemplateLocalizedContent => ({
   projectSummary: slice?.projectSummary || "",
+  emailSubject: slice?.emailSubject || "",
+  emailBody: slice?.emailBody || "",
   parts: (slice?.parts || []).map((part) => ({
     ...part,
     id: part.id || createEntityId(),
@@ -207,6 +235,7 @@ const cloneTemplateLocalizedSlice = (
       })),
     })),
   })),
+  paymentSchedule: clonePaymentSchedule(slice?.paymentSchedule || []),
 });
 
 const resolveTemplateContent = (
@@ -214,7 +243,13 @@ const resolveTemplateContent = (
   language: QuoteLanguage,
 ): QuoteTemplateLocalizedContent => {
   const localizedSlice = template.localizedContent?.[language];
-  if (localizedSlice) return cloneTemplateLocalizedSlice(localizedSlice);
+  if (localizedSlice) {
+    const content = cloneTemplateLocalizedSlice(localizedSlice);
+    if (!content.paymentSchedule.length && template.paymentSchedule?.length) {
+      content.paymentSchedule = clonePaymentSchedule(template.paymentSchedule);
+    }
+    return content;
+  }
 
   return cloneTemplateLocalizedSlice({
     projectSummary: template.projectSummary || "",
@@ -224,7 +259,100 @@ const resolveTemplateContent = (
     acceptance: template.acceptance,
     principles: template.principles,
     addons: template.addons,
+    paymentSchedule: template.paymentSchedule,
   });
+};
+
+const normalizeStoredMailTemplate = (
+  value: string | undefined,
+  preset: string,
+): string => {
+  const normalizedValue = (value || "").trim().replace(/\r\n/g, "\n");
+  const normalizedPreset = preset.trim().replace(/\r\n/g, "\n");
+  return normalizedValue === normalizedPreset ? "" : normalizedValue;
+};
+
+/**
+ * Contenu commun issu de la base commune (mail d'envoi, validation &
+ * principes), dans la langue demandée. Le mail reste vide tant qu'il n'a pas
+ * été explicitement encodé.
+ */
+const getBaseCommonContent = (
+  language: QuoteLanguage,
+): Pick<QuoteDraft, "emailSubject" | "emailBody" | "acceptance" | "principles" | "paymentSchedule"> => {
+  const base = quoteTemplatesStore.baseTemplate;
+  if (!base) {
+    return {
+      emailSubject: "",
+      emailBody: "",
+      acceptance: createDefaultQuoteAcceptance(language),
+      principles: createDefaultQuotePrinciples(language),
+      paymentSchedule: createDefaultPaymentSchedule(language),
+    };
+  }
+  const content = resolveTemplateContent(base, language);
+  return {
+    emailSubject: normalizeStoredMailTemplate(
+      content.emailSubject,
+      quoteEmailPresets[language].subject,
+    ),
+    emailBody: normalizeStoredMailTemplate(
+      content.emailBody,
+      quoteEmailPresets[language].body,
+    ),
+    acceptance: content.acceptance,
+    principles: content.principles,
+    paymentSchedule: content.paymentSchedule?.length
+      ? clonePaymentSchedule(content.paymentSchedule)
+      : createDefaultPaymentSchedule(language),
+  };
+};
+
+const getBaseCommonConditions = (language: QuoteLanguage): QuoteCondition[] => {
+  const base = quoteTemplatesStore.baseTemplate;
+  if (!base) return [];
+  return resolveTemplateContent(base, language).conditions;
+};
+
+const resolveCommonConditionReferences = (
+  conditions: QuoteCondition[] = [],
+  language: QuoteLanguage,
+): QuoteCondition[] => {
+  return resolveSharedCommonConditionReferences(
+    conditions,
+    getBaseCommonConditions(language),
+  );
+};
+
+const normalizePaymentScheduleForComparison = (
+  steps: QuotePaymentScheduleStep[] = [],
+) =>
+  steps.map((step) => ({
+    label: (step.label || "").trim().toLowerCase(),
+    mode: step.mode || "percent",
+    value: Number(step.value || 0),
+  }));
+
+const isDefaultPaymentSchedule = (
+  steps: QuotePaymentScheduleStep[] = [],
+  language: QuoteLanguage,
+) => {
+  if (!steps.length) return true;
+  const current = normalizePaymentScheduleForComparison(steps);
+  const defaults = normalizePaymentScheduleForComparison(
+    createDefaultPaymentSchedule(language),
+  );
+  return JSON.stringify(current) === JSON.stringify(defaults);
+};
+
+const resolveQuotePaymentSchedule = (
+  quote: Pick<Quote, "language" | "paymentSchedule">,
+) => {
+  const quoteSchedule = clonePaymentSchedule(quote.paymentSchedule || []);
+  if (isDefaultPaymentSchedule(quoteSchedule, quote.language)) {
+    return getBaseCommonContent(quote.language).paymentSchedule;
+  }
+  return quoteSchedule;
 };
 
 const createDraftFromTemplate = (
@@ -236,7 +364,9 @@ const createDraftFromTemplate = (
 
   return {
     clientId: "",
+    templateId: template.id,
     title: "",
+    projectName: "",
     quoteDate: getTodayQuoteDate(),
     quoteRef: generateQuoteReference(""),
     platform: template.platform,
@@ -247,6 +377,8 @@ const createDraftFromTemplate = (
     clientWebsite: "",
     vatRate: 21,
     projectSummary: localizedContent.projectSummary,
+    investmentSummary: "",
+    investmentAmount: 0,
     emailDraft: "",
     emailSubject: "",
     emailBody: "",
@@ -255,11 +387,15 @@ const createDraftFromTemplate = (
     version: 1,
     versionGroupId: createEntityId(),
     parts: cloneQuoteParts(localizedContent.parts),
-    conditions: localizedContent.conditions,
+    conditions: resolveCommonConditionReferences(
+      localizedContent.conditions,
+      targetLanguage,
+    ),
     roadmap: localizedContent.roadmap,
     acceptance: localizedContent.acceptance,
     principles: localizedContent.principles,
     addons: localizedContent.addons,
+    paymentSchedule: clonePaymentSchedule(localizedContent.paymentSchedule),
     status: "draft",
   };
 };
@@ -267,10 +403,59 @@ const createDraftFromTemplate = (
 const buildStandardQuoteEmail = (payload: {
   language: QuoteLanguage;
   clientName: string;
+  clientFirstName?: string;
   title: string;
+  projectName: string;
   quoteRef: string;
+  hourlyRate?: number;
+  subjectTemplate?: string;
+  bodyTemplate?: string;
 }): { subject: string; body: string } => {
-  const clientGreeting = payload.clientName || "";
+  const clientFirstName =
+    payload.clientFirstName?.trim() ||
+    payload.clientName.trim().split(/\s+/)[0] ||
+    "";
+  const replacements: Record<string, string> = {
+    client: clientFirstName,
+    titre: payload.title || "",
+    projet: payload.projectName || "",
+    ref: payload.quoteRef || "",
+    taux_horaire: payload.hourlyRate
+      ? new Intl.NumberFormat("fr-FR", {
+          style: "currency",
+          currency: "EUR",
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(payload.hourlyRate)
+      : "",
+    taux_journalier: payload.hourlyRate
+      ? new Intl.NumberFormat("fr-FR", {
+          style: "currency",
+          currency: "EUR",
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(payload.hourlyRate * 8)
+      : "",
+  };
+  const renderTemplate = (template: string) =>
+    template.replace(
+      /\{(client|titre|projet|ref|taux_horaire|taux_journalier)\}/g,
+      (_match, key: string) => replacements[key] || "",
+    );
+
+  const hasTemplate =
+    payload.subjectTemplate !== undefined || payload.bodyTemplate !== undefined;
+  const baseSubject = payload.subjectTemplate ?? quoteEmailPresets[payload.language].subject;
+  const baseBody = payload.bodyTemplate ?? quoteEmailPresets[payload.language].body;
+
+  if (hasTemplate) {
+    return {
+      subject: renderTemplate(baseSubject),
+      body: renderTemplate(baseBody),
+    };
+  }
+
+  const clientGreeting = clientFirstName;
   const quoteTitle = payload.title || "";
   const quoteLabel =
     quoteTitle && payload.quoteRef
@@ -320,14 +505,42 @@ Bien à vous,`,
 };
 
 const form = reactive<QuoteDraft>(createDraft());
+const newQuoteBaseline = ref<QuoteDraft>(cloneDraft(createDraft()));
+
+const resolveClientFirstName = (clientId: string, fallbackName: string): string => {
+  const client = clientsStore.clients.find((entry) => entry.id === clientId);
+  return client?.firstName?.trim() || fallbackName.trim().split(/\s+/)[0] || "";
+};
 
 const buildCurrentStandardEmail = (): { subject: string; body: string } =>
+  {
+    const baseContent = getBaseCommonContent(form.language);
+    return buildStandardQuoteEmail({
+      language: form.language,
+      clientName: form.clientName,
+      clientFirstName: resolveClientFirstName(form.clientId, form.clientName),
+      title: form.title,
+      projectName: form.projectName || "",
+      quoteRef: form.quoteRef,
+      hourlyRate: Number(authStore.userProfile?.hourlyRate || 0),
+      subjectTemplate: baseContent.emailSubject,
+      bodyTemplate: baseContent.emailBody,
+    });
+  };
+
+const renderedEmail = computed(() =>
   buildStandardQuoteEmail({
     language: form.language,
     clientName: form.clientName,
+    clientFirstName: resolveClientFirstName(form.clientId, form.clientName),
     title: form.title,
+    projectName: form.projectName || "",
     quoteRef: form.quoteRef,
-  });
+    hourlyRate: Number(authStore.userProfile?.hourlyRate || 0),
+    subjectTemplate: form.emailSubject,
+    bodyTemplate: form.emailBody,
+  }),
+);
 
 const splitLegacyEmailDraft = (
   emailDraft: string,
@@ -355,6 +568,16 @@ const composeLegacyEmailDraft = (
   if (!subject.trim()) return body.trim();
   if (!body.trim()) return `${prefix}: ${subject.trim()}`;
   return `${prefix}: ${subject.trim()}\n\n${body.trim()}`;
+};
+
+const rememberAutoEmail = (
+  subject: string,
+  body: string,
+  language: QuoteLanguage,
+) => {
+  lastAutoEmailSubject.value = subject;
+  lastAutoEmailBody.value = body;
+  lastAutoEmailDraft.value = composeLegacyEmailDraft(subject, body, language);
 };
 
 const buildConditionItemsFromBody = (body: string): QuoteConditionItem[] =>
@@ -394,7 +617,9 @@ const normalizeAddonItems = (addon: QuoteAddon): QuoteConditionItem[] => {
 
 const normalizeDraft = (draft: QuoteDraft) => ({
   clientId: draft.clientId,
+  templateId: draft.templateId || "",
   title: draft.title,
+  projectName: draft.projectName || "",
   quoteDate: draft.quoteDate,
   quoteRef: draft.quoteRef,
   platform: draft.platform,
@@ -405,6 +630,8 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   clientWebsite: draft.clientWebsite,
   vatRate: draft.vatRate,
   projectSummary: draft.projectSummary,
+  investmentSummary: draft.investmentSummary || "",
+  investmentAmount: Number(draft.investmentAmount || 0),
   emailDraft: draft.emailDraft,
   emailSubject: draft.emailSubject,
   emailBody: draft.emailBody,
@@ -416,10 +643,12 @@ const normalizeDraft = (draft: QuoteDraft) => ({
     displayStyle: part.displayStyle,
     price: part.price,
     optional: part.optional,
+    includeInInvestment: part.includeInInvestment !== false,
     priceNote: part.priceNote,
     sections: (part.sections || []).map((section) => ({
       title: section.title,
       description: section.description,
+      displayMode: section.displayMode || "bullets",
       items: (section.items || []).map((item) => ({
         text: item.text,
         subItems: (item.subItems || []).map((subItem) => ({
@@ -435,6 +664,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   })),
   conditions: draft.conditions.map((condition) => ({
     title: condition.title,
+    tag: condition.tag || "",
     body: condition.body,
     items: normalizeConditionItems(condition).map((item) => ({
       text: item.text,
@@ -443,6 +673,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   })),
   roadmap: draft.roadmap.map((phase) => ({
     title: phase.title,
+    tag: phase.tag || "",
     body: phase.body,
     items: normalizeConditionItems(phase).map((item) => ({
       text: item.text,
@@ -451,6 +682,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   })),
   acceptance: draft.acceptance.map((entry) => ({
     title: entry.title,
+    tag: entry.tag || "",
     body: entry.body,
     items: normalizeConditionItems(entry).map((item) => ({
       text: item.text,
@@ -459,6 +691,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   })),
   principles: draft.principles.map((principle) => ({
     title: principle.title,
+    tag: principle.tag || "",
     body: principle.body,
     items: normalizeConditionItems(principle).map((item) => ({
       text: item.text,
@@ -475,6 +708,11 @@ const normalizeDraft = (draft: QuoteDraft) => ({
     price: addon.price,
     unitLabel: addon.unitLabel || "",
   })),
+  paymentSchedule: clonePaymentSchedule(draft.paymentSchedule || []).map((step) => ({
+    label: step.label,
+    mode: step.mode,
+    value: step.value,
+  })),
 });
 
 const totals = computed(() => ({
@@ -483,9 +721,68 @@ const totals = computed(() => ({
     form.vatRate,
     form.discountType,
     form.discountValue,
+    form.investmentAmount,
   ),
   addonsTotal: calculateAddonTotal(form.addons),
 }));
+
+const livePreviewQuote = computed<Quote>(() => ({
+  id: quoteId.value || "live-preview",
+  userId: "local",
+  ...form,
+  subtotal: totals.value.subtotal,
+  totalWithVat: totals.value.totalWithVat,
+  createdAt: new Date().toISOString(),
+}));
+
+const livePreviewHtml = computed(() =>
+  renderQuoteDocumentHtml(livePreviewQuote.value, authStore.userProfile, {
+    showPreviewToolbar: false,
+  }),
+);
+
+const livePreviewStandaloneHtml = computed(() =>
+  renderQuoteDocumentHtml(livePreviewQuote.value, authStore.userProfile, {
+    showPreviewToolbar: true,
+  }),
+);
+const quotePdfDocumentTitle = computed(() => {
+  const reference = (livePreviewQuote.value.quoteRef || form.quoteRef || "devis").trim();
+  return reference.replace(/[\\/:*?"<>|]+/g, "-") || "devis";
+});
+
+const getPreviewScrollElement = (): HTMLElement | null => {
+  const frameDocument = previewFrame.value?.contentDocument;
+  return frameDocument?.scrollingElement as HTMLElement | null;
+};
+
+const rememberPreviewScroll = () => {
+  const scrollElement = getPreviewScrollElement();
+  if (!scrollElement) return;
+  previewScrollPosition.value = {
+    left: scrollElement.scrollLeft,
+    top: scrollElement.scrollTop,
+  };
+};
+
+const restorePreviewScroll = () => {
+  if (!shouldRestorePreviewScroll.value) return;
+  const target = { ...previewScrollPosition.value };
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const scrollElement = getPreviewScrollElement();
+      if (!scrollElement) return;
+      scrollElement.scrollTo(target.left, target.top);
+      shouldRestorePreviewScroll.value = false;
+    });
+  });
+};
+
+const handlePreviewFrameLoad = () => {
+  const frameDocument = previewFrame.value?.contentDocument;
+  if (frameDocument) frameDocument.title = quotePdfDocumentTitle.value;
+  restorePreviewScroll();
+};
 
 const currencyLocale = computed(() =>
   form.language === "en" ? "en-GB" : form.language === "es" ? "es-ES" : "fr-FR",
@@ -500,31 +797,73 @@ const selectedClient = computed(
   () =>
     clientsStore.clients.find((entry) => entry.id === form.clientId) || null,
 );
+const syncClientFields = (
+  client: Client | null,
+  options: { includeLanguage?: boolean } = {},
+) => {
+  const includeLanguage = options.includeLanguage !== false;
+  if (!client) {
+    form.clientName = "";
+    form.clientAddress = "";
+    form.clientWebsite = "";
+    form.vatRate = 21;
+    return;
+  }
+  form.clientName = formatClientFullName(client);
+  form.clientAddress = formatClientAddress(client);
+  form.clientWebsite = client.website || "";
+  if (includeLanguage) form.language = client.language;
+  form.vatRate = computeVatRateForClient(client, authStore.userProfile);
+};
+const getLiveClientFields = (clientId: string | undefined, fallback: Quote) => {
+  const client = clientId
+    ? clientsStore.clients.find((entry) => entry.id === clientId)
+    : null;
+  if (!client) {
+    return {
+      clientName: fallback.clientName,
+      clientAddress: fallback.clientAddress,
+      clientWebsite: fallback.clientWebsite,
+      vatRate: fallback.vatRate,
+    };
+  }
+  return {
+    clientName: formatClientFullName(client),
+    clientAddress: formatClientAddress(client),
+    clientWebsite: client.website || "",
+    vatRate: computeVatRateForClient(client, authStore.userProfile),
+  };
+};
 const vatExplanation = computed(() =>
   getVatExplanation(selectedClient.value, authStore.userProfile),
 );
+// La base commune est toujours appliquée : seuls les templates de stack sont proposés.
 const templateOptions = computed(() =>
-  quoteTemplatesStore.templates.map((template) => ({
-    label: template.name,
-    value: template.id,
-  })),
+  quoteTemplatesStore.templates
+    .filter((template) => template.kind !== "base")
+    .map((template) => ({
+      label: template.name,
+      value: template.id,
+    })),
 );
-const defaultTemplateName = computed(
-  () => quoteTemplatesStore.defaultTemplate?.name || "",
+const baseTemplateName = computed(
+  () => quoteTemplatesStore.baseTemplate?.name || "",
 );
-// Ouvre l'atelier Templates sur la base par défaut (contenu commun des nouveaux devis).
-const editDefaultBase = () => {
-  const def = quoteTemplatesStore.defaultTemplate;
-  if (def) quoteTemplatesStore.selectTemplate(def.id);
+// Ouvre l'atelier Templates sur la base commune (contenu prérempli des nouveaux devis).
+const editBaseTemplate = () => {
+  const base = quoteTemplatesStore.baseTemplate;
+  if (base) quoteTemplatesStore.selectTemplate(base.id);
   router.push("/quote-templates");
 };
 const baselineDraft = computed<QuoteDraft>(() => {
   const current = quotesStore.selectedQuote;
-  if (!current) return createDraft();
+  if (!current) return newQuoteBaseline.value;
 
   return {
     clientId: current.clientId || "",
+    templateId: current.templateId || "",
     title: current.title || "",
+    projectName: current.projectName || "",
     quoteDate: current.quoteDate || getTodayQuoteDate(),
     quoteRef: current.quoteRef,
     platform: current.platform,
@@ -535,6 +874,8 @@ const baselineDraft = computed<QuoteDraft>(() => {
     clientWebsite: current.clientWebsite,
     vatRate: current.vatRate,
     projectSummary: current.projectSummary,
+    investmentSummary: current.investmentSummary || "",
+    investmentAmount: Number(current.investmentAmount || 0),
     emailDraft: current.emailDraft,
     emailSubject: current.emailSubject || "",
     emailBody: current.emailBody || "",
@@ -564,6 +905,7 @@ const baselineDraft = computed<QuoteDraft>(() => {
       unitLabel: addon.unitLabel || "",
       items: normalizeAddonItems(addon),
     })),
+    paymentSchedule: resolveQuotePaymentSchedule(current),
     status: current.status,
   };
 });
@@ -575,15 +917,17 @@ const hasUnsavedChanges = computed(
 const filteredQuotes = computed(() => {
   const query = quoteSearch.value.trim().toLowerCase();
   const clientId = quoteFilterClientId.value;
-  const filterDate = quoteFilterDate.value
-    ? `${quoteFilterDate.value.getFullYear()}-${`${quoteFilterDate.value.getMonth() + 1}`.padStart(2, "0")}-${`${quoteFilterDate.value.getDate()}`.padStart(2, "0")}`
-    : "";
+  const formatDate = (date: Date) =>
+    `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}-${`${date.getDate()}`.padStart(2, "0")}`;
+  const [filterStart, filterEnd] = quoteFilterDateRange.value || [];
+  const startDate = filterStart ? formatDate(filterStart) : "";
+  const endDate = filterEnd ? formatDate(filterEnd) : startDate;
 
   const status = quoteFilterStatus.value;
 
   return quotesStore.quotes.filter((quote) => {
     if (clientId && quote.clientId !== clientId) return false;
-    if (filterDate && quote.quoteDate !== filterDate) return false;
+    if (startDate && (!quote.quoteDate || quote.quoteDate < startDate || quote.quoteDate > endDate)) return false;
     if (status && quote.status !== status) return false;
     if (!query) return true;
 
@@ -607,6 +951,14 @@ const filteredQuotes = computed(() => {
 // Id du devis actuellement chargé (null = nouveau devis non encore enregistré).
 // Ne jamais retomber sur un autre devis, sinon la sauvegarde écraserait celui-ci.
 const quoteId = computed(() => quotesStore.selectedQuoteId);
+const selectedQuoteMetadata = computed(() => {
+  const quote = quotesStore.selectedQuote;
+  if (!quoteId.value || !quote) return null;
+  return {
+    createdAt: formatDateTime(quote.createdAt),
+    updatedAt: formatDateTime(quote.updatedAt || quote.createdAt),
+  };
+});
 
 const hydrateFromQuote = (quote: Quote | null) => {
   // Bloque les watchers de régénération le temps du chargement, puis relâche
@@ -621,21 +973,17 @@ const hydrateFromQuote = (quote: Quote | null) => {
       (entry) => entry.id === selectedTemplateId.value,
     );
     if (explicitTemplate) {
-      // Sélection explicite : on applique tout le template (portée projet comprise).
-      Object.assign(form, createDraftFromTemplate(explicitTemplate));
-    } else if (quoteTemplatesStore.defaultTemplate) {
-      // Template par défaut : on applique le standard réutilisable (conditions,
-      // principes, roadmap, options…) mais on laisse la partie projet vide.
+      // Template de stack (contenu, conditions, roadmap, add-ons…) complété
+      // par le contenu commun de la base.
       Object.assign(
         form,
-        createDraftFromTemplate(quoteTemplatesStore.defaultTemplate),
-        {
-          parts: [createEmptyQuotePart()],
-          projectSummary: "",
-        },
+        createDraftFromTemplate(explicitTemplate),
+        getBaseCommonContent(explicitTemplate.language),
       );
     } else {
-      Object.assign(form, createDraft());
+      // Sans template : brouillon vierge + contenu commun de la base.
+      const draft = createDraft();
+      Object.assign(form, draft, getBaseCommonContent(draft.language));
     }
     const nextEmailDraft = buildCurrentStandardEmail();
     form.emailSubject = nextEmailDraft.subject;
@@ -645,27 +993,48 @@ const hydrateFromQuote = (quote: Quote | null) => {
       nextEmailDraft.body,
       form.language,
     );
-    lastAutoEmailDraft.value = form.emailDraft;
+    form.templateId = selectedTemplateId.value || "";
+    rememberAutoEmail(nextEmailDraft.subject, nextEmailDraft.body, form.language);
+    newQuoteBaseline.value = cloneDraft(form);
     return;
   }
 
+  selectedTemplateId.value = quote.templateId || "";
   const fallbackEmail = splitLegacyEmailDraft(quote.emailDraft || "");
-  const emailSubject = quote.emailSubject || fallbackEmail.subject;
-  const emailBody = quote.emailBody || fallbackEmail.body;
+  const rawEmailSubject = quote.emailSubject || fallbackEmail.subject;
+  const rawEmailBody = quote.emailBody || fallbackEmail.body;
+  const liveClientFields = getLiveClientFields(quote.clientId || "", quote);
+  const renderedEmail = buildStandardQuoteEmail({
+    language: quote.language,
+    clientName: liveClientFields.clientName,
+    clientFirstName: resolveClientFirstName(quote.clientId || "", liveClientFields.clientName),
+    title: quote.title || "",
+    projectName: quote.projectName || "",
+    quoteRef: quote.quoteRef,
+    hourlyRate: Number(authStore.userProfile?.hourlyRate || 0),
+    subjectTemplate: rawEmailSubject,
+    bodyTemplate: rawEmailBody,
+  });
+  const emailSubject = renderedEmail.subject;
+  const emailBody = renderedEmail.body;
 
   Object.assign(form, {
     clientId: quote.clientId || "",
+    templateId: quote.templateId || "",
     title: quote.title || "",
+    projectName: quote.projectName || "",
     quoteDate: quote.quoteDate || getTodayQuoteDate(),
     quoteRef: quote.quoteRef,
     platform: quote.platform,
     customPlatformLabel: quote.customPlatformLabel || "",
     language: quote.language,
-    clientName: quote.clientName,
-    clientAddress: quote.clientAddress,
-    clientWebsite: quote.clientWebsite,
-    vatRate: quote.vatRate,
+    clientName: liveClientFields.clientName,
+    clientAddress: liveClientFields.clientAddress,
+    clientWebsite: liveClientFields.clientWebsite,
+    vatRate: liveClientFields.vatRate,
     projectSummary: quote.projectSummary,
+    investmentSummary: quote.investmentSummary || "",
+    investmentAmount: Number(quote.investmentAmount || 0),
     emailDraft: composeLegacyEmailDraft(
       emailSubject,
       emailBody,
@@ -699,9 +1068,10 @@ const hydrateFromQuote = (quote: Quote | null) => {
       unitLabel: addon.unitLabel || "",
       items: normalizeAddonItems(addon),
     })),
+    paymentSchedule: resolveQuotePaymentSchedule(quote),
     status: quote.status,
   });
-  lastAutoEmailDraft.value = form.emailDraft || "";
+  rememberAutoEmail(emailSubject, emailBody, form.language);
 };
 
 onMounted(async () => {
@@ -725,6 +1095,24 @@ watch(isCompactQuotesView, (compact) => {
 });
 
 watch(
+  () => route.query.preview,
+  (preview) => {
+    previewDialogVisible.value = preview === "live";
+  },
+  { immediate: true },
+);
+
+watch(
+  livePreviewHtml,
+  () => {
+    if (!previewDialogVisible.value) return;
+    rememberPreviewScroll();
+    shouldRestorePreviewScroll.value = true;
+  },
+  { flush: "pre" },
+);
+
+watch(
   () => quotesStore.selectedQuote,
   (quote) => hydrateFromQuote(quote),
 );
@@ -743,7 +1131,7 @@ watch(
 );
 
 watch(
-  () => [form.language, form.clientName, form.title, form.quoteRef] as const,
+  () => [form.language, form.clientName, form.title, form.projectName, form.quoteRef] as const,
   () => {
     if (hydratingQuote) return;
     const nextEmailDraft = buildCurrentStandardEmail();
@@ -752,15 +1140,49 @@ watch(
       nextEmailDraft.body,
       form.language,
     );
-    if (!form.emailDraft || form.emailDraft === lastAutoEmailDraft.value) {
+    const emailStillAuto =
+      !form.emailDraft ||
+      form.emailDraft === lastAutoEmailDraft.value ||
+      (form.emailSubject === lastAutoEmailSubject.value &&
+        form.emailBody === lastAutoEmailBody.value);
+
+    if (emailStillAuto) {
       form.emailSubject = nextEmailDraft.subject;
       form.emailBody = nextEmailDraft.body;
       form.emailDraft = nextLegacy;
     }
-    lastAutoEmailDraft.value = nextLegacy;
+    rememberAutoEmail(nextEmailDraft.subject, nextEmailDraft.body, form.language);
   },
   { immediate: true },
 );
+
+/**
+ * Régénère le contenu standard du brouillon dans la langue cible : contenu de
+ * stack depuis le template sélectionné (le cas échéant), puis contenu commun
+ * depuis la base commune.
+ */
+const applyStandardContent = (language: QuoteLanguage) => {
+  const template = quoteTemplatesStore.templates.find(
+    (entry) => entry.id === selectedTemplateId.value,
+  );
+  if (template) {
+    const content = resolveTemplateContent(template, language);
+    form.conditions = resolveCommonConditionReferences(
+      content.conditions,
+      language,
+    );
+    form.roadmap = content.roadmap;
+  } else {
+    form.parts = [];
+    form.conditions = [];
+    form.roadmap = [];
+    form.addons = [];
+  }
+  const baseContent = getBaseCommonContent(language);
+  form.acceptance = baseContent.acceptance;
+  form.principles = baseContent.principles;
+  form.paymentSchedule = baseContent.paymentSchedule;
+};
 
 watch(
   () => form.clientId,
@@ -768,33 +1190,39 @@ watch(
     if (hydratingQuote) return;
     const client = clientsStore.clients.find((entry) => entry.id === clientId);
     if (!client) {
-      form.clientName = "";
-      form.clientAddress = "";
-      form.clientWebsite = "";
-      form.vatRate = 21;
-      form.conditions = createDefaultQuoteConditions(
-        form.platform,
-        form.language,
-        "",
-      );
-      form.roadmap = createDefaultQuoteRoadmap(form.platform, form.language);
-      form.acceptance = createDefaultQuoteAcceptance(form.language);
-      form.principles = createDefaultQuotePrinciples(form.language);
+      syncClientFields(null);
+      applyStandardContent(form.language);
       return;
     }
-    form.clientName = formatClientFullName(client);
-    form.clientAddress = formatClientAddress(client);
-    form.clientWebsite = client.website || "";
-    form.language = client.language;
-    form.vatRate = computeVatRateForClient(client, authStore.userProfile);
-    form.conditions = createDefaultQuoteConditions(
-      form.platform,
-      client.language,
+    syncClientFields(client);
+    applyStandardContent(client.language);
+  },
+);
+
+watch(
+  () => {
+    const client = selectedClient.value;
+    if (!client) return "";
+    return [
+      client.id,
+      client.name,
+      client.firstName,
+      client.lastName,
+      client.street,
+      client.streetNumber,
+      client.postalCode,
+      client.city,
       client.country,
-    );
-    form.roadmap = createDefaultQuoteRoadmap(form.platform, client.language);
-    form.acceptance = createDefaultQuoteAcceptance(client.language);
-    form.principles = createDefaultQuotePrinciples(client.language);
+      client.address,
+      client.website,
+      client.language,
+      client.isVatRegistered,
+      client.vatNumber,
+    ].join("\u001f");
+  },
+  () => {
+    if (hydratingQuote || !form.clientId) return;
+    syncClientFields(selectedClient.value, { includeLanguage: false });
   },
 );
 
@@ -803,15 +1231,8 @@ watch(
   ([platform, language], [oldPlatform, oldLanguage]) => {
     if (hydratingQuote) return;
     if (platform === oldPlatform && language === oldLanguage) return;
-    if (platform !== "other") form.customPlatformLabel = "";
-    form.conditions = createDefaultQuoteConditions(
-      platform,
-      language,
-      selectedClient.value?.country || "",
-    );
-    form.roadmap = createDefaultQuoteRoadmap(platform, language);
-    form.acceptance = createDefaultQuoteAcceptance(language);
-    form.principles = createDefaultQuotePrinciples(language);
+    if (platform !== "other" && platform !== "custom") form.customPlatformLabel = "";
+    if (language !== oldLanguage) applyStandardContent(language);
   },
 );
 
@@ -1023,6 +1444,8 @@ const updateRoadmapPhase = (
   field: "title" | "body",
   value: string,
 ) => {
+  const estimatedIndex = form.roadmap.length - 1;
+  if (field === "title" && form.roadmap[estimatedIndex]?.id === id) return;
   const phase = form.roadmap.find((entry) => entry.id === id);
   if (phase) phase[field] = value;
 };
@@ -1034,10 +1457,17 @@ const moveRoadmapPhase = (draggedId: string, targetId: string) => {
   const targetIndex = form.roadmap.findIndex((phase) => phase.id === targetId);
   if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
     return;
+  const lockedIndex = form.roadmap.length - 1;
+  if (draggedIndex === lockedIndex || targetIndex === lockedIndex) return;
   const next = [...form.roadmap];
   const [dragged] = next.splice(draggedIndex, 1);
   next.splice(targetIndex, 0, dragged);
   form.roadmap = next;
+};
+
+const normalizeEstimatedTimelineTitle = () => {
+  const estimatedPhase = form.roadmap[form.roadmap.length - 1];
+  if (estimatedPhase) estimatedPhase.title = getEstimatedTimelineTitle(form.language);
 };
 
 const addRoadmapItem = (phaseId: string) => {
@@ -1382,11 +1812,11 @@ const promoteAcceptanceSubItemToItem = (
 
 const updatePrinciple = (
   id: string,
-  field: "title" | "body",
+  field: "title" | "body" | "tag",
   value: string,
 ) => {
   const principle = form.principles.find((entry) => entry.id === id);
-  if (principle) principle[field] = value;
+  if (principle) (principle[field] as string) = value;
 };
 
 const movePrinciple = (draggedId: string, targetId: string) => {
@@ -1749,7 +2179,9 @@ const addCondition = () => {
 };
 
 const addRoadmapPhase = () => {
-  form.roadmap.push({ id: createEntityId(), title: "", body: "", items: [] });
+  const phase = { id: createEntityId(), title: "", body: "", items: [] };
+  const insertIndex = Math.max(form.roadmap.length - 1, 0);
+  form.roadmap.splice(insertIndex, 0, phase);
 };
 
 const addAcceptance = () => {
@@ -1765,6 +2197,7 @@ const addPrinciple = () => {
   form.principles.push({
     id: createEntityId(),
     title: "",
+    tag: "",
     body: "",
     items: [],
   });
@@ -1846,6 +2279,7 @@ const createNewVersion = async () => {
     input.vatRate,
     input.discountType || "percent",
     input.discountValue || 0,
+    input.investmentAmount || 0,
   );
   const created = await quotesStore.saveQuote(null, {
     ...input,
@@ -1897,6 +2331,7 @@ const duplicateQuote = async (id: string) => {
     payload.vatRate,
     payload.discountType || "percent",
     payload.discountValue || 0,
+    payload.investmentAmount || 0,
   );
   const subtotal = quoteTotals.subtotal;
   const totalWithVat = quoteTotals.totalWithVat;
@@ -1922,10 +2357,12 @@ const applySelectedTemplate = (templateId?: string | null) => {
   );
   if (!template) return;
 
-  const nextDraft = createDraftFromTemplate(
-    template,
-    form.language || template.language,
-  );
+  const targetLanguage = form.language || template.language;
+  const nextDraft = {
+    ...createDraftFromTemplate(template, targetLanguage),
+    // Le mail, la validation et les principes restent ceux de la base commune.
+    ...getBaseCommonContent(targetLanguage),
+  };
   const preserved = {
     clientId: form.clientId,
     clientName: form.clientName,
@@ -1934,10 +2371,15 @@ const applySelectedTemplate = (templateId?: string | null) => {
     quoteDate: form.quoteDate,
     quoteRef: form.quoteRef,
     title: form.title,
+    projectName: form.projectName,
     vatRate: form.vatRate,
+    investmentSummary: form.investmentSummary,
+    investmentAmount: form.investmentAmount,
   };
 
   Object.assign(form, nextDraft, preserved);
+  form.templateId = template.id;
+  selectedTemplateId.value = template.id;
 
   const nextEmailDraft = buildCurrentStandardEmail();
   form.emailSubject = nextEmailDraft.subject;
@@ -1947,7 +2389,7 @@ const applySelectedTemplate = (templateId?: string | null) => {
     nextEmailDraft.body,
     form.language,
   );
-  lastAutoEmailDraft.value = form.emailDraft;
+  rememberAutoEmail(nextEmailDraft.subject, nextEmailDraft.body, form.language);
 
   toast.add({
     severity: "secondary",
@@ -1959,11 +2401,44 @@ const applySelectedTemplate = (templateId?: string | null) => {
 
 const handleTemplateSelection = (value: string | null) => {
   selectedTemplateId.value = value;
-  if (!value) return;
+  form.templateId = value || "";
+  if (!value) {
+    form.parts = [];
+    form.conditions = [];
+    form.roadmap = [];
+    form.addons = [];
+    form.paymentSchedule = getBaseCommonContent(form.language).paymentSchedule;
+    return;
+  }
   applySelectedTemplate(value);
 };
 
+const confirmReapplyTemplate = () => {
+  const template = quoteTemplatesStore.templates.find(
+    (entry) => entry.id === selectedTemplateId.value,
+  );
+  if (!template) return;
+
+  confirm.require({
+    message:
+      "Réappliquer ce template va écraser le contenu déjà présent dans ce devis : parties, conditions, feuille de route, options complémentaires, mail et échéancier. Continuer ?",
+    header: "Réappliquer le template ?",
+    icon: "warning",
+    rejectProps: {
+      label: "Annuler",
+      severity: "secondary",
+      outlined: true,
+    },
+    acceptProps: {
+      label: "Réappliquer",
+      severity: "danger",
+    },
+    accept: () => applySelectedTemplate(template.id),
+  });
+};
+
 const saveQuote = async () => {
+  normalizeEstimatedTimelineTitle();
   form.emailDraft = composeLegacyEmailDraft(
     form.emailSubject,
     form.emailBody,
@@ -1984,55 +2459,89 @@ const saveQuote = async () => {
   });
 };
 
-const downloadPdf = () => {
-  const quote: Quote = {
-    id: quoteId.value || createEntityId(),
-    userId: "local",
-    ...form,
-    subtotal: totals.value.subtotal,
-    totalWithVat: totals.value.totalWithVat,
-    createdAt: new Date().toISOString(),
-  };
+const previewPdf = () => {
+  previewDialogVisible.value = true;
+  void router.replace({ query: { ...route.query, preview: "live" } });
+};
 
-  const opened = printQuoteDocument(quote, authStore.userProfile);
-  if (!opened) {
+const closeLivePreview = () => {
+  previewDialogVisible.value = false;
+  const query = { ...route.query };
+  delete query.preview;
+  void router.replace({ query });
+};
+
+const printLivePreview = () => {
+  const frameWindow = previewFrame.value?.contentWindow;
+  if (!frameWindow) return;
+  const previousDocumentTitle = document.title;
+  const frameDocument = previewFrame.value?.contentDocument;
+  if (frameDocument) frameDocument.title = quotePdfDocumentTitle.value;
+  document.title = quotePdfDocumentTitle.value;
+  frameWindow.focus();
+  frameWindow.print();
+  window.setTimeout(() => {
+    document.title = previousDocumentTitle;
+  }, 500);
+};
+
+const openLivePreviewInNewTab = () => {
+  const previewWindow = window.open("", "_blank");
+  if (!previewWindow) {
     toast.add({
       severity: "warn",
       summary: "Fenêtre bloquée",
-      detail:
-        "Autorise les fenêtres pop-up pour ce site afin de générer le PDF.",
-      life: 4000,
+      detail: "Autorise les pop-ups pour ouvrir l’aperçu dans un nouvel onglet.",
+      life: 3500,
     });
     return;
   }
-  toast.add({
-    severity: "secondary",
-    summary: "PDF prêt",
-    detail:
-      "Choisis « Enregistrer en PDF ». Astuce : décoche « En-têtes et pieds de page » dans les options d'impression pour un rendu net.",
-    life: 5000,
-  });
+
+  previewWindow.opener = null;
+  previewWindow.document.open();
+  previewWindow.document.write(livePreviewStandaloneHtml.value);
+  previewWindow.document.close();
+  previewWindow.document.title = quotePdfDocumentTitle.value;
 };
 
-const deleteQuote = async () => {
+const deleteQuote = () => {
   if (!quoteId.value) {
     hydrateFromQuote(null);
     return;
   }
 
-  await quotesStore.deleteQuote(quoteId.value);
-  hydrateFromQuote(quotesStore.selectedQuote);
-  if (isCompactQuotesView.value) mobileEditorVisible.value = false;
-  toast.add({
-    severity: "secondary",
-    summary: "Devis supprimé",
-    detail: "Le brouillon a été retiré.",
-    life: 2000,
+  const current = quotesStore.selectedQuote;
+  const quoteLabel =
+    current?.title?.trim() || current?.quoteRef || "ce devis";
+  confirm.require({
+    message: `Supprimer définitivement ${quoteLabel} ?`,
+    header: "Supprimer le devis ?",
+    icon: "warning",
+    rejectProps: {
+      label: "Annuler",
+      severity: "secondary",
+      outlined: true,
+    },
+    acceptProps: {
+      label: "Supprimer",
+      severity: "danger",
+    },
+    accept: async () => {
+      await quotesStore.deleteQuote(quoteId.value as string);
+      hydrateFromQuote(quotesStore.selectedQuote);
+      if (isCompactQuotesView.value) mobileEditorVisible.value = false;
+      toast.add({
+        severity: "secondary",
+        summary: "Devis supprimé",
+        detail: "Le devis a été retiré.",
+        life: 2000,
+      });
+    },
   });
 };
 
 const copyEmailSubject = async () => {
-  const success = await copyToClipboard(form.emailSubject);
+  const success = await copyToClipboard(renderedEmail.value.subject);
   if (success) {
     toast.add({
       severity: "secondary",
@@ -2044,7 +2553,7 @@ const copyEmailSubject = async () => {
 };
 
 const copyEmailBody = async () => {
-  const success = await copyToClipboard(form.emailBody);
+  const success = await copyToClipboard(renderedEmail.value.body);
   if (success) {
     toast.add({
       severity: "secondary",
@@ -2053,6 +2562,36 @@ const copyEmailBody = async () => {
       life: 1800,
     });
   }
+};
+
+const openEmailClient = () => {
+  const recipient = selectedClient.value?.contactEmail?.trim() || "";
+  const sender = authStore.userProfile?.contactEmail?.trim() || "";
+  const params: Array<[string, string]> = [];
+  if (sender) {
+    params.push(["account", sender]);
+    params.push(["from", sender]);
+  }
+  if (recipient) {
+    params.push(["to", recipient]);
+  }
+  if (renderedEmail.value.subject.trim()) {
+    params.push(["subject", renderedEmail.value.subject.trim()]);
+  }
+  if (renderedEmail.value.body.trim()) {
+    params.push(["body", renderedEmail.value.body.trim()]);
+  }
+
+  const query = params
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+  const outlookAppUrl = `ms-outlook://emails/new?${query}`;
+  const link = document.createElement("a");
+  link.href = outlookAppUrl;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 };
 
 const handleCreateClientFromQuote = async (
@@ -2115,6 +2654,7 @@ const guardUnsavedViewChange = (action: () => void) => {
 
 const openCreateQuote = () => {
   guardUnsavedViewChange(() => {
+    selectedTemplateId.value = "";
     quotesStore.selectQuote(null);
     hydrateFromQuote(null);
     if (isCompactQuotesView.value) mobileEditorVisible.value = true;
@@ -2137,32 +2677,14 @@ const closeMobileEditor = () => {
 
 <template>
   <div class="flex flex-col gap-6">
-    <div
-      class="sticky top-0 z-20 bg-surface-light/95 py-1 backdrop-blur supports-[backdrop-filter]:bg-surface-light/80"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-3xl font-heading font-bold text-surface-dark">Devis</h1>
+    <ConfirmDialog />
 
-        <div
-          v-if="hasUnsavedChanges"
-          class="hidden lg:flex items-center gap-2 rounded-full border border-surface-dark/10 bg-white/95 px-3 py-2 shadow-sm"
-          :class="{ 'quotes-unsaved-nudge': unsavedAttention }"
-        >
-          <div class="flex items-center gap-2 min-w-0 pr-1">
-            <span
-              class="material-symbols-outlined text-base text-surface-dark/60"
-              >pending_actions</span
-            >
-            <span class="truncate text-sm font-medium text-surface-dark/75"
-              >Unsaved changes</span
-            >
-          </div>
-          <Button severity="secondary" size="small" @click="discardChanges"
-            >Discard</Button
-          >
-          <Button size="small" @click="saveQuote">Save</Button>
-        </div>
-      </div>
+    <div class="flex items-center gap-3">
+      <span
+        class="material-symbols-outlined rounded-2xl bg-primary/10 p-2 text-2xl text-primary"
+        >receipt_long</span
+      >
+      <h1 class="text-3xl font-heading font-bold text-surface-dark">Devis</h1>
     </div>
 
     <div class="lg:hidden">
@@ -2171,46 +2693,57 @@ const closeMobileEditor = () => {
         :clients="clientsStore.clients"
         :search="quoteSearch"
         :filter-client-id="quoteFilterClientId"
-        :filter-date="quoteFilterDate"
+        :filter-date-range="quoteFilterDateRange"
         :filter-status="quoteFilterStatus"
         @create="openCreateQuote"
         @select="openQuote"
         @update:search="quoteSearch = $event"
         @update:filter-client-id="quoteFilterClientId = $event"
-        @update:filter-date="quoteFilterDate = $event"
+        @update:filter-date-range="quoteFilterDateRange = $event"
         @update:filter-status="quoteFilterStatus = $event"
       />
     </div>
 
     <div
-      class="hidden lg:grid grid-cols-1 xl:grid-cols-[340px_minmax(0,1fr)] gap-6 items-start"
+      class="hidden lg:grid grid-cols-1 gap-6 items-start"
+      :class="
+        previewDialogVisible
+          ? 'xl:grid-cols-[minmax(540px,1fr)_minmax(460px,0.9fr)]'
+          : 'xl:grid-cols-[340px_minmax(0,1fr)]'
+      "
     >
       <QuoteListPanel
+        v-if="!previewDialogVisible"
         :quotes="filteredQuotes"
         :selected-quote-id="quoteId"
         :clients="clientsStore.clients"
         :search="quoteSearch"
         :filter-client-id="quoteFilterClientId"
-        :filter-date="quoteFilterDate"
+        :filter-date-range="quoteFilterDateRange"
         :filter-status="quoteFilterStatus"
         @create="openCreateQuote"
         @select="openQuote"
         @update:search="quoteSearch = $event"
         @update:filter-client-id="quoteFilterClientId = $event"
-        @update:filter-date="quoteFilterDate = $event"
+        @update:filter-date-range="quoteFilterDateRange = $event"
         @update:filter-status="quoteFilterStatus = $event"
       />
 
       <div class="flex flex-col gap-6">
         <QuoteActionBar
-          :can-manage="Boolean(quoteId)"
+          :can-duplicate="Boolean(quoteId)"
+          :can-delete="Boolean(quoteId)"
+          show-pdf
+          :has-unsaved-changes="hasUnsavedChanges"
+          :attention="unsavedAttention"
           @save="saveQuote"
-          @download-pdf="downloadPdf"
+          @discard="discardChanges"
+          @download-pdf="previewPdf"
           @duplicate="duplicateCurrentQuote"
           @delete="deleteQuote"
         />
 
-        <div class="rounded-3xl border border-surface-dark/5 bg-white p-4">
+        <div class="rounded-3xl border border-surface-dark/5 bg-surface-card p-4">
           <div
             class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
           >
@@ -2228,32 +2761,42 @@ const closeMobileEditor = () => {
                 show-clear
               />
             </label>
-            <Button
-              text
-              severity="secondary"
-              @click="$router.push('/quote-templates')"
-            >
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >open_in_new</span
-                ></template
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                severity="secondary"
+                outlined
+                :disabled="!selectedTemplateId"
+                @click="confirmReapplyTemplate"
+                label="Réappliquer"
               >
-              Gérer les templates
-            </Button>
+                <template #icon
+                  ><span class="material-symbols-outlined text-lg"
+                    >restart_alt</span
+                  ></template
+                ></Button>
+              <Button
+                text
+                severity="secondary"
+                @click="$router.push('/quote-templates')" label="Gérer les templates">
+                <template #icon
+                  ><span class="material-symbols-outlined text-lg"
+                    >library_books</span
+                  ></template
+                ></Button>
+            </div>
           </div>
           <p class="mt-3 flex flex-wrap items-center gap-1 text-xs text-surface-dark/55">
-            <template v-if="defaultTemplateName">
-              <span class="material-symbols-outlined text-sm text-amber-500">star</span>
-              Base par défaut :
-              <strong class="text-surface-dark/75">{{ defaultTemplateName }}</strong> — conditions, roadmap et options des nouveaux devis.
-              <button type="button" class="font-medium text-primary hover:underline" @click="editDefaultBase">
+            <template v-if="baseTemplateName">
+              <span class="material-symbols-outlined text-sm text-primary">verified</span>
+              <strong class="text-surface-dark/75">{{ baseTemplateName }}</strong> — mail, validation &amp; principes appliqués à tous les devis. Les conditions communes restent disponibles dans les templates.
+              <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
                 Modifier la base
               </button>
             </template>
             <template v-else>
               Les nouveaux devis utilisent un contenu de base intégré.
-              <button type="button" class="font-medium text-primary hover:underline" @click="editDefaultBase">
-                Créer une base modifiable
+              <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
+                Créer la base commune
               </button>
             </template>
           </p>
@@ -2262,6 +2805,7 @@ const closeMobileEditor = () => {
         <QuoteBuilderForm
           :quote-ref="form.quoteRef"
           :title="form.title"
+          :project-name="form.projectName"
           :quote-date="quoteDateModel"
           :valid-until="validUntil"
           :client-id="form.clientId"
@@ -2283,6 +2827,8 @@ const closeMobileEditor = () => {
           :discount-type="form.discountType"
           :discount-value="form.discountValue"
           :project-summary="form.projectSummary"
+          :investment-summary="form.investmentSummary"
+          :investment-amount="form.investmentAmount"
           :parts="form.parts"
           :currency-locale="currencyLocale"
           :status="form.status"
@@ -2292,6 +2838,7 @@ const closeMobileEditor = () => {
           :acceptance="form.acceptance"
           :principles="form.principles"
           :addons="form.addons"
+          :payment-schedule="form.paymentSchedule"
           :clients="clientsStore.clients"
           :addons-total="totals.addonsTotal"
           :discount-amount="totals.discountAmount"
@@ -2300,6 +2847,7 @@ const closeMobileEditor = () => {
           :total-with-vat="totals.totalWithVat"
           :vat-explanation="vatExplanation"
           @update:title="form.title = $event"
+          @update:project-name="form.projectName = $event"
           @update:quote-date="updateQuoteDate"
           @update:client-id="form.clientId = $event"
           @update:platform="form.platform = $event"
@@ -2309,7 +2857,10 @@ const closeMobileEditor = () => {
           @update:discount-type="updateDiscountType"
           @update:discount-value="updateDiscountValue"
           @update:project-summary="form.projectSummary = $event"
+          @update:investment-summary="form.investmentSummary = $event"
+          @update:investment-amount="form.investmentAmount = $event"
           @update:parts="form.parts = $event"
+          @update:payment-schedule="form.paymentSchedule = $event"
           @update:status="form.status = $event"
           @new-version="createNewVersion"
           @create-client="clientDialogVisible = true"
@@ -2671,8 +3222,8 @@ const closeMobileEditor = () => {
 
         <QuoteOutputPanel
           :language="form.language"
-          :email-subject="form.emailSubject"
-          :email-body="form.emailBody"
+          :email-subject="renderedEmail.subject"
+          :email-body="renderedEmail.body"
           @update:email-subject="
             form.emailSubject = $event;
             form.emailDraft = composeLegacyEmailDraft(
@@ -2691,8 +3242,66 @@ const closeMobileEditor = () => {
           "
           @copy-email-subject="copyEmailSubject"
           @copy-email-body="copyEmailBody"
+          @open-email-client="openEmailClient"
         />
+        <p
+          v-if="selectedQuoteMetadata"
+          class="rounded-2xl border border-surface-dark/6 bg-white px-4 py-3 text-xs text-surface-dark/45"
+        >
+          Créé : {{ selectedQuoteMetadata.createdAt }} · Dernière modification :
+          {{ selectedQuoteMetadata.updatedAt }}
+        </p>
       </div>
+
+      <section
+        v-if="previewDialogVisible"
+        class="sticky top-6 flex h-[calc(100vh-3rem)] min-h-[680px] flex-col overflow-hidden rounded-3xl border border-surface-dark/10 bg-surface-light shadow-[0_8px_28px_rgba(47,43,61,0.12)]"
+      >
+        <div
+          class="flex items-center justify-end gap-2 border-b border-surface-dark/8 bg-white px-4 py-3"
+        >
+            <Button
+              text
+              severity="secondary"
+              class="!h-10 !w-10 !rounded-xl !p-0"
+              aria-label="Ouvrir dans un nouvel onglet"
+              title="Ouvrir dans un nouvel onglet"
+              @click="openLivePreviewInNewTab"
+            >
+              <template #icon>
+                <span class="material-symbols-outlined text-lg">open_in_new</span>
+              </template>
+            </Button>
+            <Button
+              severity="secondary"
+              class="!rounded-xl"
+              label="Imprimer / enregistrer"
+              @click="printLivePreview"
+            >
+              <template #icon>
+                <span class="material-symbols-outlined text-lg">print</span>
+              </template>
+            </Button>
+            <Button
+              text
+              severity="secondary"
+              class="!h-10 !w-10 !rounded-xl !p-0"
+              aria-label="Fermer l’aperçu"
+              @click="closeLivePreview"
+            >
+              <template #icon>
+                <span class="material-symbols-outlined text-lg">close</span>
+              </template>
+            </Button>
+        </div>
+        <iframe
+          ref="previewFrame"
+          title="Prévisualisation live du devis"
+          class="min-h-0 flex-1 border-0 bg-white"
+          :srcdoc="livePreviewHtml"
+          @load="handlePreviewFrameLoad"
+        ></iframe>
+      </section>
     </div>
 
     <Dialog
@@ -2713,34 +3322,26 @@ const closeMobileEditor = () => {
           class="sticky top-0 z-10 flex flex-col gap-3 border-b border-surface-dark/8 bg-surface-light/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface-light/80"
         >
           <div class="flex items-center justify-between gap-3">
-            <Button text severity="secondary" @click="closeMobileEditor">
+            <Button text severity="secondary" @click="closeMobileEditor" label="Retour à la liste">
               <template #icon
                 ><span class="material-symbols-outlined text-lg"
                   >arrow_back</span
                 ></template
-              >
-              Retour à la liste
-            </Button>
+              ></Button>
             <p class="min-w-0 truncate text-sm font-semibold text-surface-dark">
               {{ form.title || form.clientName || "Nouveau devis" }}
             </p>
           </div>
           <div class="flex flex-wrap items-center justify-end gap-2">
-            <Button text severity="secondary" size="small" class="!rounded-xl" @click="duplicateCurrentQuote">
-              <template #icon><span class="material-symbols-outlined text-lg">content_copy</span></template>
-              Dupliquer
-            </Button>
+            <Button text severity="secondary" size="small" class="!rounded-xl" @click="duplicateCurrentQuote" label="Dupliquer">
+              <template #icon><span class="material-symbols-outlined text-lg">content_copy</span></template></Button>
             <Button text severity="danger" size="small" class="!rounded-xl" @click="deleteQuote">
               <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
             </Button>
-            <Button severity="secondary" outlined size="small" class="!rounded-xl" @click="downloadPdf">
-              <template #icon><span class="material-symbols-outlined text-lg">download</span></template>
-              PDF
-            </Button>
-            <Button size="small" class="!rounded-xl !px-4 font-semibold" @click="saveQuote">
-              <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
-              Sauvegarder
-            </Button>
+            <Button severity="secondary" outlined size="small" class="!rounded-xl" @click="previewPdf" label="Aperçu">
+              <template #icon><span class="material-symbols-outlined text-lg">visibility</span></template></Button>
+            <Button size="small" class="!rounded-xl !px-4 font-semibold" @click="saveQuote" label="Sauvegarder">
+              <template #icon><span class="material-symbols-outlined text-lg">save</span></template></Button>
           </div>
           <div
             v-if="hasUnsavedChanges"
@@ -2753,19 +3354,22 @@ const closeMobileEditor = () => {
                 >pending_actions</span
               >
               <span class="truncate text-sm font-medium text-surface-dark/75"
-                >Unsaved changes</span
+                >Modifications non enregistrées</span
               >
             </div>
             <div class="flex items-center gap-2">
-              <Button severity="secondary" size="small" @click="discardChanges"
-                >Discard</Button
-              >
-              <Button size="small" @click="saveQuote">Save</Button>
+              <Button
+                severity="secondary"
+                size="small"
+                label="Annuler"
+                @click="discardChanges"
+              />
+              <Button size="small" label="Sauvegarder" @click="saveQuote" />
             </div>
           </div>
         </div>
 
-        <div class="rounded-3xl border border-surface-dark/5 bg-white p-4">
+        <div class="rounded-3xl border border-surface-dark/5 bg-surface-card p-4">
           <div class="flex flex-col gap-3">
             <label class="flex flex-col gap-2">
               <span class="text-sm font-semibold text-surface-dark"
@@ -2781,32 +3385,42 @@ const closeMobileEditor = () => {
                 show-clear
               />
             </label>
-            <Button
-              text
-              severity="secondary"
-              @click="$router.push('/quote-templates')"
-            >
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >open_in_new</span
-                ></template
+            <div class="flex flex-wrap items-center gap-2">
+              <Button
+                severity="secondary"
+                outlined
+                :disabled="!selectedTemplateId"
+                @click="confirmReapplyTemplate"
+                label="Réappliquer"
               >
-              Gérer les templates
-            </Button>
+                <template #icon
+                  ><span class="material-symbols-outlined text-lg"
+                    >restart_alt</span
+                  ></template
+                ></Button>
+              <Button
+                text
+                severity="secondary"
+                @click="$router.push('/quote-templates')" label="Gérer les templates">
+                <template #icon
+                  ><span class="material-symbols-outlined text-lg"
+                    >library_books</span
+                  ></template
+                ></Button>
+            </div>
           </div>
           <p class="mt-3 flex flex-wrap items-center gap-1 text-xs text-surface-dark/55">
-            <template v-if="defaultTemplateName">
-              <span class="material-symbols-outlined text-sm text-amber-500">star</span>
-              Base par défaut :
-              <strong class="text-surface-dark/75">{{ defaultTemplateName }}</strong> — conditions, roadmap et options des nouveaux devis.
-              <button type="button" class="font-medium text-primary hover:underline" @click="editDefaultBase">
+            <template v-if="baseTemplateName">
+              <span class="material-symbols-outlined text-sm text-primary">verified</span>
+              <strong class="text-surface-dark/75">{{ baseTemplateName }}</strong> — mail, validation &amp; principes appliqués à tous les devis. Les conditions communes restent disponibles dans les templates.
+              <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
                 Modifier la base
               </button>
             </template>
             <template v-else>
               Les nouveaux devis utilisent un contenu de base intégré.
-              <button type="button" class="font-medium text-primary hover:underline" @click="editDefaultBase">
-                Créer une base modifiable
+              <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
+                Créer la base commune
               </button>
             </template>
           </p>
@@ -2815,6 +3429,7 @@ const closeMobileEditor = () => {
         <QuoteBuilderForm
           :quote-ref="form.quoteRef"
           :title="form.title"
+          :project-name="form.projectName"
           :quote-date="quoteDateModel"
           :valid-until="validUntil"
           :client-id="form.clientId"
@@ -2836,6 +3451,8 @@ const closeMobileEditor = () => {
           :discount-type="form.discountType"
           :discount-value="form.discountValue"
           :project-summary="form.projectSummary"
+          :investment-summary="form.investmentSummary"
+          :investment-amount="form.investmentAmount"
           :parts="form.parts"
           :currency-locale="currencyLocale"
           :status="form.status"
@@ -2845,6 +3462,7 @@ const closeMobileEditor = () => {
           :acceptance="form.acceptance"
           :principles="form.principles"
           :addons="form.addons"
+          :payment-schedule="form.paymentSchedule"
           :clients="clientsStore.clients"
           :addons-total="totals.addonsTotal"
           :discount-amount="totals.discountAmount"
@@ -2853,6 +3471,7 @@ const closeMobileEditor = () => {
           :total-with-vat="totals.totalWithVat"
           :vat-explanation="vatExplanation"
           @update:title="form.title = $event"
+          @update:project-name="form.projectName = $event"
           @update:quote-date="updateQuoteDate"
           @update:client-id="form.clientId = $event"
           @update:platform="form.platform = $event"
@@ -2862,7 +3481,10 @@ const closeMobileEditor = () => {
           @update:discount-type="updateDiscountType"
           @update:discount-value="updateDiscountValue"
           @update:project-summary="form.projectSummary = $event"
+          @update:investment-summary="form.investmentSummary = $event"
+          @update:investment-amount="form.investmentAmount = $event"
           @update:parts="form.parts = $event"
+          @update:payment-schedule="form.paymentSchedule = $event"
           @update:status="form.status = $event"
           @new-version="createNewVersion"
           @create-client="clientDialogVisible = true"
@@ -3224,8 +3846,8 @@ const closeMobileEditor = () => {
 
         <QuoteOutputPanel
           :language="form.language"
-          :email-subject="form.emailSubject"
-          :email-body="form.emailBody"
+          :email-subject="renderedEmail.subject"
+          :email-body="renderedEmail.body"
           @update:email-subject="
             form.emailSubject = $event;
             form.emailDraft = composeLegacyEmailDraft(
@@ -3244,6 +3866,7 @@ const closeMobileEditor = () => {
           "
           @copy-email-subject="copyEmailSubject"
           @copy-email-body="copyEmailBody"
+          @open-email-client="openEmailClient"
         />
       </div>
     </Dialog>

@@ -18,6 +18,7 @@ const emit = defineEmits<{
   edit: [];
   delete: [];
   addProject: [];
+  viewQuote: [quoteId: string];
   updateTaskStatus: [payload: { projectId: string; taskId: string; status: OnboardingTaskStatus }];
   uploadDocument: [file: File];
   removeDocument: [documentId: string];
@@ -157,7 +158,6 @@ const shouldShowPlatformTag = computed(() => {
           >
             {{ client.phone }}
           </a>
-          <p v-else class="text-sm text-surface-dark/60">Téléphone non renseigné</p>
           <a
             v-if="client.website"
             :href="normalizeWebsiteUrl(client.website)"
@@ -233,10 +233,12 @@ const shouldShowPlatformTag = computed(() => {
         </div>
 
         <div v-else class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <div
+          <button
             v-for="quote in quotes"
             :key="quote.id"
-            class="rounded-2xl border border-surface-dark/6 bg-surface-light p-4"
+            type="button"
+            class="rounded-2xl border border-surface-dark/6 bg-surface-light p-4 text-left transition hover:border-primary/30 hover:bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            @click="emit('viewQuote', quote.id)"
           >
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
@@ -249,7 +251,7 @@ const shouldShowPlatformTag = computed(() => {
               <span>{{ quote.quoteDate ? formatQuoteDate(quote.quoteDate) : 'Date non renseignée' }}</span>
               <span class="font-semibold text-surface-dark">{{ quote.totalWithVat.toFixed(2) }} €</span>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -267,10 +269,8 @@ const shouldShowPlatformTag = computed(() => {
               class="hidden"
               @change="handleFileChange"
             />
-            <Button severity="secondary" @click="openFilePicker">
-              <template #icon><span class="material-symbols-outlined text-lg">upload_file</span></template>
-              Uploader un PDF
-            </Button>
+            <Button severity="secondary" @click="openFilePicker" label="Uploader un PDF">
+              <template #icon><span class="material-symbols-outlined text-lg">upload_file</span></template></Button>
           </div>
         </div>
 
@@ -315,10 +315,8 @@ const shouldShowPlatformTag = computed(() => {
             <div>
               <h3 class="text-lg font-heading font-bold text-surface-dark">Checklist onboarding</h3>
             </div>
-            <Button severity="secondary" @click="emit('addProject')">
-              <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
-              Nouveau projet
-            </Button>
+            <Button severity="secondary" @click="emit('addProject')" label="Nouveau projet">
+              <template #icon><span class="material-symbols-outlined text-lg">add</span></template></Button>
           </div>
 
           <div v-if="projectOptions.length" class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-3">

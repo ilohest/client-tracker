@@ -1,4 +1,4 @@
-import type { Quote, QuoteAddon, QuoteConditionItem, QuoteDiscountType, QuoteInput, QuotePart, QuoteSection, VatRate } from '@client-tracker/contracts';
+import type { Quote, QuoteAddon, QuoteConditionItem, QuoteDiscountType, QuoteInput, QuotePart, QuotePaymentScheduleStep, QuoteSection, VatRate } from '@client-tracker/contracts';
 
 export const createEntityId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -62,15 +62,16 @@ export const createEmptyQuotePart = (): QuotePart => ({
   displayStyle: 'text',
   price: 0,
   optional: false,
+  includeInInvestment: true,
   priceNote: '',
   sections: [],
 });
 
-/** Sous-total = somme des prix des parties non optionnelles (hors add-ons). */
+/** Sous-total = somme des prix des parties facturées et non optionnelles (hors add-ons). */
 export const calculatePartsSubtotal = (parts: QuotePart[] = []): number =>
   Number(
     parts
-      .filter((part) => !part.optional)
+      .filter((part) => !part.optional && part.includeInInvestment !== false)
       .reduce((sum, part) => sum + Number(part.price || 0), 0)
       .toFixed(2),
   );
@@ -80,10 +81,15 @@ export const calculateQuotePartsTotals = (
   vatRate: VatRate,
   discountType: QuoteDiscountType,
   discountValue: number,
+  investmentAmount: number = 0,
 ): { partsSubtotal: number; discountAmount: number; subtotal: number; vatAmount: number; totalWithVat: number } => {
   const partsSubtotal = calculatePartsSubtotal(parts);
-  const discountAmount = calculateDiscountAmount(partsSubtotal, discountType, discountValue);
-  const subtotal = Math.max(partsSubtotal - discountAmount, 0);
+  const amountBeforeDiscount =
+    Number(investmentAmount || 0) > 0
+      ? Number(investmentAmount || 0)
+      : partsSubtotal;
+  const discountAmount = calculateDiscountAmount(amountBeforeDiscount, discountType, discountValue);
+  const subtotal = Math.max(amountBeforeDiscount - discountAmount, 0);
   const vatAmount = subtotal * (vatRate / 100);
   const totalWithVat = subtotal * (1 + vatRate / 100);
   return {
@@ -123,6 +129,77 @@ export const formatCurrency = (value: number, locale: string = 'fr-FR'): string 
     maximumFractionDigits: 2,
   }).format(value);
 
+export const createPaymentScheduleStep = (
+  index: number,
+  totalSteps: number,
+): QuotePaymentScheduleStep => ({
+  id: createEntityId(),
+  label: `Étape ${index + 1}`,
+  mode: 'percent',
+  value: totalSteps > 0 ? Number((100 / totalSteps).toFixed(2)) : 100,
+});
+
+export const createDefaultPaymentSchedule = (): QuotePaymentScheduleStep[] => [
+  { id: createEntityId(), label: 'Acompte à la validation du devis', mode: 'percent', value: 40 },
+  { id: createEntityId(), label: 'Paiement intermédiaire', mode: 'percent', value: 40 },
+  { id: createEntityId(), label: 'Solde à la livraison', mode: 'percent', value: 20 },
+];
+
+export const clonePaymentSchedule = (
+  steps: QuotePaymentScheduleStep[] = [],
+): QuotePaymentScheduleStep[] =>
+  steps.map((step, index) => ({
+    id: step.id || createEntityId(),
+    label: step.label || `Étape ${index + 1}`,
+    mode: step.mode || 'percent',
+    value: Number(step.value || 0),
+  }));
+
+export const resizePaymentSchedule = (
+  steps: QuotePaymentScheduleStep[] = [],
+  count: number,
+): QuotePaymentScheduleStep[] => {
+  const normalizedCount = Math.max(1, Math.min(12, Math.round(Number(count || 1))));
+  const next = clonePaymentSchedule(steps).slice(0, normalizedCount);
+  while (next.length < normalizedCount) {
+    next.push(createPaymentScheduleStep(next.length, normalizedCount));
+  }
+
+  if (!steps.length || next.every((step) => step.mode === 'percent')) {
+    const base = Math.floor((100 / normalizedCount) * 100) / 100;
+    const remainder = Number((100 - base * normalizedCount).toFixed(2));
+    return next.map((step, index) => ({
+      ...step,
+      value: Number((base + (index === normalizedCount - 1 ? remainder : 0)).toFixed(2)),
+    }));
+  }
+
+  return next;
+};
+
+export const calculatePaymentScheduleStepAmounts = (
+  step: QuotePaymentScheduleStep,
+  subtotal: number,
+  totalWithVat: number,
+): { amountExcl: number; amountIncl: number; percent: number } => {
+  const normalizedSubtotal = Number(subtotal || 0);
+  const normalizedTotal = Number(totalWithVat || 0);
+  const value = Math.max(Number(step.value || 0), 0);
+  const amountExcl = step.mode === 'percent' ? normalizedSubtotal * (value / 100) : value;
+  const percent = normalizedSubtotal > 0 ? (amountExcl / normalizedSubtotal) * 100 : 0;
+  const amountIncl = normalizedSubtotal > 0
+    ? normalizedTotal * (amountExcl / normalizedSubtotal)
+    : step.mode === 'fixed'
+      ? value
+      : 0;
+
+  return {
+    amountExcl: Number(amountExcl.toFixed(2)),
+    amountIncl: Number(amountIncl.toFixed(2)),
+    percent: Number(percent.toFixed(2)),
+  };
+};
+
 export const getQuotePlatformLabel = (platform: Quote['platform'], customPlatformLabel: string = ''): string => {
   if (platform === 'other' && customPlatformLabel.trim()) return customPlatformLabel.trim();
   return platform;
@@ -161,7 +238,9 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
 
   return {
     clientId: quote.clientId || '',
+    templateId: quote.templateId || '',
     title: quote.title || '',
+    projectName: quote.projectName || '',
     quoteDate: nextQuoteDate,
     quoteRef: generateQuoteReference(quote.clientName, parseQuoteDate(nextQuoteDate)),
     platform: quote.platform,
@@ -172,6 +251,8 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     clientWebsite: quote.clientWebsite,
     vatRate: quote.vatRate,
     projectSummary: quote.projectSummary,
+    investmentSummary: quote.investmentSummary || '',
+    investmentAmount: Number(quote.investmentAmount || 0),
     emailDraft: quote.emailDraft,
     emailSubject: quote.emailSubject || '',
     emailBody: quote.emailBody || '',
@@ -205,6 +286,7 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
       id: createEntityId(),
       items: cloneConditionItems(addon.items || []),
     })),
+    paymentSchedule: clonePaymentSchedule(quote.paymentSchedule || []),
     status: 'draft',
   };
 };

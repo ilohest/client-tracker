@@ -40,7 +40,7 @@ export const clientsService = {
 
     return snapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }) as Client)
-      .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+      .sort((a, b) => toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt));
   },
 
   async create(payload: ClientInput): Promise<Client> {

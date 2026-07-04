@@ -7,32 +7,62 @@ import type { Note } from "@client-tracker/contracts";
 
 // --- IMPORTS SERVERLESS (FIREBASE) ---
 import { 
-  getFirestore, collection, addDoc, deleteDoc, 
-  doc, query, where, orderBy, getDocs, 
+  collection, addDoc, deleteDoc,
+  doc, query, where, getDocs,
   serverTimestamp, updateDoc 
 } from "firebase/firestore";
 import { auth, db } from "@/services/firebase";
 
+const ensureUser = (): string => {
+  if (!auth.currentUser) throw new Error("Utilisateur non connecté");
+  return auth.currentUser.uid;
+};
+
+const toMillis = (value: unknown): number => {
+  if (!value) return 0;
+  if (typeof value === "string" || value instanceof Date) {
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof value.toDate === "function"
+  ) {
+    const parsed = value.toDate().getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "seconds" in value &&
+    typeof value.seconds === "number"
+  ) {
+    return value.seconds * 1000;
+  }
+  return 0;
+};
 
 export const notesService = {
   /**
    * Récupère toutes les notes de l'utilisateur
    */
   async fetchAll(): Promise<Note[]> {
-    
-    if (!auth.currentUser) return [];
+    const userId = ensureUser();
     
     const q = query(
       collection(db, "notes"),
-      where("userId", "==", auth.currentUser.uid),
-      orderBy("createdAt", "desc")
+      where("userId", "==", userId)
     );
     
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    } as Note));
+    return snapshot.docs
+      .map((item) => ({
+        id: item.id,
+        ...item.data()
+      }) as Note)
+      .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
     
   },
 
@@ -40,17 +70,18 @@ export const notesService = {
    * Crée une nouvelle note
    */
   async create(content: string): Promise<Note> {
-    
-    if (!auth.currentUser) throw new Error("Non connecté");
+    const userId = ensureUser();
+    const now = new Date().toISOString();
 
     const newNoteData = {
       content,
-      userId: auth.currentUser.uid,
-      createdAt: new Date().toISOString() // On utilise ISO pour le retour immédiat
+      userId,
+      createdAt: now,
+      updatedAt: now,
     };
 
     // Pour Firestore, on utilise serverTimestamp() pour la DB
-    const dbData = { ...newNoteData, createdAt: serverTimestamp() };
+    const dbData = { ...newNoteData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
     
     const docRef = await addDoc(collection(db, "notes"), dbData);
     
@@ -72,7 +103,8 @@ export const notesService = {
    * Met à jour une note
    */
   async update(id: string, content: string): Promise<Note> {
-    
+    ensureUser();
+
     // --- MODE SERVERLESS (FIREBASE) ---
     const docRef = doc(db, "notes", id);
     await updateDoc(docRef, { 

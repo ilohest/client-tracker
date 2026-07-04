@@ -10,8 +10,13 @@
 /* --- 1. VARIABLES GLOBALES STATIQUES --- */
 :root {
   /* Référence brute pour usage hors Tailwind/PrimeVue */
-  --primary-color: #4C5EF7;
-  --secondary-color: #F8F8F6;
+  --primary-color: #e96a5f;
+  --secondary-color: #fff1ef;
+  --app-bg: #f8f7fa;
+  --card-shadow: 0 3px 14px rgba(47, 43, 61, 0.08);
+  --card-shadow-hover: 0 6px 22px rgba(47, 43, 61, 0.12);
+  --card-radius: 0.875rem;
+  --ui-border: rgba(47, 43, 61, 0.1);
 }
 
 /* --- 2. THEME TAILWIND V4 --- */
@@ -19,7 +24,7 @@
   /* --- TYPOGRAPHIE (MISE A JOUR : 3 POLICES) --- */
   /* On définit les 3 familles au lieu d'une seule "--font-sans" */
   --font-brand: "Poppins", system-ui, sans-serif;
-  --font-heading: "Poppins", system-ui, sans-serif;
+  --font-heading: "Geist Pixel", "Poppins", system-ui, sans-serif;
   --font-body: "Raleway", system-ui, sans-serif;
 
   /* --- COULEURS (TON APPROCHE INTELLIGENTE) --- */
@@ -44,18 +49,18 @@
   /* --- COULEURS EXTRA (PICKCOLOR) --- */
   
     
-  --color-accent-1: #ECE7E1;
+  --color-accent-1: #ffe3df;
     
-  --color-accent-2: #302B29;
+  --color-accent-2: #5a2520;
     
   
   
   /* --- NEUTRES (MAPPING POUR TAILWIND) --- */
   /* Cela permet d'utiliser "bg-surface-card" ou "text-surface-dark" dans le HTML */
   
-  --color-surface-dark: #090b1e;
-  --color-surface-light: #fafaff;
-  --color-surface-card: #f4f5ff;
+  --color-surface-dark: #2f2b3d;
+  --color-surface-light: #ffffff;
+  --color-surface-card: #ffffff;
   
 }
 
@@ -80,11 +85,15 @@ body {
   
   /* Gestion intelligente du fond (comme tu l'avais fait) */
   
-  background-color: #fafaff;
-  color: #090b1e;
+  background: var(--app-bg);
+  color: #2f2b3d;
   
   
   -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+#app {
   min-height: 100vh;
 }
 
@@ -99,13 +108,9 @@ h1, h2, h3, h4, h5, h6 {
    box-sizing: border-box;
 }
 
-/* PrimeVue buttons occasionally receive icon-only sizing even when slot text is present.
-   Force a normal inline layout so labels stay on one line and buttons keep a readable width. */
+/* Le texte des boutons passe par la prop `label` (jamais par le slot par défaut),
+   PrimeVue gère donc le layout. On uniformise seulement le rayon. */
 .p-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
   white-space: nowrap;
   border-radius: 0.75rem;
 }
@@ -114,9 +119,122 @@ h1, h2, h3, h4, h5, h6 {
   white-space: nowrap;
 }
 
-.p-button.p-button-icon-only {
-  width: auto;
-  min-width: 2.75rem;
+@layer components {
+  .bg-surface-card {
+    box-shadow: var(--card-shadow);
+  }
+
+  .bg-surface-card.rounded-3xl,
+  .rounded-3xl.bg-surface-card,
+  .bg-surface-card.rounded-2xl,
+  .rounded-2xl.bg-surface-card,
+  .bg-white.rounded-3xl,
+  .rounded-3xl.bg-white,
+  .p-card {
+    border-radius: var(--card-radius) !important;
+  }
+
+  .p-card,
+  .p-dialog,
+  .p-drawer,
+  .p-popover,
+  .p-menu,
+  .p-select-overlay,
+  .p-multiselect-overlay,
+  .p-datepicker-panel {
+    background: #ffffff;
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--card-shadow);
+  }
+
+  .p-inputtext,
+  .p-textarea,
+  .p-select,
+  .p-multiselect,
+  .p-inputnumber-input {
+    background: #ffffff;
+    border-color: rgba(47, 43, 61, 0.14);
+    transition:
+      border-color 160ms ease,
+      box-shadow 160ms ease,
+      background-color 160ms ease;
+  }
+
+  .p-disabled,
+  .p-inputtext:disabled,
+  .p-textarea:disabled,
+  .p-inputnumber-input:disabled,
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    background-color: rgba(47, 43, 61, 0.045) !important;
+    border-color: rgba(47, 43, 61, 0.08) !important;
+    color: rgba(47, 43, 61, 0.48) !important;
+    opacity: 1;
+    cursor: not-allowed;
+  }
+
+  .p-disabled .p-select-label,
+  .p-disabled .p-multiselect-label {
+    color: rgba(47, 43, 61, 0.48) !important;
+  }
+
+  .p-inputtext:enabled:focus,
+  .p-textarea:enabled:focus,
+  .p-select:not(.p-disabled).p-focus,
+  .p-multiselect:not(.p-disabled).p-focus,
+  .p-inputnumber-input:enabled:focus {
+    background: #ffffff;
+    border-color: rgba(233, 106, 95, 0.45);
+    box-shadow: 0 0 0 4px rgba(233, 106, 95, 0.12);
+  }
+
+  .p-button:not(.p-button-text):not(.p-button-outlined) {
+    box-shadow: 0 2px 6px rgba(233, 106, 95, 0.22);
+  }
+
+  .bg-surface-card,
+  .p-card {
+    transition:
+      box-shadow 180ms ease,
+      transform 180ms ease;
+  }
+
+  .bg-surface-card:hover {
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  .quote-editor-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .quote-editor-accordion .p-accordionpanel {
+    overflow: hidden;
+  }
+
+  .quote-editor-accordion .p-accordionheader {
+    display: block;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    padding: 0;
+  }
+
+  .quote-editor-accordion .p-accordionheader-toggle-icon,
+  .quote-editor-accordion [data-pc-section="toggleicon"] {
+    display: none;
+  }
+
+  .quote-editor-accordion .p-accordioncontent,
+  .quote-editor-accordion .p-accordioncontent-content {
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
 }
 
 /* --- 5. UTILITAIRES MANUELS --- */

@@ -5,6 +5,7 @@ import DatePicker from 'primevue/datepicker';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 import { formatCurrency, formatQuoteDate, getQuotePlatformLabel } from '@/utils/quote';
+import { formatDateTime } from '@/utils/date';
 import { quoteStatusMeta, quoteStatusOptions } from '@/lib/clientPresets';
 
 defineProps<{
@@ -12,7 +13,7 @@ defineProps<{
   clients: Client[];
   search: string;
   filterClientId: string;
-  filterDate: Date | null;
+  filterDateRange: Date[] | null;
   filterStatus: QuoteStatus | '';
 }>();
 
@@ -21,7 +22,7 @@ const emit = defineEmits<{
   select: [id: string];
   'update:search': [value: string];
   'update:filterClientId': [value: string];
-  'update:filterDate': [value: Date | null];
+  'update:filterDateRange': [value: Date[] | null];
   'update:filterStatus': [value: QuoteStatus | ''];
 }>();
 </script>
@@ -34,10 +35,8 @@ const emit = defineEmits<{
           <p class="text-sm font-semibold text-surface-dark">Liste des devis</p>
           <p class="text-xs text-surface-dark/55">Vue compacte pour retrouver rapidement un devis.</p>
         </div>
-        <Button class="!rounded-xl !px-4 !py-3 font-semibold shadow-sm" @click="emit('create')">
-          <template #icon><span class="material-symbols-outlined text-lg">post_add</span></template>
-          Nouveau devis
-        </Button>
+        <Button class="!rounded-xl !px-4 !py-3 font-semibold shadow-sm" @click="emit('create')" label="Nouveau devis">
+          <template #icon><span class="material-symbols-outlined text-lg">post_add</span></template></Button>
       </div>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -65,13 +64,15 @@ const emit = defineEmits<{
           @update:model-value="emit('update:filterClientId', $event || '')"
         />
         <DatePicker
-          :model-value="filterDate"
+          :model-value="filterDateRange"
+          selection-mode="range"
+          :manual-input="false"
           date-format="dd/mm/yy"
           show-icon
           icon-display="input"
           show-button-bar
-          placeholder="Filtrer par date"
-          @update:model-value="emit('update:filterDate', $event instanceof Date ? $event : null)"
+          placeholder="Filtrer par période"
+          @update:model-value="emit('update:filterDateRange', Array.isArray($event) ? $event.filter(Boolean) as Date[] : null)"
         />
       </div>
     </div>
@@ -117,7 +118,12 @@ const emit = defineEmits<{
               {{ quote.clientName || 'Aucun client' }}
             </td>
             <td class="px-4 py-4 align-top text-sm text-surface-dark/75">
-              {{ quote.quoteDate ? formatQuoteDate(quote.quoteDate) : 'Non renseignée' }}
+              <div class="min-w-[150px]">
+                <p>{{ quote.quoteDate ? formatQuoteDate(quote.quoteDate) : 'Non renseignée' }}</p>
+                <p class="mt-1 text-xs text-surface-dark/45">
+                  Modifié : {{ formatDateTime(quote.updatedAt || quote.createdAt) }}
+                </p>
+              </div>
             </td>
             <td class="px-4 py-4 align-top">
               <span

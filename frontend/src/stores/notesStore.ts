@@ -34,7 +34,8 @@ export const useNotesStore = defineStore("notes", {
     },
 
     async addNote(content: string) {
-      if (!content.trim()) return;
+      if (!content.trim()) return false;
+      this.loading = true;
       this.error = null;
       try {
         const newNote = await notesService.create(content);
@@ -43,7 +44,10 @@ export const useNotesStore = defineStore("notes", {
         return true;
       } catch (error: any) {
         this.error = error.message || "Erreur création note.";
+        console.error(error);
         return false;
+      } finally {
+        this.loading = false;
       }
     },
 

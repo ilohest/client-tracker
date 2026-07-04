@@ -43,7 +43,7 @@
       toast.add({
         severity: "error",
         summary: "Erreur",
-        detail: store.error || "Erreur inconnue",
+        detail: store.error || "Impossible d'enregistrer la note.",
         life: 3000,
       });
     }
@@ -104,19 +104,37 @@
 
 <template>
   <div
-    class="h-full bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col relative overflow-hidden"
+    class="h-full bg-surface-card rounded-3xl p-6 border border-surface-dark/5 flex flex-col relative overflow-hidden"
   >
     <div class="flex justify-between items-center mb-4 z-10">
-      <h3 class="font-bold text-slate-700 flex items-center gap-2">
-        <span class="material-symbols-outlined text-yellow-500"
+      <h3 class="font-heading text-lg font-bold text-surface-dark flex items-center gap-2">
+        <span class="material-symbols-outlined text-primary"
           >sticky_note_2</span
         >
-        Notes Privées
+        Notes
       </h3>
-      <span class="text-xs text-slate-400 font-mono">{{ notes.length }}</span>
+      <span class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">{{ notes.length }}</span>
     </div>
 
     <ConfirmDialog />
+
+    <div class="mb-4 flex gap-2 z-10">
+      <InputText
+        v-model="newNote"
+        placeholder="Ajouter une note rapide..."
+        class="flex-1 !text-sm !rounded-xl"
+        @keydown.enter="addNote"
+      />
+      <Button
+        aria-label="Ajouter"
+        @click="addNote"
+        :disabled="!newNote"
+        :loading="loading"
+        class="!h-10 !w-10 !rounded-xl"
+      >
+        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+      </Button>
+    </div>
 
     <div class="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar z-10">
       <div
@@ -130,7 +148,7 @@
         v-else
         v-for="note in notes"
         :key="note.id"
-        class="group p-3 bg-yellow-50/50 hover:bg-yellow-50 rounded-xl border border-yellow-100/50 hover:border-yellow-200 transition-all text-sm text-slate-600 flex justify-between items-start gap-2"
+        class="group p-3 bg-white hover:bg-primary/5 rounded-xl border border-surface-dark/8 hover:border-primary/20 transition-all text-sm text-surface-dark/70 flex justify-between items-start gap-2"
       >
         <p
           class="whitespace-pre-wrap flex-1 leading-relaxed cursor-pointer"
@@ -144,13 +162,13 @@
         >
           <button
             @click.stop="openEditDialog(note)"
-            class="p-1 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors"
+            class="p-1 text-surface-dark/35 hover:text-primary hover:bg-primary/10 rounded transition-colors"
           >
             <span class="material-symbols-outlined text-xs">edit</span>
           </button>
           <button
             @click.stop="confirmDelete(note.id)"
-            class="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+            class="p-1 text-surface-dark/35 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
           >
             <span class="material-symbols-outlined text-xs">delete</span>
           </button>
@@ -159,29 +177,10 @@
 
       <div
         v-if="notes.length === 0 && !loading"
-        class="text-center text-slate-400 py-10 text-xs italic"
+        class="text-center text-surface-dark/40 py-10 text-xs italic"
       >
         Aucune note pour l'instant.
       </div>
-    </div>
-
-    <div class="mt-4 pt-4 border-t border-slate-100 flex gap-2 z-10">
-      <InputText
-        v-model="newNote"
-        placeholder="Une idée ?"
-        class="flex-1 !text-sm !rounded-xl"
-        @keydown.enter="addNote"
-      />
-      <Button
-        rounded
-        aria-label="Ajouter"
-        @click="addNote"
-        :disabled="!newNote"
-        :loading="loading"
-        class="!w-10 !h-10 !rounded-xl shadow-lg shadow-primary-100"
-      >
-        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
-      </Button>
     </div>
 
     <Dialog
@@ -212,7 +211,7 @@
     </Dialog>
 
     <div
-      class="absolute top-0 right-0 w-32 h-32 bg-yellow-100/20 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2 pointer-events-none"
+      class="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2 pointer-events-none"
     ></div>
   </div>
 </template>

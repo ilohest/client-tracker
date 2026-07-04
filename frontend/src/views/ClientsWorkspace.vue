@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import type { Client, ClientInput } from '@client-tracker/contracts';
+import ConfirmDialog from 'primevue/confirmdialog';
+import { useConfirm } from 'primevue/useconfirm';
 import { useToast } from 'primevue/usetoast';
+import { useRouter } from 'vue-router';
 import ClientFormDialog from '@/components/clients/ClientFormDialog.vue';
 import ClientListPanel from '@/components/clients/ClientListPanel.vue';
 import ClientOverviewPanel from '@/components/clients/ClientOverviewPanel.vue';
@@ -12,7 +15,9 @@ import { formatClientAddress, formatClientFullName } from '@/utils/address';
 
 const clientsStore = useClientsStore();
 const quotesStore = useQuotesStore();
+const confirm = useConfirm();
 const toast = useToast();
+const router = useRouter();
 const dialogVisible = ref(false);
 const dialogClient = ref<Client | null>(null);
 const search = ref('');
@@ -89,10 +94,29 @@ const handleSave = async (payload: ClientInput, id: string | null) => {
   toast.add({ severity: 'success', summary: 'Client enregistré', detail: 'La fiche client a été mise à jour.', life: 2500 });
 };
 
-const handleDelete = async () => {
+const handleDelete = () => {
   if (!selectedClient.value) return;
-  await clientsStore.deleteClient(selectedClient.value.id);
-  toast.add({ severity: 'secondary', summary: 'Client supprimé', detail: 'La fiche a été retirée.', life: 2500 });
+  const client = selectedClient.value;
+  const clientLabel = formatClientFullName(client) || client.companyName || 'ce client';
+
+  confirm.require({
+    message: `Supprimer définitivement ${clientLabel} ?`,
+    header: 'Supprimer le client ?',
+    icon: 'warning',
+    rejectProps: {
+      label: 'Annuler',
+      severity: 'secondary',
+      outlined: true,
+    },
+    acceptProps: {
+      label: 'Supprimer',
+      severity: 'danger',
+    },
+    accept: async () => {
+      await clientsStore.deleteClient(client.id);
+      toast.add({ severity: 'secondary', summary: 'Client supprimé', detail: 'La fiche a été retirée.', life: 2500 });
+    },
+  });
 };
 
 const handleUploadDocument = async (file: File) => {
@@ -111,15 +135,25 @@ const handleRemoveDocument = async (documentId: string) => {
   await clientsStore.removeClientDocument(selectedClient.value.id, documentId);
   toast.add({ severity: 'secondary', summary: 'Document supprimé', detail: 'Le PDF a été retiré du profil client.', life: 2200 });
 };
+
+const openRelatedQuote = (quoteId: string) => {
+  quotesStore.selectQuote(quoteId);
+  router.push({ name: 'quotes' });
+};
 </script>
 
 <template>
   <div class="flex flex-col gap-6">
+    <ConfirmDialog />
+
     <div>
-      <h1 class="text-3xl font-heading font-bold text-surface-dark">Onboarding clients</h1>
-      <p class="text-surface-dark/60 max-w-3xl">
-        Centralise tes prospects et clients, garde une vision claire des étapes projet et structure la collecte de contenu.
-      </p>
+      <div class="flex items-center gap-3">
+        <span
+          class="material-symbols-outlined rounded-2xl bg-primary/10 p-2 text-2xl text-primary"
+          >groups</span
+        >
+        <h1 class="text-3xl font-heading font-bold text-surface-dark">Clients</h1>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-6 min-h-[70vh]">
@@ -143,6 +177,7 @@ const handleRemoveDocument = async (documentId: string) => {
         @update-task-status="selectedClient && clientsStore.updateTaskStatus(selectedClient.id, $event.projectId, $event.taskId, $event.status)"
         @upload-document="handleUploadDocument"
         @remove-document="handleRemoveDocument"
+        @view-quote="openRelatedQuote"
       />
     </div>
 

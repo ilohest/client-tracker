@@ -13,6 +13,14 @@ const props = withDefaults(defineProps<{
   itemEmptyLabel?: string;
   itemPlaceholder?: string;
   titlePlaceholder?: string;
+  showTagInput?: boolean;
+  tagPlaceholder?: string;
+  reusableConditions?: QuoteCondition[];
+  reusableConditionsLabel?: string;
+  conditionBadges?: Record<string, string>;
+  lockedConditionIds?: string[];
+  lockLastConditionTitle?: boolean;
+  lockedLastConditionTitle?: string;
 }>(), {
   sectionTitle: "Conditions",
   addButtonLabel: "Ajouter une condition",
@@ -20,13 +28,23 @@ const props = withDefaults(defineProps<{
   itemEmptyLabel: "Aucun point pour cette condition.",
   itemPlaceholder: "Texte du point",
   titlePlaceholder: "Nouvelle condition",
+  showTagInput: false,
+  tagPlaceholder: "Tag / hashtag",
+  reusableConditions: () => [],
+  reusableConditionsLabel: "Ajouter depuis la base commune",
+  conditionBadges: () => ({}),
+  lockedConditionIds: () => [],
+  lockLastConditionTitle: false,
+  lockedLastConditionTitle: "",
 });
 
 const emit = defineEmits<{
   addCondition: [];
+  addReusableCondition: [conditionId: string];
   moveCondition: [payload: { draggedId: string; targetId: string }];
   removeCondition: [id: string];
   updateConditionTitle: [payload: { id: string; value: string }];
+  updateConditionTag: [payload: { id: string; value: string }];
   addConditionItem: [conditionId: string];
   updateConditionItem: [
     payload: { conditionId: string; itemId: string; value: string },
@@ -132,6 +150,7 @@ const handleDragEnd = () => {
 };
 
 const startItemDrag = (conditionId: string, itemId: string) => {
+  if (isLockedCondition(conditionId)) return;
   draggedItem.value = { conditionId, itemId };
 };
 
@@ -140,6 +159,7 @@ const startSubItemDrag = (
   itemId: string,
   subItemId: string,
 ) => {
+  if (isLockedCondition(conditionId)) return;
   draggedSubItem.value = { conditionId, itemId, subItemId };
 };
 
@@ -148,6 +168,7 @@ const handleItemDragOver = (
   targetId: string,
   event: DragEvent,
 ) => {
+  if (isLockedCondition(conditionId)) return;
   event.preventDefault();
   const currentTarget = event.currentTarget as HTMLElement | null;
   if (!currentTarget) return;
@@ -163,6 +184,7 @@ const handleSubItemDragOver = (
   targetId: string,
   event: DragEvent,
 ) => {
+  if (isLockedCondition(conditionId)) return;
   event.preventDefault();
   dropState.value = {
     conditionId,
@@ -174,6 +196,10 @@ const handleSubItemDragOver = (
 };
 
 const dropItem = (conditionId: string, targetId: string) => {
+  if (isLockedCondition(conditionId)) {
+    clearDragState();
+    return;
+  }
   if (
     draggedItem.value &&
     draggedItem.value.conditionId === conditionId &&
@@ -222,6 +248,10 @@ const dropItem = (conditionId: string, targetId: string) => {
 };
 
 const dropSubItem = (conditionId: string, itemId: string, targetId: string) => {
+  if (isLockedCondition(conditionId)) {
+    clearDragState();
+    return;
+  }
   if (!draggedSubItem.value) return;
   if (
     draggedSubItem.value.conditionId !== conditionId ||
@@ -296,20 +326,55 @@ const toggleCondition = (conditionId: string) => {
 
 const stripAutoNumberPrefix = (value: string | undefined) =>
   (value || "").replace(/^\s*\d+\.\s*/, "").trim();
+
+const isLockedLastCondition = (index: number) =>
+  props.lockLastConditionTitle && index === props.conditions.length - 1;
+const isLockedCondition = (conditionId: string) =>
+  props.lockedConditionIds.includes(conditionId);
+const isConditionContentLocked = (condition: QuoteCondition, index: number) =>
+  isLockedLastCondition(index) || isLockedCondition(condition.id);
+
+const getConditionTitle = (condition: QuoteCondition, index: number) =>
+  isLockedLastCondition(index)
+    ? props.lockedLastConditionTitle || condition.title
+    : condition.title;
 </script>
 
 <template>
-  <div class="mt-6 rounded-3xl border border-surface-dark/5 bg-white p-5">
-    <div class="mb-4 flex flex-wrap items-start justify-between gap-4">
+  <div class="mt-6 rounded-3xl border border-surface-dark/5 bg-white p-4">
+    <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
       <div>
         <h3 class="font-heading font-bold text-surface-dark">{{ props.sectionTitle }}</h3>
       </div>
-      <Button severity="secondary" @click="emit('addCondition')">
+      <Button severity="secondary" @click="emit('addCondition')" :label="props.addButtonLabel">
         <template #icon
           ><span class="material-symbols-outlined text-lg">add</span></template
+        ></Button>
+    </div>
+
+    <div
+      v-if="props.reusableConditions.length"
+      class="mb-4 rounded-2xl border border-dashed border-primary/20 bg-primary/5 p-3"
+    >
+      <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-primary/75">
+        {{ props.reusableConditionsLabel }}
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <Button
+          v-for="condition in props.reusableConditions"
+          :key="condition.id"
+          size="small"
+          severity="secondary"
+          outlined
+          class="!rounded-xl"
+          :label="condition.title || 'Condition commune'"
+          @click="emit('addReusableCondition', condition.id)"
         >
-        {{ props.addButtonLabel }}
-      </Button>
+          <template #icon>
+            <span class="material-symbols-outlined text-base">library_add</span>
+          </template>
+        </Button>
+      </div>
     </div>
 
     <div
@@ -319,11 +384,11 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
       {{ props.emptyLabel }}
     </div>
 
-    <div v-else class="flex flex-col gap-4">
+    <div v-else class="flex flex-col gap-3">
       <div
         v-for="(condition, index) in conditions"
         :key="condition.id"
-        class="rounded-3xl border border-surface-dark/6 bg-surface-light p-5"
+        class="rounded-2xl border border-surface-dark/6 bg-surface-light p-3"
         :class="
           draggedConditionId === condition.id
             ? 'shadow-lg ring-2 ring-primary/20'
@@ -335,7 +400,7 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
       >
         <div
           v-if="topLevelDropTargetId === condition.id"
-          class="mb-4 h-1 rounded-full bg-primary"
+          class="mb-3 h-1 rounded-full bg-primary"
         ></div>
         <div
           class="flex cursor-pointer items-center justify-between gap-3"
@@ -344,11 +409,12 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
           <div class="flex min-w-0 flex-1 items-center gap-3">
             <button
               type="button"
-              draggable="true"
-              class="cursor-grab text-surface-dark/35 active:cursor-grabbing"
+              :draggable="!isLockedLastCondition(index)"
+              class="text-surface-dark/35"
+              :class="isLockedLastCondition(index) ? 'cursor-not-allowed opacity-35' : 'cursor-grab active:cursor-grabbing'"
               aria-label="Réordonner la condition"
               @click.stop
-              @dragstart="startConditionDrag(condition.id)"
+              @dragstart="!isLockedLastCondition(index) && startConditionDrag(condition.id)"
               @dragend="
                 draggedConditionId = null;
                 topLevelDropTargetId = null;
@@ -359,13 +425,21 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
               >
             </button>
             <div
-              class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary"
+              class="flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold"
+              :class="isLockedLastCondition(index) ? 'bg-surface-dark/8 text-surface-dark/45' : 'bg-primary/10 text-primary'"
             >
-              {{ index + 1 }}
+              <span v-if="isLockedLastCondition(index)" class="material-symbols-outlined text-sm">lock</span>
+              <span v-else>{{ index + 1 }}</span>
             </div>
             <p class="truncate text-sm font-semibold text-surface-dark">
-              {{ stripAutoNumberPrefix(condition.title) || "Nouvelle condition" }}
+              {{ stripAutoNumberPrefix(getConditionTitle(condition, index)) || "Nouvelle condition" }}
             </p>
+            <span
+              v-if="props.conditionBadges[condition.id]"
+              class="shrink-0 rounded-full border border-primary/15 bg-primary/8 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-primary"
+            >
+              {{ props.conditionBadges[condition.id] }}
+            </span>
           </div>
           <div class="flex items-center gap-1">
             <Button text severity="secondary" @click.stop="toggleCondition(condition.id)">
@@ -376,6 +450,7 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
               </template>
             </Button>
             <Button
+              v-if="!isLockedLastCondition(index)"
               text
               severity="danger"
               @click.stop="emit('removeCondition', condition.id)"
@@ -391,28 +466,43 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
 
         <div
           v-if="isConditionExpanded(condition.id)"
-          class="rounded-3xl border border-surface-dark/8 bg-white p-4"
-          :class="isConditionExpanded(condition.id) ? 'mt-4' : ''"
+          class="rounded-2xl border border-surface-dark/8 bg-white p-3"
+          :class="isConditionExpanded(condition.id) ? 'mt-3' : ''"
           @dragleave="handleContainerDragLeave"
         >
-          <div class="mb-4 flex items-center gap-3">
+          <div class="mb-3 flex items-center gap-3">
             <InputText
               class="w-full"
-              :model-value="condition.title"
+              :model-value="getConditionTitle(condition, index)"
               :placeholder="props.titlePlaceholder"
+              :disabled="isConditionContentLocked(condition, index)"
               @update:model-value="
-                emit('updateConditionTitle', {
+                !isConditionContentLocked(condition, index) && emit('updateConditionTitle', {
                   id: condition.id,
                   value: $event || '',
                 })
               "
             />
           </div>
-          <div v-if="condition.items.length" class="space-y-3">
+          <div v-if="props.showTagInput" class="mb-3">
+            <InputText
+              class="w-full"
+              :model-value="condition.tag || ''"
+              :placeholder="props.tagPlaceholder"
+              :disabled="isLockedCondition(condition.id)"
+              @update:model-value="
+                !isLockedCondition(condition.id) && emit('updateConditionTag', {
+                  id: condition.id,
+                  value: $event || '',
+                })
+              "
+            />
+          </div>
+          <div v-if="condition.items.length" class="space-y-2">
             <div
               v-for="item in condition.items"
               :key="item.id"
-              class="rounded-3xl border border-surface-dark/8 bg-white p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)]"
+              class="rounded-2xl border border-surface-dark/8 bg-white p-3 shadow-[0_1px_0_rgba(15,23,42,0.02)]"
               :class="[
                 draggedItem?.itemId === item.id
                   ? 'shadow-md ring-2 ring-primary/20'
@@ -426,13 +516,14 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
             >
               <div
                 v-if="isItemDropBefore(condition.id, item.id)"
-                class="mb-3 h-0.5 rounded-full bg-primary"
+                class="mb-2 h-0.5 rounded-full bg-primary"
               ></div>
-              <div class="flex items-start gap-4">
+              <div class="flex items-start gap-3">
                 <button
                   type="button"
-                  draggable="true"
+                  :draggable="!isLockedCondition(condition.id)"
                   class="mt-3 shrink-0 cursor-grab text-surface-dark/35 active:cursor-grabbing"
+                  :class="isLockedCondition(condition.id) ? 'cursor-not-allowed opacity-35' : ''"
                   aria-label="Réordonner le point"
                   @dragstart="startItemDrag(condition.id, item.id)"
                   @dragend="handleDragEnd"
@@ -442,15 +533,16 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
                   >
                 </button>
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-start gap-3">
+                  <div class="flex items-start gap-2">
                     <Textarea
                       class="flex-1"
                       :model-value="item.text"
                       :placeholder="props.itemPlaceholder"
                       rows="2"
                       auto-resize
+                      :disabled="isLockedCondition(condition.id)"
                       @update:model-value="
-                        emit('updateConditionItem', {
+                        !isLockedCondition(condition.id) && emit('updateConditionItem', {
                           conditionId: condition.id,
                           itemId: item.id,
                           value: $event || '',
@@ -462,8 +554,9 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
                         text
                         severity="danger"
                         class="!h-10 !w-10 !rounded-xl"
+                        :disabled="isLockedCondition(condition.id)"
                         @click="
-                          emit('removeConditionItem', {
+                          !isLockedCondition(condition.id) && emit('removeConditionItem', {
                             conditionId: condition.id,
                             itemId: item.id,
                           })
@@ -478,12 +571,12 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
                     </div>
                   </div>
 
-                  <div v-if="item.subItems.length" class="mt-4 ml-5 pl-8">
-                    <div class="space-y-3">
+                  <div v-if="item.subItems.length" class="mt-3 ml-4 pl-6">
+                    <div class="space-y-2">
                       <div
                         v-for="subItem in item.subItems"
                         :key="subItem.id"
-                        class="relative rounded-3xl border border-surface-dark/8 bg-surface-light p-4"
+                        class="relative rounded-2xl border border-surface-dark/8 bg-surface-light p-3"
                         :class="
                           draggedSubItem?.subItemId === subItem.id
                             ? 'shadow-md ring-2 ring-primary/20'
@@ -507,13 +600,14 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
                               subItem.id,
                             )
                           "
-                          class="mb-3 h-0.5 rounded-full bg-primary"
+                          class="mb-2 h-0.5 rounded-full bg-primary"
                         ></div>
-                        <div class="flex items-start gap-3">
+                        <div class="flex items-start gap-2">
                           <button
                             type="button"
-                            draggable="true"
+                            :draggable="!isLockedCondition(condition.id)"
                             class="mt-3 shrink-0 cursor-grab text-surface-dark/35 active:cursor-grabbing"
+                            :class="isLockedCondition(condition.id) ? 'cursor-not-allowed opacity-35' : ''"
                             aria-label="Réordonner le sous-point"
                             @dragstart="
                               startSubItemDrag(condition.id, item.id, subItem.id)
@@ -530,8 +624,9 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
                             placeholder="Texte du sous-point"
                             rows="2"
                             auto-resize
+                            :disabled="isLockedCondition(condition.id)"
                             @update:model-value="
-                              emit('updateConditionSubItem', {
+                              !isLockedCondition(condition.id) && emit('updateConditionSubItem', {
                                 conditionId: condition.id,
                                 itemId: item.id,
                                 subItemId: subItem.id,
@@ -546,8 +641,9 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
                               text
                               severity="danger"
                               class="!h-10 !w-10 !rounded-xl"
+                              :disabled="isLockedCondition(condition.id)"
                               @click="
-                                emit('removeConditionSubItem', {
+                                !isLockedCondition(condition.id) && emit('removeConditionSubItem', {
                                   conditionId: condition.id,
                                   itemId: item.id,
                                   subItemId: subItem.id,
@@ -568,42 +664,38 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
                     <Button
                       text
                       severity="secondary"
-                      class="mt-3 w-full justify-start rounded-2xl border border-surface-dark/8 bg-white px-4 py-3"
+                      class="mt-2 w-full justify-start rounded-xl border border-surface-dark/8 bg-white px-3 py-2"
                       @click="
-                        emit('addConditionSubItem', {
+                        !isLockedCondition(condition.id) && emit('addConditionSubItem', {
                           conditionId: condition.id,
                           itemId: item.id,
                         })
-                      "
-                    >
+                      " label="Ajouter un sous-point"
+                      :disabled="isLockedCondition(condition.id)">
                       <template #icon
                         ><span class="material-symbols-outlined text-lg"
                           >add_circle</span
                         ></template
-                      >
-                      Ajouter un sous-point
-                    </Button>
+                      ></Button>
                   </div>
 
                   <Button
                     v-else
                     text
                     severity="secondary"
-                    class="mt-4 w-[calc(100%-1.25rem)] justify-start rounded-2xl border border-surface-dark/8 bg-surface-light px-4 py-3"
+                    class="mt-3 w-[calc(100%-1rem)] justify-start rounded-xl border border-surface-dark/8 bg-surface-light px-3 py-2"
                     @click="
-                      emit('addConditionSubItem', {
+                      !isLockedCondition(condition.id) && emit('addConditionSubItem', {
                         conditionId: condition.id,
                         itemId: item.id,
                       })
-                    "
-                  >
+                    " label="Ajouter un sous-point"
+                    :disabled="isLockedCondition(condition.id)">
                     <template #icon
                       ><span class="material-symbols-outlined text-lg"
                         >add_circle</span
                       ></template
-                    >
-                    Ajouter un sous-point
-                  </Button>
+                    ></Button>
                 </div>
               </div>
             </div>
@@ -616,16 +708,14 @@ const stripAutoNumberPrefix = (value: string | undefined) =>
           <Button
             text
             severity="secondary"
-            class="mt-4 w-full justify-start rounded-2xl border border-surface-dark/8 bg-surface-light px-4 py-3"
-            @click="emit('addConditionItem', condition.id)"
-          >
+            class="mt-3 w-full justify-start rounded-xl border border-surface-dark/8 bg-surface-light px-3 py-2"
+            :disabled="isLockedCondition(condition.id)"
+            @click="!isLockedCondition(condition.id) && emit('addConditionItem', condition.id)" label="Ajouter un point">
             <template #icon
               ><span class="material-symbols-outlined text-lg"
                 >add_circle</span
               ></template
-            >
-            Ajouter un point
-          </Button>
+            ></Button>
         </div>
       </div>
     </div>

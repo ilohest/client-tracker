@@ -10,10 +10,17 @@ export const toDateObj = (dateValue: any): Date | null => {
   if (!dateValue) return null;
   // Cas Firestore (objet avec méthode toDate)
   if (typeof dateValue.toDate === 'function') {
-    return dateValue.toDate();
+    const date = dateValue.toDate();
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  // Cas Firestore sérialisé ({ seconds, nanoseconds })
+  if (typeof dateValue === 'object' && typeof dateValue.seconds === 'number') {
+    const date = new Date(dateValue.seconds * 1000);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
   // Cas String ou Number
-  return new Date(dateValue);
+  const date = new Date(dateValue);
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
 /**
@@ -23,6 +30,18 @@ export const formatDateLong = (dateValue: any): string => {
   const date = toDateObj(dateValue);
   if (!date) return '-';
   return format(date, "dd MMM yyyy 'à' HH:mm", { locale: fr });
+};
+
+/**
+ * Format ergonomique pour les métadonnées : "2 juil. 2026, 10:05".
+ */
+export const formatDateTime = (dateValue: any): string => {
+  const date = toDateObj(dateValue);
+  if (!date) return 'Date inconnue';
+  return new Intl.DateTimeFormat('fr-FR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 };
 
 /**

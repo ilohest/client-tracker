@@ -3,6 +3,7 @@ import type { Client, ClientDocument, ClientInput, ClientProject, OnboardingTask
 import { clientDocumentsService } from '@/services/clientDocumentsService';
 import { clientsService } from '@/services/clientsService';
 import { createClientProject } from '@/lib/clientPresets';
+import { toDateObj } from '@/utils/date';
 
 interface ClientsState {
   clients: Client[];
@@ -10,6 +11,13 @@ interface ClientsState {
   loading: boolean;
   error: string | null;
 }
+
+const sortClients = (clients: Client[]): Client[] =>
+  [...clients].sort((a, b) => {
+    const dateA = toDateObj(a.updatedAt || a.createdAt)?.getTime() || 0;
+    const dateB = toDateObj(b.updatedAt || b.createdAt)?.getTime() || 0;
+    return dateB - dateA;
+  });
 
 export const useClientsStore = defineStore('clients', {
   state: (): ClientsState => ({
@@ -54,10 +62,15 @@ export const useClientsStore = defineStore('clients', {
 
         const index = this.clients.findIndex((entry) => entry.id === client.id);
         if (index >= 0) {
-          this.clients[index] = { ...this.clients[index], ...client };
+          this.clients[index] = {
+            ...this.clients[index],
+            ...client,
+            createdAt: this.clients[index].createdAt || client.createdAt,
+          };
         } else {
           this.clients.unshift(client);
         }
+        this.clients = sortClients(this.clients);
         this.selectedClientId = client.id;
         return client;
       } catch (error: any) {
@@ -78,7 +91,11 @@ export const useClientsStore = defineStore('clients', {
     async updateClientStage(id: string, stage: Client['stage']) {
       await clientsService.updateStage(id, stage);
       const client = this.clients.find((item) => item.id === id);
-      if (client) client.stage = stage;
+      if (client) {
+        client.stage = stage;
+        client.updatedAt = new Date().toISOString();
+        this.clients = sortClients(this.clients);
+      }
     },
 
     async updateTaskStatus(id: string, projectId: string, taskId: string, status: OnboardingTaskStatus) {

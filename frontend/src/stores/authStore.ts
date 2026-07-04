@@ -3,6 +3,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import type { UserProfile } from "@client-tracker/contracts";
 import { auth } from "../services/firebase";
 import { authService } from "../services/authService";
+import { profileLogoService } from "../services/profileLogoService";
 import { userProfileService } from "../services/userProfileService";
 
 export type { UserProfile };
@@ -88,9 +89,12 @@ export const useAuthStore = defineStore("auth", {
         const newUserProfile: UserProfile = {
           uid: user.uid,
           email: user.email || email,
+          contactEmail: "",
           displayName: name,
+          jobTitle: "",
+          hourlyRate: 0,
           role: "user",
-          color: "#4C5EF7",
+          color: "#e96a5f",
           address: "",
           billingStreet: "",
           billingStreetNumber: "",
@@ -98,6 +102,16 @@ export const useAuthStore = defineStore("auth", {
           billingCity: "",
           website: "",
           logoUrl: "",
+          logoPath: "",
+          quotePdfTextColor: "#23262f",
+          quotePdfTitleColor: "#23262f",
+          quotePdfAccentColor: "#14161f",
+          quotePdfHeadingFont: "Fraunces",
+          quotePdfHeadingFontVariant: "600",
+          quotePdfHeadingFontGoogleFamily: "Fraunces:opsz,wght@9..144,600",
+          quotePdfBodyFont: "Inter",
+          quotePdfBodyFontVariant: "regular",
+          quotePdfBodyFontGoogleFamily: "Inter:wght@400",
           billingCountry: "BE",
           vatNumber: "",
           createdAt: new Date().toISOString(),
@@ -140,13 +154,25 @@ export const useAuthStore = defineStore("auth", {
       await authService.updateDisplayName(this.user, payload.displayName);
       await userProfileService.updateProfile(this.user.uid, payload);
 
-      this.user = { ...this.user, displayName: payload.displayName } as User;
       if (this.userProfile) {
         this.userProfile = {
           ...this.userProfile,
           ...payload,
         };
       }
+    },
+
+    async uploadProfileLogo(file: File) {
+      if (!this.user) throw new Error("Utilisateur non connecté");
+
+      const result = await profileLogoService.upload(file, this.userProfile?.logoPath);
+      if (this.userProfile) {
+        this.userProfile = {
+          ...this.userProfile,
+          ...result,
+        };
+      }
+      return result;
     },
 
     async resetPassword(email: string): Promise<boolean> {

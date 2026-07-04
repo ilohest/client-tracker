@@ -18,7 +18,7 @@ const shouldShowChat = computed(() => {
 </script>
 
 <template>
-  <Toast />
+  <Toast position="bottom-right" />
   <router-view />
 
   
@@ -28,7 +28,7 @@ const shouldShowChat = computed(() => {
 /* --- APPLICATION DU THEME DE POLICES --- */
 :root {
   --font-brand: "Poppins", sans-serif;
-  --font-heading: "Poppins", sans-serif;
+  --font-heading: "Geist Pixel", "Poppins", sans-serif;
   --font-body: "Raleway", sans-serif;
 }
 

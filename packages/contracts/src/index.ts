@@ -38,8 +38,11 @@ export const authCredentialsSchema = z.object({
 export const userProfileSchema = z.object({
   uid: z.string(),
   email: z.string().email(),
+  contactEmail: z.string().optional().default(''),
   role: z.enum(['user', 'admin']).default('user'),
   displayName: z.string().optional().nullable(),
+  jobTitle: z.string().optional().default(''),
+  hourlyRate: z.number().optional().default(0),
   photoURL: z.string().optional().nullable(),
   color: z.string().default(USER_COLORS[7]),
   address: z.string().optional().default(''),
@@ -49,6 +52,16 @@ export const userProfileSchema = z.object({
   billingCity: z.string().optional().default(''),
   website: z.string().optional().default(''),
   logoUrl: z.string().optional().default(''),
+  logoPath: z.string().optional().default(''),
+  quotePdfTextColor: z.string().optional().default('#23262f'),
+  quotePdfTitleColor: z.string().optional().default('#23262f'),
+  quotePdfAccentColor: z.string().optional().default('#14161f'),
+  quotePdfHeadingFont: z.string().optional().default('Fraunces'),
+  quotePdfHeadingFontVariant: z.string().optional().default('600'),
+  quotePdfHeadingFontGoogleFamily: z.string().optional().default('Fraunces:opsz,wght@9..144,600'),
+  quotePdfBodyFont: z.string().optional().default('Inter'),
+  quotePdfBodyFontVariant: z.string().optional().default('regular'),
+  quotePdfBodyFontGoogleFamily: z.string().optional().default('Inter:wght@400'),
   billingCountry: z.string().optional().default(''),
   vatNumber: z.string().optional().default(''),
   createdAt: z.union([z.string(), z.date(), z.any()]).optional(),
@@ -232,6 +245,7 @@ export const quoteSectionSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string(),
+  displayMode: z.enum(['title', 'bullets', 'numbered']).default('bullets'),
   items: z.array(quoteConditionItemSchema).default([]),
   price: z.number(),
   subSections: z.array(quoteSubsectionSchema).default([]),
@@ -245,13 +259,16 @@ export const quotePartSchema = z.object({
   displayStyle: quotePartDisplayStyleSchema.default('text'),
   price: z.number().default(0),
   optional: z.boolean().default(false),
+  includeInInvestment: z.boolean().default(true),
   priceNote: z.string().default(''),
   sections: z.array(quoteSectionSchema).default([]),
 });
 
 export const quoteConditionSchema = z.object({
   id: z.string(),
+  commonConditionId: z.string().optional(),
   title: z.string(),
+  tag: z.string().optional(),
   body: z.string().default(''),
   items: z.array(quoteConditionItemSchema).default([]),
 });
@@ -266,14 +283,25 @@ export const quoteAddonSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+export const quotePaymentScheduleStepSchema = z.object({
+  id: z.string(),
+  label: z.string().default(''),
+  mode: z.enum(['percent', 'fixed']).default('percent'),
+  value: z.number().default(0),
+});
+
 export const quoteTemplateLocalizedContentSchema = z.object({
   projectSummary: z.string().default(''),
+  // Mail d'envoi standard (base commune) — placeholders : {client} prénom, {titre}, {projet}, {ref}.
+  emailSubject: z.string().default(''),
+  emailBody: z.string().default(''),
   parts: z.array(quotePartSchema).default([]),
   conditions: z.array(quoteConditionSchema).default([]),
   roadmap: z.array(quoteConditionSchema).default([]),
   acceptance: z.array(quoteConditionSchema).default([]),
   principles: z.array(quoteConditionSchema).default([]),
   addons: z.array(quoteAddonSchema).default([]),
+  paymentSchedule: z.array(quotePaymentScheduleStepSchema).default([]),
 });
 
 export const quoteTemplateLocalizedContentMapSchema = z.object({
@@ -297,7 +325,9 @@ export const quoteSchema = z.object({
   id: z.string(),
   userId: z.string(),
   clientId: z.string().optional().default(''),
+  templateId: z.string().optional().default(''),
   title: z.string().default(''),
+  projectName: z.string().optional().default(''),
   quoteDate: z.string().default(''),
   quoteRef: z.string(),
   platform: clientPlatformSchema,
@@ -308,6 +338,8 @@ export const quoteSchema = z.object({
   clientWebsite: z.string().optional().default(''),
   vatRate: vatRateSchema,
   projectSummary: z.string().default(''),
+  investmentSummary: z.string().optional().default(''),
+  investmentAmount: z.number().optional().default(0),
   emailDraft: z.string().default(''),
   emailSubject: z.string().default(''),
   emailBody: z.string().default(''),
@@ -321,6 +353,7 @@ export const quoteSchema = z.object({
   acceptance: z.array(quoteConditionSchema).default([]),
   principles: z.array(quoteConditionSchema).default([]),
   addons: z.array(quoteAddonSchema).default([]),
+  paymentSchedule: z.array(quotePaymentScheduleStepSchema).default([]),
   subtotal: z.number(),
   totalWithVat: z.number(),
   status: quoteStatusSchema.default('draft'),
@@ -337,16 +370,22 @@ export const quoteInputSchema = quoteSchema.omit({
   updatedAt: true,
 });
 
+// 'base' = base commune protégée qui préremplit les nouveaux devis (unique, non supprimable),
+// 'custom' = template créé librement par l'utilisateur.
+export const quoteTemplateKindSchema = z.enum(['base', 'custom']);
+
 export const quoteTemplateSchema = z.object({
   id: z.string(),
   userId: z.string(),
   name: z.string(),
-  isDefault: z.boolean().default(false),
+  kind: quoteTemplateKindSchema.default('custom'),
   platform: clientPlatformSchema,
   customPlatformLabel: z.string().optional().default(''),
   language: quoteLanguageSchema,
   vatRate: vatRateSchema,
   projectSummary: z.string().default(''),
+  emailSubject: z.string().default(''),
+  emailBody: z.string().default(''),
   discountType: quoteDiscountTypeSchema.default('percent'),
   discountValue: z.number().default(0),
   parts: z.array(quotePartSchema).default([]),
@@ -355,10 +394,11 @@ export const quoteTemplateSchema = z.object({
   acceptance: z.array(quoteConditionSchema).default([]),
   principles: z.array(quoteConditionSchema).default([]),
   addons: z.array(quoteAddonSchema).default([]),
+  paymentSchedule: z.array(quotePaymentScheduleStepSchema).default([]),
   localizedContent: quoteTemplateLocalizedContentMapSchema.default({
-    fr: { projectSummary: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [] },
-    en: { projectSummary: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [] },
-    es: { projectSummary: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [] },
+    fr: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
+    en: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
+    es: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
   }),
   createdAt: z.union([z.string(), z.date(), z.any()]),
   updatedAt: z.union([z.string(), z.date(), z.any()]).optional(),
@@ -367,6 +407,47 @@ export const quoteTemplateSchema = z.object({
 export const quoteTemplateInputSchema = quoteTemplateSchema.omit({
   id: true,
   userId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const timesheetSourceTypeSchema = z.enum(['quote', 'custom']);
+export const timesheetStatusSchema = z.enum(['open', 'closed', 'archived']);
+
+export const timesheetSessionSchema = z.object({
+  id: z.string(),
+  title: z.string().optional().default(''),
+  startedAt: z.string(),
+  endedAt: z.string(),
+  durationSeconds: z.number().default(0),
+});
+
+export const timesheetSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  title: z.string(),
+  sourceType: timesheetSourceTypeSchema.default('custom'),
+  quoteId: z.string().optional().default(''),
+  quoteRef: z.string().optional().default(''),
+  clientId: z.string().optional().default(''),
+  clientName: z.string().optional().default(''),
+  color: z.string().default(USER_COLORS[7]),
+  hourlyRate: z.number().default(0),
+  fixedPriceExVat: z.number().default(0),
+  projectStartDate: z.string().optional().default(''),
+  status: timesheetStatusSchema.default('open'),
+  totalTrackedSeconds: z.number().default(0),
+  activeStartedAt: z.string().optional().default(''),
+  sessions: z.array(timesheetSessionSchema).default([]),
+  createdAt: z.union([z.string(), z.date(), z.any()]),
+  updatedAt: z.union([z.string(), z.date(), z.any()]).optional(),
+});
+
+export const timesheetInputSchema = timesheetSchema.omit({
+  id: true,
+  userId: true,
+  totalTrackedSeconds: true,
+  sessions: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -394,6 +475,7 @@ export type ClientProject = z.infer<typeof clientProjectSchema>;
 export type Client = z.infer<typeof clientSchema>;
 export type ClientInput = z.infer<typeof clientInputSchema>;
 export type QuoteSection = z.infer<typeof quoteSectionSchema>;
+export type QuotePaymentScheduleStep = z.infer<typeof quotePaymentScheduleStepSchema>;
 export type QuotePartDisplayStyle = z.infer<typeof quotePartDisplayStyleSchema>;
 export type QuotePart = z.infer<typeof quotePartSchema>;
 export type QuoteConditionSubItem = z.infer<typeof quoteConditionSubItemSchema>;
@@ -407,5 +489,11 @@ export type QuoteStatus = z.infer<typeof quoteStatusSchema>;
 export type QuoteDiscountType = z.infer<typeof quoteDiscountTypeSchema>;
 export type Quote = z.infer<typeof quoteSchema>;
 export type QuoteInput = z.infer<typeof quoteInputSchema>;
+export type QuoteTemplateKind = z.infer<typeof quoteTemplateKindSchema>;
 export type QuoteTemplate = z.infer<typeof quoteTemplateSchema>;
 export type QuoteTemplateInput = z.infer<typeof quoteTemplateInputSchema>;
+export type TimesheetSourceType = z.infer<typeof timesheetSourceTypeSchema>;
+export type TimesheetStatus = z.infer<typeof timesheetStatusSchema>;
+export type TimesheetSession = z.infer<typeof timesheetSessionSchema>;
+export type Timesheet = z.infer<typeof timesheetSchema>;
+export type TimesheetInput = z.infer<typeof timesheetInputSchema>;

@@ -1,5 +1,5 @@
 import type { Quote, QuoteInput, QuoteStatus } from '@client-tracker/contracts';
-import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { auth, db } from '@/services/firebase';
 
 const ensureUser = (): string => {
@@ -30,7 +30,7 @@ export const quotesService = {
 
     return snapshot.docs
       .map((item) => ({ id: item.id, ...item.data() }) as Quote)
-      .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+      .sort((a, b) => toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt));
   },
 
   async create(payload: QuoteInput & Pick<Quote, 'subtotal' | 'totalWithVat'>): Promise<Quote> {
@@ -57,7 +57,11 @@ export const quotesService = {
     payload: QuoteInput & Pick<Quote, 'subtotal' | 'totalWithVat'>,
   ): Promise<Quote> {
     const userId = ensureUser();
-    await updateDoc(doc(db, 'quotes', id), {
+    const docRef = doc(db, 'quotes', id);
+    const existingSnapshot = await getDoc(docRef);
+    const existing = existingSnapshot.exists() ? (existingSnapshot.data() as Partial<Quote>) : {};
+    const now = new Date().toISOString();
+    await updateDoc(docRef, {
       ...payload,
       updatedAt: serverTimestamp(),
     });
@@ -66,8 +70,8 @@ export const quotesService = {
       id,
       userId,
       ...payload,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: existing.createdAt || now,
+      updatedAt: now,
     };
   },
 

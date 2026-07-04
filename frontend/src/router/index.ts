@@ -25,7 +25,13 @@ const router = createRouter({
            path: 'profile',
            name: 'profile',
            component: () => import('../views/Profile.vue'),
-           meta: { title: 'Mon Profil' }
+           meta: { title: 'Infos profil' }
+        },
+        {
+           path: 'security',
+           name: 'security',
+           component: () => import('../views/SecuritySettings.vue'),
+           meta: { title: 'Sécurité' }
         },
         {
            path: 'clients',
@@ -40,10 +46,22 @@ const router = createRouter({
            meta: { title: 'Devis' }
         },
         {
+           path: 'timesheets',
+           name: 'timesheets',
+           component: () => import('../views/TimesheetsWorkspace.vue'),
+           meta: { title: 'Timesheets' }
+        },
+        {
            path: 'quote-templates',
            name: 'quote-templates',
            component: () => import('../views/QuoteTemplatesWorkspace.vue'),
-           meta: { title: 'Templates de devis' }
+           meta: { title: 'Templates' }
+        },
+        {
+           path: 'quote-design',
+           name: 'quote-design',
+           component: () => import('../views/QuoteDesignSettings.vue'),
+           meta: { title: 'Design des devis' }
         },
         
         // --- RESSOURCES & OUTILS ---

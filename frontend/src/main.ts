@@ -33,7 +33,7 @@ app.directive('tooltip', Tooltip);
 const ForgePreset = definePreset(Nora, {
     semantic: {
         // CORRECTION : Injection dynamique de la couleur primaire
-        primary: palette('#4C5EF7')
+        primary: palette('#e96a5f')
     }
 });
 

@@ -8,6 +8,7 @@ defineProps<{
   language: QuoteLanguage;
   emailSubject: string;
   emailBody: string;
+  embedded?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -15,15 +16,44 @@ const emit = defineEmits<{
   'update:emailBody': [value: string];
   copyEmailSubject: [];
   copyEmailBody: [];
+  openEmailClient: [];
 }>();
 </script>
 
 <template>
-  <section class="bg-surface-card border border-surface-dark/5 rounded-3xl p-6 h-full">
-    <div class="rounded-3xl bg-white border border-surface-dark/5 p-5">
-      <div class="mb-3">
+  <section
+    :class="
+      embedded
+        ? ''
+        : 'bg-surface-card border border-surface-dark/5 rounded-3xl p-6 h-full'
+    "
+  >
+    <div
+      :class="
+        embedded
+          ? ''
+          : 'rounded-3xl bg-white border border-surface-dark/5 p-5'
+      "
+    >
+      <div v-if="!embedded" class="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h3 class="font-heading font-bold text-surface-dark">Mail d’envoi</h3>
+        <Button
+          severity="secondary"
+          size="small"
+          class="!rounded-xl"
+          label="Ouvrir dans Outlook"
+          @click="emit('openEmailClient')"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-lg">outgoing_mail</span>
+          </template>
+        </Button>
       </div>
+      <p class="mb-4 rounded-xl border border-surface-dark/8 bg-surface-light px-3 py-2 text-xs text-surface-dark/55">
+        Variables disponibles :
+        <code>{client}</code> prénom du client, <code>{titre}</code>, <code>{projet}</code>, <code>{ref}</code>,
+        <code>{taux_horaire}</code>, <code>{taux_journalier}</code>
+      </p>
       <div class="space-y-4">
         <div>
           <div class="mb-2 flex items-center justify-between gap-3">

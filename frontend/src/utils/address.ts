@@ -1,4 +1,5 @@
 import type { Client, UserProfile } from '@client-tracker/contracts';
+import { getCountryLabel } from '@/lib/countries';
 
 const compact = (values: Array<string | undefined>): string[] =>
   values.map((value) => value?.trim() || '').filter(Boolean);
@@ -8,7 +9,7 @@ export const formatClientAddress = (
 ): string => {
   const firstLine = compact([client.street, client.streetNumber]).join(' ');
   const secondLine = compact([client.postalCode, client.city]).join(' ');
-  const thirdLine = compact([client.country]).join(' ');
+  const thirdLine = compact([client.country ? getCountryLabel(client.country) : '']).join(' ');
   const formatted = compact([firstLine, secondLine, thirdLine]).join('\n');
   return formatted || client.address || '';
 };
@@ -21,7 +22,7 @@ export const formatBillingAddress = (
 ): string => {
   const firstLine = compact([profile.billingStreet, profile.billingStreetNumber]).join(' ');
   const secondLine = compact([profile.billingPostalCode, profile.billingCity]).join(' ');
-  const thirdLine = compact([profile.billingCountry]).join(' ');
+  const thirdLine = compact([profile.billingCountry ? getCountryLabel(profile.billingCountry) : '']).join(' ');
   const formatted = compact([firstLine, secondLine, thirdLine]).join('\n');
   return formatted || profile.address || '';
 };
