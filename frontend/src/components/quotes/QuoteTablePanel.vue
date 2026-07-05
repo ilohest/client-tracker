@@ -36,7 +36,7 @@ const emit = defineEmits<{
           <p class="text-xs text-surface-dark/55">Vue compacte pour retrouver rapidement un devis.</p>
         </div>
         <Button class="!rounded-xl !px-4 !py-3 font-semibold shadow-sm" @click="emit('create')" label="Nouveau devis">
-          <template #icon><span class="material-symbols-outlined text-lg">post_add</span></template></Button>
+          <template #icon><span class="material-symbols-outlined text-lg">add</span></template></Button>
       </div>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">

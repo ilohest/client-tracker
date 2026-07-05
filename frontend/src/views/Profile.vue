@@ -266,7 +266,7 @@ const handleLogoChange = async (event: Event) => {
                     </div>
                   </div>
                   <div class="lg:col-span-2 pt-2">
-                    <Button :loading="loading" @click="handleUpdateProfile" label="Enregistrer les modifications">
+                    <Button :loading="loading" aria-label="Enregistrer" title="Enregistrer" @click="handleUpdateProfile">
                       <template #icon><span class="material-symbols-outlined text-lg">save</span></template></Button>
                   </div>
                 </div>

@@ -35,6 +35,7 @@ const toMillis = (value: unknown): number => {
 
 const normalizeTimesheet = (item: Timesheet): Timesheet => ({
   ...item,
+  projectId: item.projectId || '',
   quoteId: item.quoteId || '',
   quoteRef: item.quoteRef || '',
   clientId: item.clientId || '',

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import type { Client, ClientProject, OnboardingTaskStatus, Quote, QuoteStatus } from '@client-tracker/contracts';
+import { computed, reactive, ref, watch } from 'vue';
+import type { Client, Project, Quote, QuoteStatus } from '@client-tracker/contracts';
 import Button from 'primevue/button';
-import Select from 'primevue/select';
+import InputText from 'primevue/inputtext';
 import Tag from 'primevue/tag';
+import Textarea from 'primevue/textarea';
+import { useConfirm } from 'primevue/useconfirm';
 import { getCountryFlag, getCountryLabel } from '@/lib/countries';
 import { quoteStatusMeta } from '@/lib/clientPresets';
 import { formatClientAddress, formatClientFullName } from '@/utils/address';
@@ -12,67 +14,40 @@ import { formatQuoteDate } from '@/utils/quote';
 const props = defineProps<{
   client: Client | null;
   quotes: Quote[];
+  projects: Project[];
 }>();
 
 const emit = defineEmits<{
   edit: [];
   delete: [];
-  addProject: [];
   viewQuote: [quoteId: string];
-  updateTaskStatus: [payload: { projectId: string; taskId: string; status: OnboardingTaskStatus }];
+  viewProject: [projectId: string];
+  saveNotes: [notes: Client['clientNotes']];
   uploadDocument: [file: File];
   removeDocument: [documentId: string];
 }>();
 
+const confirm = useConfirm();
 const fileInput = ref<HTMLInputElement | null>(null);
-const selectedProjectId = ref<string>('');
+const newClientNote = ref('');
+const clientNoteDrafts = reactive<Record<string, string>>({});
 
-const projectOptions = computed(() => {
-  if (!props.client) return [];
-  if (props.client.projects?.length) return props.client.projects;
-
-  const legacyTasks = props.client.onboardingTasks || [];
-  if (!legacyTasks.length) return [];
-
-  return [
-    {
-      id: 'default-project',
-      name: 'Projet principal',
-      description: 'Checklist onboarding principale',
-      onboardingTasks: legacyTasks,
-    } satisfies ClientProject,
-  ];
-});
+const clientNotes = computed(() => props.client?.clientNotes || []);
 
 watch(
-  () => [props.client?.id, projectOptions.value.map((project) => project.id).join('|')],
+  () => [props.client?.id, props.client?.clientNotes] as const,
   () => {
-    selectedProjectId.value = projectOptions.value[0]?.id || '';
+    const currentIds = new Set(clientNotes.value.map((note) => note.id));
+    for (const note of clientNotes.value) {
+      if (clientNoteDrafts[note.id] === undefined) clientNoteDrafts[note.id] = note.content;
+    }
+    for (const id of Object.keys(clientNoteDrafts)) {
+      if (!currentIds.has(id)) delete clientNoteDrafts[id];
+    }
+    newClientNote.value = '';
   },
   { immediate: true },
 );
-
-const selectedProject = computed(() => {
-  if (!projectOptions.value.length) return null;
-  return (
-    projectOptions.value.find((project) => project.id === selectedProjectId.value) ||
-    projectOptions.value[0] ||
-    null
-  );
-});
-
-const progress = computed(() => {
-  const tasks = selectedProject.value?.onboardingTasks || [];
-  if (!tasks.length) return 0;
-  const done = tasks.filter((task) => task.status === 'done').length;
-  return Math.round((done / tasks.length) * 100);
-});
-
-const taskStatusOptions: Array<{ label: string; value: OnboardingTaskStatus }> = [
-  { label: 'À faire', value: 'todo' },
-  { label: 'En cours', value: 'in_progress' },
-  { label: 'Terminé', value: 'done' },
-];
 
 const openFilePicker = () => {
   fileInput.value?.click();
@@ -106,24 +81,6 @@ const languageLabel: Record<Client['language'], string> = {
   es: 'Español',
 };
 
-const taskStatusLabel: Record<OnboardingTaskStatus, string> = {
-  todo: 'À faire',
-  in_progress: 'En cours',
-  done: 'Terminé',
-};
-
-const taskStatusTagClass: Record<OnboardingTaskStatus, string> = {
-  todo: '!bg-surface-dark/8 !text-surface-dark',
-  in_progress: '!bg-primary/12 !text-primary',
-  done: '!bg-emerald-500/12 !text-emerald-700',
-};
-
-const taskCardClass: Record<OnboardingTaskStatus, string> = {
-  todo: 'border-surface-dark/6 bg-surface-light',
-  in_progress: 'border-primary/20 bg-primary/5',
-  done: 'border-emerald-500/20 bg-emerald-500/5',
-};
-
 const quoteStatusLabel = (status: QuoteStatus): string => quoteStatusMeta[status].label;
 const quoteStatusTagClass = (status: QuoteStatus): string => quoteStatusMeta[status].tagClass;
 
@@ -131,6 +88,75 @@ const shouldShowPlatformTag = computed(() => {
   const platform = props.client?.platform?.trim().toLowerCase();
   return Boolean(platform && platform !== 'other');
 });
+
+const projectStatusLabel: Record<Project['status'], string> = {
+  proposal_accepted: 'Devis accepté',
+  deposit_pending: 'Acompte à envoyer',
+  deposit_paid: 'Acompte reçu',
+  in_progress: 'En cours',
+  blocked: 'Bloqué',
+  client_review: 'Validation client',
+  ready_to_invoice: 'À facturer',
+  invoiced: 'Facturé',
+  paid: 'Payé',
+  closed: 'Clôturé',
+};
+
+const projectStatusClass = (project: Project) => {
+  if (project.status === 'blocked' || project.health === 'blocked') return '!bg-red-500/12 !text-red-700';
+  if (['paid', 'closed'].includes(project.status)) return '!bg-emerald-500/12 !text-emerald-700';
+  if (['ready_to_invoice', 'deposit_pending'].includes(project.status)) return '!bg-amber-500/12 !text-amber-700';
+  return '!bg-primary/10 !text-primary';
+};
+
+const formatMoney = (value: number) =>
+  new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(Number(value || 0));
+
+const addClientNote = () => {
+  if (!newClientNote.value.trim()) return;
+  const now = new Date().toISOString();
+  const note = {
+    id: crypto.randomUUID(),
+    content: newClientNote.value.trim(),
+    createdAt: now,
+    updatedAt: now,
+  };
+  clientNoteDrafts[note.id] = note.content;
+  newClientNote.value = '';
+  emit('saveNotes', [note, ...clientNotes.value]);
+};
+
+const hasClientNoteChanges = (note: Client['clientNotes'][number]) =>
+  (clientNoteDrafts[note.id] ?? note.content) !== note.content;
+
+const updateClientNoteDraft = (noteId: string, value: string | undefined) => {
+  clientNoteDrafts[noteId] = value || '';
+};
+
+const saveClientNote = (note: Client['clientNotes'][number]) => {
+  if (!hasClientNoteChanges(note)) return;
+  const content = clientNoteDrafts[note.id] ?? '';
+  emit(
+    'saveNotes',
+    clientNotes.value.map((item) =>
+      item.id === note.id ? { ...item, content, updatedAt: new Date().toISOString() } : item,
+    ),
+  );
+};
+
+const confirmDeleteClientNote = (noteId: string) => {
+  confirm.require({
+    message: 'Voulez-vous vraiment supprimer cette note ?',
+    header: 'Supprimer la note',
+    icon: 'info',
+    rejectProps: { label: 'Annuler', severity: 'secondary', outlined: true },
+    acceptProps: { label: 'Supprimer', severity: 'danger' },
+    accept: () => {
+      delete clientNoteDrafts[noteId];
+      emit('saveNotes', clientNotes.value.filter((note) => note.id !== noteId));
+    },
+  });
+};
 </script>
 
 <template>
@@ -172,28 +198,28 @@ const shouldShowPlatformTag = computed(() => {
         </div>
 
         <div class="flex gap-2">
-          <Button text severity="secondary" @click="emit('edit')">
+          <Button text rounded severity="secondary" aria-label="Modifier" title="Modifier" @click="emit('edit')">
             <template #icon><span class="material-symbols-outlined text-lg">edit</span></template>
           </Button>
-          <Button text severity="danger" @click="emit('delete')">
+          <Button text rounded severity="danger" aria-label="Supprimer" title="Supprimer" @click="emit('delete')">
             <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
           </Button>
         </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div class="rounded-2xl bg-white border border-surface-dark/5 p-4">
+        <div class="client-bento-card rounded-2xl p-4">
           <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Facturation</p>
           <p class="text-sm font-semibold text-surface-dark">{{ getCountryFlag(client.country) }} {{ getCountryLabel(client.country) }}</p>
           <p class="text-sm text-surface-dark/60 mt-1">
             {{ client.isVatRegistered ? client.vatNumber || 'Client assujetti à la TVA' : 'Client non assujetti à la TVA' }}
           </p>
         </div>
-        <div class="rounded-2xl bg-white border border-surface-dark/5 p-4">
+        <div class="client-bento-card rounded-2xl p-4">
           <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Coordonnées</p>
           <p class="text-sm text-surface-dark/70 whitespace-pre-line">{{ formatClientAddress(client) || 'Adresse non renseignée' }}</p>
         </div>
-        <div class="rounded-2xl bg-white border border-surface-dark/5 p-4">
+        <div class="client-bento-card rounded-2xl p-4">
           <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Profil client</p>
           <p class="text-sm text-surface-dark/70">Langue: {{ languageLabel[client.language] }}</p>
           <p class="text-sm text-surface-dark/70 mt-1">Prénom: {{ client.firstName || 'Non renseigné' }}</p>
@@ -202,27 +228,84 @@ const shouldShowPlatformTag = computed(() => {
         </div>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div class="rounded-2xl bg-white border border-surface-dark/5 p-4">
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Progression projet</p>
-          <p class="text-3xl font-heading font-bold text-surface-dark">{{ progress }}%</p>
+      <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-4">
+        <div class="client-bento-card rounded-2xl p-4">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <h3 class="flex items-center gap-2 font-heading text-lg font-bold text-surface-dark">
+              <span class="material-symbols-outlined text-primary">sticky_note_2</span>
+              Notes
+            </h3>
+            <span class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">{{ clientNotes.length }}</span>
+          </div>
+          <div class="mb-4 flex gap-2">
+            <InputText
+              v-model="newClientNote"
+              placeholder="Ajouter une note client..."
+              class="flex-1 !text-sm !rounded-xl"
+              @keydown.enter="addClientNote"
+            />
+            <Button
+              aria-label="Ajouter"
+              :disabled="!newClientNote.trim()"
+              class="!h-10 !w-10 !rounded-xl"
+              @click="addClientNote"
+            >
+              <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+            </Button>
+          </div>
+          <div class="space-y-3">
+            <div
+              v-for="note in clientNotes"
+              :key="note.id"
+              class="group flex items-start gap-2 rounded-xl border border-surface-dark/8 bg-white p-3 text-sm text-surface-dark/70 transition-all hover:border-primary/20 hover:bg-primary/5"
+            >
+              <Textarea
+                :model-value="clientNoteDrafts[note.id] ?? note.content"
+                auto-resize
+                rows="2"
+                class="flex-1 !border-0 !bg-transparent !p-0 !text-sm !leading-relaxed !shadow-none focus:!ring-0"
+                @update:model-value="updateClientNoteDraft(note.id, $event)"
+              />
+              <div class="flex flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <button
+                  type="button"
+                  aria-label="Enregistrer"
+                  title="Enregistrer"
+                  :disabled="!hasClientNoteChanges(note)"
+                  class="flex h-7 w-7 items-center justify-center rounded-full text-surface-dark/35 transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-25"
+                  @click="saveClientNote(note)"
+                >
+                  <span class="material-symbols-outlined text-xs">save</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Supprimer"
+                  title="Supprimer"
+                  class="flex h-7 w-7 items-center justify-center rounded-full text-surface-dark/35 transition-colors hover:bg-red-50 hover:text-red-500"
+                  @click="confirmDeleteClientNote(note.id)"
+                >
+                  <span class="material-symbols-outlined text-xs">delete</span>
+                </button>
+              </div>
+            </div>
+            <div v-if="clientNotes.length === 0" class="py-8 text-center text-xs italic text-surface-dark/40">
+              Aucune note pour l'instant.
+            </div>
+          </div>
+        </div>
+        <div class="client-bento-card rounded-2xl p-4">
+          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Résumé projets</p>
+          <p class="text-3xl font-heading font-bold text-surface-dark">{{ projects.length }}</p>
           <p class="text-sm text-surface-dark/60 mt-1">
-            {{ selectedProject ? `Checklist de ${selectedProject.name}` : 'Checklist centralisée pour réduire les relances.' }}
+            {{ projects.length > 1 ? 'projets liés à ce client' : projects.length === 1 ? 'projet lié à ce client' : 'Aucun projet lié pour l’instant' }}
           </p>
-        </div>
-        <div class="rounded-2xl bg-white border border-surface-dark/5 p-4">
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Captation contenu</p>
-          <p class="text-sm text-surface-dark/70">
-            Utilise cette fiche comme script: objectifs, arborescence, textes finaux, visuels, accès, légal.
+          <p class="mt-3 text-sm font-semibold text-primary">
+            {{ formatMoney(projects.reduce((total, project) => total + Number(project.budgetExVat || 0), 0)) }} HT prévus
           </p>
-        </div>
-        <div class="rounded-2xl bg-white border border-surface-dark/5 p-4">
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Notes internes</p>
-          <p class="text-sm text-surface-dark/70 whitespace-pre-line">{{ client.notes || 'Aucune note interne' }}</p>
         </div>
       </div>
 
-      <div class="rounded-3xl bg-white border border-surface-dark/5 p-5">
+      <div class="client-bento-card rounded-3xl p-5">
         <div class="mb-4">
           <h3 class="text-lg font-heading font-bold text-surface-dark">Devis liés</h3>
           <p class="text-sm text-surface-dark/60">Retrouve ici les devis associés à ce client et leur statut.</p>
@@ -237,7 +320,7 @@ const shouldShowPlatformTag = computed(() => {
             v-for="quote in quotes"
             :key="quote.id"
             type="button"
-            class="rounded-2xl border border-surface-dark/6 bg-surface-light p-4 text-left transition hover:border-primary/30 hover:bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            class="client-bento-item rounded-2xl p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             @click="emit('viewQuote', quote.id)"
           >
             <div class="flex items-start justify-between gap-4">
@@ -255,7 +338,42 @@ const shouldShowPlatformTag = computed(() => {
         </div>
       </div>
 
-      <div class="rounded-3xl bg-white border border-surface-dark/5 p-5">
+      <div class="client-bento-card rounded-3xl p-5">
+        <div class="mb-4">
+          <h3 class="text-lg font-heading font-bold text-surface-dark">Projets du client</h3>
+          <p class="text-sm text-surface-dark/60">Tous les projets et prestations reliés à cette fiche client.</p>
+        </div>
+
+        <div v-if="!projects.length" class="rounded-2xl border border-dashed border-surface-dark/10 p-4 text-sm text-surface-dark/55">
+          Aucun projet lié à ce client pour l’instant.
+        </div>
+
+        <div v-else class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <button
+            v-for="project in projects"
+            :key="project.id"
+            type="button"
+            class="client-bento-item rounded-2xl p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            @click="emit('viewProject', project.id)"
+          >
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <p class="truncate font-semibold text-surface-dark">{{ project.title }}</p>
+                <p class="mt-1 text-sm text-surface-dark/55">
+                  {{ project.quoteRef || (project.sourceType === 'custom' ? 'Hors devis' : 'Devis lié') }}
+                </p>
+              </div>
+              <Tag :value="projectStatusLabel[project.status]" :class="projectStatusClass(project)" rounded />
+            </div>
+            <div class="mt-3 flex items-center justify-between gap-3 text-sm text-surface-dark/65">
+              <span>{{ project.nextAction || 'Aucune prochaine action' }}</span>
+              <span class="font-semibold text-surface-dark">{{ formatMoney(project.budgetExVat) }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div class="client-bento-card rounded-3xl p-5">
         <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div>
             <h3 class="text-lg font-heading font-bold text-surface-dark">Documents client</h3>
@@ -282,7 +400,7 @@ const shouldShowPlatformTag = computed(() => {
           <div
             v-for="document in client.documents"
             :key="document.id"
-            class="rounded-2xl border border-surface-dark/6 bg-surface-light p-4"
+            class="client-bento-item rounded-2xl p-4"
           >
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
@@ -300,7 +418,7 @@ const shouldShowPlatformTag = computed(() => {
                 >
                   <span class="material-symbols-outlined text-lg">open_in_new</span>
                 </a>
-                <Button text severity="danger" @click="emit('removeDocument', document.id)">
+                <Button text rounded severity="danger" aria-label="Supprimer" title="Supprimer" @click="emit('removeDocument', document.id)">
                   <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
                 </Button>
               </div>
@@ -309,89 +427,33 @@ const shouldShowPlatformTag = computed(() => {
         </div>
       </div>
 
-      <div class="rounded-3xl bg-white border border-surface-dark/5 p-5">
-        <div class="flex flex-col gap-4 mb-4">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 class="text-lg font-heading font-bold text-surface-dark">Checklist onboarding</h3>
-            </div>
-            <Button severity="secondary" @click="emit('addProject')" label="Nouveau projet">
-              <template #icon><span class="material-symbols-outlined text-lg">add</span></template></Button>
-          </div>
-
-          <div v-if="projectOptions.length" class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-3">
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="project in projectOptions"
-                :key="project.id"
-                type="button"
-                class="rounded-2xl border px-4 py-3 text-left transition-colors"
-                :class="project.id === selectedProjectId ? 'border-primary bg-primary/8 text-primary' : 'border-surface-dark/10 bg-surface-light text-surface-dark/70 hover:bg-white'"
-                @click="selectedProjectId = project.id"
-              >
-                <p class="font-semibold">{{ project.name }}</p>
-                <p v-if="project.description" class="text-sm mt-1 opacity-75">{{ project.description }}</p>
-              </button>
-            </div>
-
-            <div class="rounded-2xl border border-surface-dark/8 bg-surface-light p-4">
-              <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Projet actif</p>
-              <Select
-                v-model="selectedProjectId"
-                :options="projectOptions"
-                option-label="name"
-                option-value="id"
-                class="w-full"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div v-if="selectedProject?.onboardingTasks.length" class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <div
-            v-for="task in selectedProject.onboardingTasks"
-            :key="task.id"
-            class="rounded-2xl border p-4 transition-colors"
-            :class="taskCardClass[task.status]"
-          >
-            <div class="flex items-start justify-between gap-4">
-              <div>
-                <p class="font-semibold text-surface-dark">{{ task.title }}</p>
-                <p class="text-sm text-surface-dark/60 mt-1">{{ task.description }}</p>
-              </div>
-              <div class="flex flex-col items-end gap-2">
-                <Tag :value="task.category" class="!bg-surface-dark/8 !text-surface-dark" rounded />
-                <Tag :value="taskStatusLabel[task.status]" :class="taskStatusTagClass[task.status]" rounded />
-              </div>
-            </div>
-
-            <div class="mt-4">
-              <Select
-                :model-value="task.status"
-                :options="taskStatusOptions"
-                option-label="label"
-                option-value="value"
-                class="w-full"
-                @update:model-value="emit('updateTaskStatus', { projectId: selectedProject.id, taskId: task.id, status: $event })"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div
-          v-else
-          class="rounded-2xl border border-dashed border-surface-dark/10 p-4 text-sm text-surface-dark/55"
-        >
-          Aucun projet ou aucune étape d’onboarding n’est encore configuré pour ce client.
-        </div>
-      </div>
     </div>
 
     <div
       v-else
       class="h-full rounded-3xl border border-dashed border-surface-dark/10 flex items-center justify-center text-surface-dark/55 text-sm"
     >
-      Sélectionne un client pour voir son pipeline et sa checklist d’onboarding.
+      Sélectionne un client pour voir ses devis, projets et notes internes.
     </div>
   </section>
 </template>
+
+<style scoped>
+.client-bento-card {
+  background: #ffffff;
+  border: 1px solid rgba(47, 43, 61, 0.11);
+  box-shadow: 0 10px 28px rgba(47, 43, 61, 0.055), 0 1px 0 rgba(47, 43, 61, 0.05);
+}
+
+.client-bento-item {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(47, 43, 61, 0.12);
+  box-shadow: 0 6px 18px rgba(47, 43, 61, 0.045);
+}
+
+.client-bento-item:hover {
+  background: #ffffff;
+  border-color: rgba(233, 106, 95, 0.34);
+  box-shadow: 0 12px 28px rgba(47, 43, 61, 0.08);
+}
+</style>

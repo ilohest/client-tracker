@@ -39,8 +39,8 @@ export const useNotesStore = defineStore("notes", {
       this.error = null;
       try {
         const newNote = await notesService.create(content);
-        // Ajout optimiste ou retour réel du service
-        this.notes.unshift(newNote);
+        // Remplacer le tableau déclenche correctement les watchers côté UI.
+        this.notes = [newNote, ...this.notes];
         return true;
       } catch (error: any) {
         this.error = error.message || "Erreur création note.";

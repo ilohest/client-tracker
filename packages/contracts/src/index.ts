@@ -188,6 +188,13 @@ export const clientProjectSchema = z.object({
   onboardingTasks: z.array(onboardingTaskSchema).default([]),
 });
 
+export const clientNoteSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional().default(''),
+});
+
 export const clientSchema = z.object({
   id: z.string(),
   userId: z.string(),
@@ -210,6 +217,7 @@ export const clientSchema = z.object({
   language: quoteLanguageSchema,
   stage: clientStageSchema.default('lead'),
   notes: z.string().optional().default(''),
+  clientNotes: z.array(clientNoteSchema).default([]),
   documents: z.array(clientDocumentSchema).default([]),
   projects: z.array(clientProjectSchema).default([]),
   onboardingTasks: z.array(onboardingTaskSchema).default([]),
@@ -413,6 +421,20 @@ export const quoteTemplateInputSchema = quoteTemplateSchema.omit({
 
 export const timesheetSourceTypeSchema = z.enum(['quote', 'custom']);
 export const timesheetStatusSchema = z.enum(['open', 'closed', 'archived']);
+export const projectStatusSchema = z.enum([
+  'proposal_accepted',
+  'deposit_pending',
+  'deposit_paid',
+  'in_progress',
+  'blocked',
+  'client_review',
+  'ready_to_invoice',
+  'invoiced',
+  'paid',
+  'closed',
+]);
+export const projectHealthSchema = z.enum(['ok', 'watch', 'blocked']);
+export const projectSourceTypeSchema = z.enum(['quote', 'custom']);
 
 export const timesheetSessionSchema = z.object({
   id: z.string(),
@@ -426,6 +448,7 @@ export const timesheetSchema = z.object({
   id: z.string(),
   userId: z.string(),
   title: z.string(),
+  projectId: z.string().optional().default(''),
   sourceType: timesheetSourceTypeSchema.default('custom'),
   quoteId: z.string().optional().default(''),
   quoteRef: z.string().optional().default(''),
@@ -448,6 +471,68 @@ export const timesheetInputSchema = timesheetSchema.omit({
   userId: true,
   totalTrackedSeconds: true,
   sessions: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const projectMilestoneSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: z.enum(['todo', 'done', 'blocked']).default('todo'),
+  date: z.string().optional().default(''),
+  kind: z.enum(['quote_accepted', 'invoice_sent', 'payment_received', 'work', 'approval', 'custom']).optional(),
+  paymentScheduleStepId: z.string().optional(),
+  paymentScheduleIndex: z.number().optional(),
+});
+
+export const projectNoteSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional().default(''),
+});
+
+export const projectSupplementSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  amountExVat: z.number().default(0),
+  createdAt: z.string(),
+});
+
+export const projectSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  title: z.string(),
+  description: z.string().optional().default(''),
+  notes: z.string().optional().default(''),
+  projectNotes: z.array(projectNoteSchema).default([]),
+  projectSupplements: z.array(projectSupplementSchema).default([]),
+  sourceType: projectSourceTypeSchema.default('custom'),
+  quoteId: z.string().optional().default(''),
+  quoteRef: z.string().optional().default(''),
+  timesheetId: z.string().optional().default(''),
+  clientId: z.string().optional().default(''),
+  clientName: z.string().optional().default(''),
+  color: z.string().default(USER_COLORS[7]),
+  status: projectStatusSchema.default('in_progress'),
+  health: projectHealthSchema.default('ok'),
+  budgetExVat: z.number().default(0),
+  invoicedExVat: z.number().default(0),
+  paidExVat: z.number().default(0),
+  hourlyRate: z.number().default(0),
+  startedAt: z.string().optional().default(''),
+  dueDate: z.string().optional().default(''),
+  closedAt: z.string().optional().default(''),
+  blockedReason: z.string().optional().default(''),
+  nextAction: z.string().optional().default(''),
+  milestones: z.array(projectMilestoneSchema).default([]),
+  createdAt: z.union([z.string(), z.date(), z.any()]),
+  updatedAt: z.union([z.string(), z.date(), z.any()]).optional(),
+});
+
+export const projectInputSchema = projectSchema.omit({
+  id: true,
+  userId: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -497,3 +582,9 @@ export type TimesheetStatus = z.infer<typeof timesheetStatusSchema>;
 export type TimesheetSession = z.infer<typeof timesheetSessionSchema>;
 export type Timesheet = z.infer<typeof timesheetSchema>;
 export type TimesheetInput = z.infer<typeof timesheetInputSchema>;
+export type ProjectStatus = z.infer<typeof projectStatusSchema>;
+export type ProjectHealth = z.infer<typeof projectHealthSchema>;
+export type ProjectSourceType = z.infer<typeof projectSourceTypeSchema>;
+export type ProjectMilestone = z.infer<typeof projectMilestoneSchema>;
+export type Project = z.infer<typeof projectSchema>;
+export type ProjectInput = z.infer<typeof projectInputSchema>;

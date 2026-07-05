@@ -432,7 +432,7 @@ const saveSettings = async () => {
 
       <div class="mt-5 flex flex-wrap gap-2">
         <Button severity="secondary" label="Réinitialiser" @click="resetQuotePdfTheme" />
-        <Button :loading="loading" label="Enregistrer les modifications" @click="saveSettings">
+        <Button :loading="loading" aria-label="Enregistrer" title="Enregistrer" @click="saveSettings">
           <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
         </Button>
       </div>

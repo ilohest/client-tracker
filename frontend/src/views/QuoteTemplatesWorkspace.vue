@@ -31,8 +31,6 @@ import { formatDateTime } from "@/utils/date";
 import { cloneQuoteParts, createEntityId } from "@/utils/quote";
 import {
   comparableQuoteTemplate,
-  normalizeConditionTitleKey,
-  quoteTemplateLanguages,
   resolveCommonConditionReferences,
 } from "@/utils/quoteTemplateDraft";
 import { useToast } from "primevue/usetoast";
@@ -1642,116 +1640,6 @@ const addCommonCondition = (conditionId: string) => {
   form.conditions.push(cloneCommonConditionReference(source));
 };
 
-const wordpressRefonteTemplate = computed(() =>
-  customTemplates.value.find((template) => {
-    const name = (template.name || "").toLowerCase();
-    return template.platform === "wordpress" && name.includes("refonte");
-  }) || null,
-);
-
-const buildTemplatePayload = (
-  template: QuoteTemplate,
-  localizedContent: Record<QuoteLanguage, QuoteTemplateLocalizedContent>,
-): QuoteTemplateInput => {
-  const activeContent = localizedContent[template.language];
-  return {
-    name: template.name,
-    kind: template.kind || "custom",
-    platform: template.platform,
-    customPlatformLabel: template.customPlatformLabel || "",
-    language: template.language,
-    vatRate: template.vatRate,
-    projectSummary: activeContent.projectSummary,
-    emailSubject: activeContent.emailSubject,
-    emailBody: activeContent.emailBody,
-    discountType: template.discountType || "percent",
-    discountValue: template.discountValue || 0,
-    parts: partsFromContent(activeContent),
-    conditions: cloneConditions(activeContent.conditions),
-    roadmap: cloneConditions(activeContent.roadmap),
-    acceptance: cloneConditions(activeContent.acceptance),
-    principles: cloneConditions(activeContent.principles),
-    addons: cloneAddons(activeContent.addons),
-    paymentSchedule: clonePaymentSchedule(activeContent.paymentSchedule),
-    localizedContent,
-  };
-};
-
-const migrateWordPressRefonteConditionsToBase = async () => {
-  const sourceTemplate = wordpressRefonteTemplate.value;
-  const base = quoteTemplatesStore.baseTemplate;
-  if (!sourceTemplate || !base) return;
-
-  const baseLocalizedContent = getNormalizedLocalizedContent(base);
-  const sourceLocalizedContent = getNormalizedLocalizedContent(sourceTemplate);
-
-  quoteTemplateLanguages.forEach((language) => {
-    const baseSlice = cloneLocalizedSlice(baseLocalizedContent[language]);
-    const sourceSlice = cloneLocalizedSlice(sourceLocalizedContent[language]);
-    const commonConditions = cloneConditions(baseSlice.conditions);
-    const references: QuoteCondition[] = [];
-
-    sourceSlice.conditions.forEach((sourceCondition) => {
-      const existingReference = sourceCondition.commonConditionId
-        ? commonConditions.find(
-            (condition) => condition.id === sourceCondition.commonConditionId,
-          )
-        : null;
-
-      if (existingReference) {
-        references.push(cloneCommonConditionReference(existingReference));
-        return;
-      }
-
-      const titleKey = normalizeConditionTitleKey(sourceCondition);
-      const existingCommonCondition = commonConditions.find(
-        (condition) =>
-          titleKey && normalizeConditionTitleKey(condition) === titleKey,
-      );
-      const commonCondition = existingCommonCondition || {
-        ...sourceCondition,
-        id: createEntityId(),
-        commonConditionId: "",
-        tag: sourceCondition.tag || "",
-        body: sourceCondition.body || "",
-        items: cloneItems(sourceCondition.items || []),
-      };
-
-      if (!existingCommonCondition) commonConditions.push(commonCondition);
-      references.push(cloneCommonConditionReference(commonCondition));
-    });
-
-    baseLocalizedContent[language] = {
-      ...baseSlice,
-      conditions: commonConditions,
-    };
-    sourceLocalizedContent[language] = {
-      ...sourceSlice,
-      conditions: references,
-    };
-  });
-
-  const updatedBase = await quoteTemplatesStore.saveTemplate(
-    base.id,
-    buildTemplatePayload(base, baseLocalizedContent),
-  );
-  await quoteTemplatesStore.saveTemplate(
-    sourceTemplate.id,
-    buildTemplatePayload(sourceTemplate, sourceLocalizedContent),
-  );
-
-  quoteTemplatesStore.selectTemplate(updatedBase.id);
-  selectedLibraryItem.value = "base";
-  hydrateFromTemplate(updatedBase);
-
-  toast.add({
-    severity: "success",
-    summary: "Conditions communes mises à jour",
-    detail: `Les conditions de ${sourceTemplate.name} sont maintenant dans la base commune.`,
-    life: 3200,
-  });
-};
-
 const saveTemplate = async () => {
   normalizeEstimatedTimelineTitle();
   persistActiveLanguageContent(form.language);
@@ -1986,7 +1874,7 @@ onMounted(async () => {
             >
               <template #icon
                 ><span class="material-symbols-outlined text-lg"
-                  >library_add</span
+                  >add</span
                 ></template
               ></Button>
 
@@ -2040,31 +1928,14 @@ onMounted(async () => {
 
         <div
           v-if="isBaseSelected"
-          class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-surface-dark/75"
+          class="flex items-center gap-3 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-surface-dark/75"
         >
-          <div class="flex min-w-0 flex-1 items-center gap-3">
-            <span class="material-symbols-outlined text-lg text-primary"
-              >verified</span
-            >
-            <span>
-              Base commune : le mail, la validation et les principes sont appliqués à chaque
-              devis. Les conditions communes définies ici peuvent être placées librement dans
-              chaque template. Elle ne peut pas être supprimée.
-            </span>
-          </div>
-          <Button
-            v-if="wordpressRefonteTemplate"
-            size="small"
-            severity="secondary"
-            outlined
-            class="shrink-0 !rounded-xl"
-            :label="`Importer ${wordpressRefonteTemplate.name}`"
-            @click="migrateWordPressRefonteConditionsToBase"
+          <span class="material-symbols-outlined text-lg text-primary"
+            >verified</span
           >
-            <template #icon>
-              <span class="material-symbols-outlined text-base">move_to_inbox</span>
-            </template>
-          </Button>
+          Base commune : le mail, la validation et les principes sont appliqués à chaque
+          devis. Les conditions communes définies ici peuvent être placées librement dans
+          chaque template. Elle ne peut pas être supprimée.
         </div>
 
         <section

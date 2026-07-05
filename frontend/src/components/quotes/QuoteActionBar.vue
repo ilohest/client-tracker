@@ -8,6 +8,7 @@ withDefaults(
     canDelete?: boolean;
     /** Affiche le bouton d'aperçu PDF (page Devis uniquement). */
     showPdf?: boolean;
+    canOpenProject?: boolean;
     hasUnsavedChanges?: boolean;
     /** Déclenche l'animation de rappel quand une action est bloquée par des modifs non sauvées. */
     attention?: boolean;
@@ -16,6 +17,7 @@ withDefaults(
     canDuplicate: false,
     canDelete: false,
     showPdf: false,
+    canOpenProject: false,
     hasUnsavedChanges: false,
     attention: false,
   },
@@ -25,6 +27,7 @@ const emit = defineEmits<{
   save: [];
   discard: [];
   downloadPdf: [];
+  openProject: [];
   duplicate: [];
   delete: [];
 }>();
@@ -36,6 +39,16 @@ const emit = defineEmits<{
     :class="{ 'action-bar-nudge': attention }"
   >
     <div class="flex items-center gap-1">
+      <Button
+        v-if="canOpenProject"
+        text
+        severity="secondary"
+        class="!rounded-xl !border !border-amber-500/15 !bg-amber-500/10 !text-surface-dark hover:!border-amber-500/30 hover:!bg-amber-500/15"
+        label="Projet"
+        @click="emit('openProject')"
+      >
+        <template #icon><span class="material-symbols-outlined text-lg text-amber-600">workspaces</span></template>
+      </Button>
       <Button
         v-if="canDuplicate"
         text
@@ -51,7 +64,8 @@ const emit = defineEmits<{
         text
         severity="danger"
         class="!rounded-xl"
-        label="Supprimer"
+        aria-label="Supprimer"
+        title="Supprimer"
         @click="emit('delete')"
       >
         <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>

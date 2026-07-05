@@ -6,6 +6,7 @@ import { useClientsStore } from "@/stores/clientsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
 import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
 import { useTimesheetsStore } from "@/stores/timesheetsStore";
+import { useProjectsStore } from "@/stores/projectsStore";
 import Button from "primevue/button";
 import Avatar from "primevue/avatar";
 import Menu from "primevue/menu";
@@ -16,6 +17,7 @@ const clientsStore = useClientsStore();
 const quotesStore = useQuotesStore();
 const quoteTemplatesStore = useQuoteTemplatesStore();
 const timesheetsStore = useTimesheetsStore();
+const projectsStore = useProjectsStore();
 const route = useRoute();
 const router = useRouter();
 const isQuotePreviewMode = computed(
@@ -40,6 +42,7 @@ const toggleUserMenu = (event: any) => {
 const mainLinks = computed(() => [
   { label: "Tableau de bord", icon: "home", to: "/" },
   { label: "Devis", icon: "receipt_long", to: "/quotes" },
+  { label: "Projets", icon: "workspaces", to: "/projects" },
   { label: "Timesheets", icon: "timer", to: "/timesheets" },
   { label: "Clients", icon: "groups", to: "/clients" },
   { label: "Templates", icon: "library_books", to: "/quote-templates" },
@@ -166,7 +169,17 @@ const globalSearchResults = computed<GlobalSearchResult[]>(() => {
     action: () => timesheetsStore.selectTimesheet(timesheet.id),
   }));
 
-  return [...quoteResults, ...clientResults, ...timesheetResults, ...templateResults, ...pageResults.value]
+  const projectResults = projectsStore.projects.map((project) => ({
+    id: `project-${project.id}`,
+    type: "page" as const,
+    title: project.title || "Projet sans titre",
+    subtitle: [project.clientName, project.quoteRef].filter(Boolean).join(" · ") || "Projet",
+    icon: "workspaces",
+    path: "/projects",
+    action: () => projectsStore.selectProject(project.id),
+  }));
+
+  return [...quoteResults, ...clientResults, ...projectResults, ...timesheetResults, ...templateResults, ...pageResults.value]
     .filter((result) =>
       normalizeSearch(`${result.title} ${result.subtitle}`).includes(query),
     )
@@ -178,6 +191,7 @@ const ensureSearchData = async () => {
   const tasks: Promise<void>[] = [];
   if (!quotesStore.quotes.length) tasks.push(quotesStore.fetchQuotes());
   if (!clientsStore.clients.length) tasks.push(clientsStore.fetchClients());
+  if (!projectsStore.projects.length) tasks.push(projectsStore.fetchProjects());
   if (!quoteTemplatesStore.templates.length) tasks.push(quoteTemplatesStore.fetchTemplates());
   if (!timesheetsStore.timesheets.length) tasks.push(timesheetsStore.fetchTimesheets());
   if (!tasks.length) return;

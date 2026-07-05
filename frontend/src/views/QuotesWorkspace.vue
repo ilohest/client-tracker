@@ -46,6 +46,7 @@ import {
 } from "@/lib/clientPresets";
 import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
+import { useProjectsStore } from "@/stores/projectsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
 import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
 import { formatClientAddress, formatClientFullName } from "@/utils/address";
@@ -78,6 +79,7 @@ const route = useRoute();
 const router = useRouter();
 const quotesStore = useQuotesStore();
 const clientsStore = useClientsStore();
+const projectsStore = useProjectsStore();
 const quoteTemplatesStore = useQuoteTemplatesStore();
 const authStore = useAuthStore();
 const toast = useToast();
@@ -951,6 +953,9 @@ const filteredQuotes = computed(() => {
 // Id du devis actuellement chargé (null = nouveau devis non encore enregistré).
 // Ne jamais retomber sur un autre devis, sinon la sauvegarde écraserait celui-ci.
 const quoteId = computed(() => quotesStore.selectedQuoteId);
+const selectedLinkedProject = computed(
+  () => projectsStore.projects.find((project) => project.quoteId === quoteId.value) || null,
+);
 const selectedQuoteMetadata = computed(() => {
   const quote = quotesStore.selectedQuote;
   if (!quoteId.value || !quote) return null;
@@ -1080,6 +1085,7 @@ onMounted(async () => {
   await Promise.all([
     quotesStore.fetchQuotes(),
     clientsStore.fetchClients(),
+    projectsStore.fetchProjects(),
     quoteTemplatesStore.fetchTemplates(),
   ]);
   hydrateFromQuote(quotesStore.selectedQuote);
@@ -2437,6 +2443,49 @@ const confirmReapplyTemplate = () => {
   });
 };
 
+const applyBaseCommonContentToQuote = () => {
+  const baseContent = getBaseCommonContent(form.language);
+  form.acceptance = baseContent.acceptance;
+  form.principles = baseContent.principles;
+  form.paymentSchedule = baseContent.paymentSchedule;
+
+  const nextEmailDraft = buildCurrentStandardEmail();
+  form.emailSubject = nextEmailDraft.subject;
+  form.emailBody = nextEmailDraft.body;
+  form.emailDraft = composeLegacyEmailDraft(
+    nextEmailDraft.subject,
+    nextEmailDraft.body,
+    form.language,
+  );
+  rememberAutoEmail(nextEmailDraft.subject, nextEmailDraft.body, form.language);
+
+  toast.add({
+    severity: "success",
+    summary: "Base commune mise à jour",
+    detail: "Le mail, l’acceptation, les principes et l’échéancier ont été réappliqués au devis.",
+    life: 2800,
+  });
+};
+
+const confirmApplyBaseCommonContent = () => {
+  confirm.require({
+    message:
+      "Mettre à jour la base commune va remplacer dans ce devis le mail, l’acceptation, les principes et l’échéancier par la version actuelle de la base commune. Le contenu du template, les parties, conditions et options ne seront pas touchés. Continuer ?",
+    header: "Mettre à jour la base commune ?",
+    icon: "info",
+    rejectProps: {
+      label: "Annuler",
+      severity: "secondary",
+      outlined: true,
+    },
+    acceptProps: {
+      label: "Mettre à jour",
+      severity: "primary",
+    },
+    accept: applyBaseCommonContentToQuote,
+  });
+};
+
 const saveQuote = async () => {
   normalizeEstimatedTimelineTitle();
   form.emailDraft = composeLegacyEmailDraft(
@@ -2652,6 +2701,15 @@ const guardUnsavedViewChange = (action: () => void) => {
   action();
 };
 
+const openLinkedProject = () => {
+  guardUnsavedViewChange(() => {
+    const project = selectedLinkedProject.value;
+    if (!project) return;
+    projectsStore.selectProject(project.id);
+    router.push({ name: "projects" });
+  });
+};
+
 const openCreateQuote = () => {
   guardUnsavedViewChange(() => {
     selectedTemplateId.value = "";
@@ -2660,6 +2718,18 @@ const openCreateQuote = () => {
     if (isCompactQuotesView.value) mobileEditorVisible.value = true;
   });
 };
+
+watch(
+  () => route.query.new,
+  (value) => {
+    if (value !== "1") return;
+    openCreateQuote();
+    const query = { ...route.query };
+    delete query.new;
+    void router.replace({ query });
+  },
+  { immediate: true },
+);
 
 const openQuote = (id: string) => {
   guardUnsavedViewChange(() => {
@@ -2733,12 +2803,14 @@ const closeMobileEditor = () => {
         <QuoteActionBar
           :can-duplicate="Boolean(quoteId)"
           :can-delete="Boolean(quoteId)"
+          :can-open-project="Boolean(selectedLinkedProject)"
           show-pdf
           :has-unsaved-changes="hasUnsavedChanges"
           :attention="unsavedAttention"
           @save="saveQuote"
           @discard="discardChanges"
           @download-pdf="previewPdf"
+          @open-project="openLinkedProject"
           @duplicate="duplicateCurrentQuote"
           @delete="deleteQuote"
         />
@@ -2792,6 +2864,18 @@ const closeMobileEditor = () => {
               <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
                 Modifier la base
               </button>
+              <Button
+                text
+                severity="secondary"
+                size="small"
+                class="!ml-1 !rounded-xl !px-2 !py-1"
+                label="Réappliquer"
+                @click="confirmApplyBaseCommonContent"
+              >
+                <template #icon>
+                  <span class="material-symbols-outlined text-base">restart_alt</span>
+                </template>
+              </Button>
             </template>
             <template v-else>
               Les nouveaux devis utilisent un contenu de base intégré.
@@ -3333,14 +3417,25 @@ const closeMobileEditor = () => {
             </p>
           </div>
           <div class="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              v-if="selectedLinkedProject"
+              text
+              severity="secondary"
+              size="small"
+              class="!rounded-xl !border !border-amber-500/15 !bg-amber-500/10 !text-surface-dark hover:!border-amber-500/30 hover:!bg-amber-500/15"
+              label="Projet"
+              @click="openLinkedProject"
+            >
+              <template #icon><span class="material-symbols-outlined text-lg text-amber-600">workspaces</span></template>
+            </Button>
             <Button text severity="secondary" size="small" class="!rounded-xl" @click="duplicateCurrentQuote" label="Dupliquer">
               <template #icon><span class="material-symbols-outlined text-lg">content_copy</span></template></Button>
-            <Button text severity="danger" size="small" class="!rounded-xl" @click="deleteQuote">
+            <Button text severity="danger" size="small" class="!rounded-xl" aria-label="Supprimer" title="Supprimer" @click="deleteQuote">
               <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
             </Button>
             <Button severity="secondary" outlined size="small" class="!rounded-xl" @click="previewPdf" label="Aperçu">
               <template #icon><span class="material-symbols-outlined text-lg">visibility</span></template></Button>
-            <Button size="small" class="!rounded-xl !px-4 font-semibold" @click="saveQuote" label="Sauvegarder">
+            <Button size="small" class="!rounded-xl font-semibold" label="Sauvegarder" @click="saveQuote">
               <template #icon><span class="material-symbols-outlined text-lg">save</span></template></Button>
           </div>
           <div
@@ -3364,7 +3459,9 @@ const closeMobileEditor = () => {
                 label="Annuler"
                 @click="discardChanges"
               />
-              <Button size="small" label="Sauvegarder" @click="saveQuote" />
+              <Button size="small" label="Sauvegarder" @click="saveQuote">
+                <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
+              </Button>
             </div>
           </div>
         </div>
@@ -3416,6 +3513,18 @@ const closeMobileEditor = () => {
               <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
                 Modifier la base
               </button>
+              <Button
+                text
+                severity="secondary"
+                size="small"
+                class="!ml-1 !rounded-xl !px-2 !py-1"
+                label="Réappliquer"
+                @click="confirmApplyBaseCommonContent"
+              >
+                <template #icon>
+                  <span class="material-symbols-outlined text-base">restart_alt</span>
+                </template>
+              </Button>
             </template>
             <template v-else>
               Les nouveaux devis utilisent un contenu de base intégré.

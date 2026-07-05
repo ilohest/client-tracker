@@ -98,6 +98,27 @@ export const useClientsStore = defineStore('clients', {
       }
     },
 
+    async updateClientNotes(id: string, notes: string) {
+      await clientsService.updateNotes(id, notes);
+      const client = this.clients.find((item) => item.id === id);
+      if (client) {
+        client.notes = notes;
+        client.updatedAt = new Date().toISOString();
+        this.clients = sortClients(this.clients);
+      }
+    },
+
+    async updateClientNotesList(id: string, clientNotes: Client['clientNotes']) {
+      await clientsService.updateClientNotes(id, clientNotes);
+      const client = this.clients.find((item) => item.id === id);
+      if (client) {
+        client.clientNotes = clientNotes;
+        client.notes = '';
+        client.updatedAt = new Date().toISOString();
+        this.clients = sortClients(this.clients);
+      }
+    },
+
     async updateTaskStatus(id: string, projectId: string, taskId: string, status: OnboardingTaskStatus) {
       const client = this.clients.find((item) => item.id === id);
       if (!client) return;

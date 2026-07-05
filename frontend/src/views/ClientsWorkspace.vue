@@ -1,22 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import type { Client, ClientInput } from '@client-tracker/contracts';
 import ConfirmDialog from 'primevue/confirmdialog';
 import { useConfirm } from 'primevue/useconfirm';
 import { useToast } from 'primevue/usetoast';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import ClientFormDialog from '@/components/clients/ClientFormDialog.vue';
 import ClientListPanel from '@/components/clients/ClientListPanel.vue';
 import ClientOverviewPanel from '@/components/clients/ClientOverviewPanel.vue';
 import { getCountryLabel } from '@/lib/countries';
 import { useClientsStore } from '@/stores/clientsStore';
+import { useProjectsStore } from '@/stores/projectsStore';
 import { useQuotesStore } from '@/stores/quotesStore';
 import { formatClientAddress, formatClientFullName } from '@/utils/address';
 
 const clientsStore = useClientsStore();
+const projectsStore = useProjectsStore();
 const quotesStore = useQuotesStore();
 const confirm = useConfirm();
 const toast = useToast();
+const route = useRoute();
 const router = useRouter();
 const dialogVisible = ref(false);
 const dialogClient = ref<Client | null>(null);
@@ -36,14 +39,9 @@ const searchableClientText = (client: Client) =>
     getCountryLabel(client.country),
     client.vatNumber,
     client.notes,
+    ...(client.clientNotes || []).map((note) => note.content),
     client.language,
     client.isVatRegistered ? 'assujetti tva' : 'non assujetti tva',
-    ...client.onboardingTasks.flatMap((task) => [task.title, task.description, task.category, task.status]),
-    ...(client.projects || []).flatMap((project) => [
-      project.name,
-      project.description,
-      ...project.onboardingTasks.flatMap((task) => [task.title, task.description, task.category, task.status]),
-    ]),
   ]
     .filter(Boolean)
     .join(' ')
@@ -72,15 +70,33 @@ const relatedQuotes = computed(() => {
   return quotesStore.quotes.filter((quote) => quote.clientId === selectedClient.value?.id);
 });
 
+const relatedProjects = computed(() => {
+  if (!selectedClient.value) return [];
+  return projectsStore.projects.filter((project) => project.clientId === selectedClient.value?.id);
+});
+
 onMounted(() => {
   clientsStore.fetchClients();
   quotesStore.fetchQuotes();
+  projectsStore.fetchProjects();
 });
 
 const openCreateDialog = () => {
   dialogClient.value = null;
   dialogVisible.value = true;
 };
+
+watch(
+  () => route.query.new,
+  (value) => {
+    if (value !== '1') return;
+    openCreateDialog();
+    const query = { ...route.query };
+    delete query.new;
+    void router.replace({ query });
+  },
+  { immediate: true },
+);
 
 const openEditDialog = () => {
   dialogClient.value = selectedClient.value;
@@ -140,6 +156,17 @@ const openRelatedQuote = (quoteId: string) => {
   quotesStore.selectQuote(quoteId);
   router.push({ name: 'quotes' });
 };
+
+const openRelatedProject = (projectId: string) => {
+  projectsStore.selectProject(projectId);
+  router.push({ name: 'projects' });
+};
+
+const handleSaveNotes = async (notes: Client['clientNotes']) => {
+  if (!selectedClient.value) return;
+  await clientsStore.updateClientNotesList(selectedClient.value.id, notes);
+  toast.add({ severity: 'success', summary: 'Notes enregistrées', detail: 'Les notes internes du client ont été mises à jour.', life: 2200 });
+};
 </script>
 
 <template>
@@ -171,13 +198,14 @@ const openRelatedQuote = (quoteId: string) => {
       <ClientOverviewPanel
         :client="selectedClient"
         :quotes="relatedQuotes"
+        :projects="relatedProjects"
         @edit="openEditDialog"
         @delete="handleDelete"
-        @add-project="selectedClient && clientsStore.addProject(selectedClient.id)"
-        @update-task-status="selectedClient && clientsStore.updateTaskStatus(selectedClient.id, $event.projectId, $event.taskId, $event.status)"
         @upload-document="handleUploadDocument"
         @remove-document="handleRemoveDocument"
         @view-quote="openRelatedQuote"
+        @view-project="openRelatedProject"
+        @save-notes="handleSaveNotes"
       />
     </div>
 

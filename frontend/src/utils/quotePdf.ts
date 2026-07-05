@@ -1163,6 +1163,7 @@ export const renderQuoteDocumentHtml = (
   .principle-seal {
     position: absolute;
     z-index: 1;
+    left: 50%;
     max-width: 82%;
     padding: 2px 8px 3px;
     border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
@@ -1176,18 +1177,25 @@ export const renderQuoteDocumentHtml = (
     text-transform: lowercase;
     white-space: nowrap;
   }
-  .principle-seal-0 { top: -3mm; left: 6mm; transform: rotate(-5deg); }
-  .principle-seal-1 { top: 4mm; right: -2mm; transform: rotate(7deg); }
-  .principle-seal-2 { top: -2mm; right: 6mm; transform: rotate(4deg); }
-  .principle-seal-3 { top: 5mm; left: -2mm; transform: rotate(-8deg); }
-  .principle-seal-4 { top: -3mm; left: 12mm; transform: rotate(6deg); }
-  .principle-seal-5 { top: 4mm; right: 4mm; transform: rotate(-4deg); }
+  .principle-seal-0 { top: -3.2mm; transform: translateX(-50%); }
+  .principle-seal-1 { top: -2.6mm; transform: translateX(-50%); }
+  .principle-seal-2 { top: -3mm; transform: translateX(-50%); }
+  .principle-seal-3 { top: -2.4mm; transform: translateX(-50%); }
+  .principle-seal-4 { top: -3.3mm; transform: translateX(-50%); }
+  .principle-seal-5 { top: -2.7mm; transform: translateX(-50%); }
   .has-signature-block .signature-anchor {
     break-after: avoid;
     page-break-after: avoid;
   }
-  .signature-keep-together {
+  .has-signature-block {
     break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .signature-keep-together {
+    display: inline-block;
+    width: 100%;
+    break-inside: avoid;
+    break-inside: avoid-page;
     page-break-inside: avoid;
   }
   .signature-grid {

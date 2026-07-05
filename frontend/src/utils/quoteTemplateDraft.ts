@@ -7,7 +7,7 @@ import type {
 } from "@client-tracker/contracts";
 import { createEntityId } from "@/utils/quote";
 
-export const quoteTemplateLanguages: QuoteLanguage[] = ["fr", "en", "es"];
+const quoteTemplateLanguages: QuoteLanguage[] = ["fr", "en", "es"];
 
 export const cloneQuoteConditionItems = (
   items: QuoteConditionItem[] = [],
@@ -54,12 +54,6 @@ export const resolveCommonConditionReferences = (
       items: cloneQuoteConditionItems(source.items || []),
     };
   });
-
-export const normalizeConditionTitleKey = (condition: QuoteCondition) =>
-  (condition.title || "")
-    .replace(/^\s*\d+\.\s*/, "")
-    .trim()
-    .toLowerCase();
 
 const comparableItems = (items: QuoteConditionItem[] = []) =>
   items.map((item) => ({

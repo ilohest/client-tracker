@@ -33,13 +33,42 @@ const toMillis = (value: unknown): number => {
   return 0;
 };
 
+const toIsoDate = (value: unknown): string => {
+  const millis = toMillis(value);
+  if (!millis) return '';
+  return new Date(millis).toISOString().slice(0, 10);
+};
+
+const normalizeClientNotes = (item: Client): Client['clientNotes'] => {
+  if (item.clientNotes?.length) return item.clientNotes;
+  if (!item.notes?.trim()) return [];
+  const createdAt = toIsoDate(item.createdAt) || new Date().toISOString().slice(0, 10);
+  return [
+    {
+      id: crypto.randomUUID(),
+      content: item.notes,
+      createdAt,
+      updatedAt: item.updatedAt ? toIsoDate(item.updatedAt) : '',
+    },
+  ];
+};
+
+const normalizeClient = (item: Client): Client => ({
+  ...item,
+  notes: item.notes || '',
+  clientNotes: normalizeClientNotes(item),
+  documents: item.documents || [],
+  projects: item.projects || [],
+  onboardingTasks: item.onboardingTasks || [],
+});
+
 export const clientsService = {
   async fetchAll(): Promise<Client[]> {
     const userId = ensureUser();
     const snapshot = await getDocs(query(collection(db, 'clients'), where('userId', '==', userId)));
 
     return snapshot.docs
-      .map((item) => ({ id: item.id, ...item.data() }) as Client)
+      .map((item) => normalizeClient({ id: item.id, ...item.data() } as Client))
       .sort((a, b) => toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt));
   },
 
@@ -53,13 +82,13 @@ export const clientsService = {
       updatedAt: serverTimestamp(),
     });
 
-    return {
+    return normalizeClient({
       id: docRef.id,
       userId,
       ...payload,
       createdAt: now,
       updatedAt: now,
-    };
+    } as Client);
   },
 
   async update(id: string, payload: ClientInput): Promise<Client> {
@@ -69,13 +98,13 @@ export const clientsService = {
       updatedAt: serverTimestamp(),
     });
 
-    return {
+    return normalizeClient({
       id,
       userId,
       ...payload,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    };
+    } as Client);
   },
 
   async delete(id: string): Promise<void> {
@@ -85,6 +114,21 @@ export const clientsService = {
   async updateStage(id: string, stage: Client['stage']): Promise<void> {
     await updateDoc(doc(db, 'clients', id), {
       stage,
+      updatedAt: serverTimestamp(),
+    });
+  },
+
+  async updateNotes(id: string, notes: string): Promise<void> {
+    await updateDoc(doc(db, 'clients', id), {
+      notes,
+      updatedAt: serverTimestamp(),
+    });
+  },
+
+  async updateClientNotes(id: string, clientNotes: Client['clientNotes']): Promise<void> {
+    await updateDoc(doc(db, 'clients', id), {
+      clientNotes,
+      notes: '',
       updatedAt: serverTimestamp(),
     });
   },

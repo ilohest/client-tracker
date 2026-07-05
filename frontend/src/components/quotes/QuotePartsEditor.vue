@@ -186,7 +186,16 @@ const reorder = (targetId: string) => {
                 @update:model-value="updateField(part.id, 'price', Number($event || 0))"
               />
               <div class="ml-auto flex items-center justify-end gap-1">
-                <Button type="button" text severity="danger" class="!h-9 !w-9 shrink-0 !p-0" @click.stop="removePart(part.id)">
+                <Button
+                  type="button"
+                  text
+                  rounded
+                  severity="danger"
+                  class="!h-9 !w-9 shrink-0 !p-0"
+                  aria-label="Supprimer"
+                  title="Supprimer"
+                  @click.stop="removePart(part.id)"
+                >
                   <template #icon><span class="material-symbols-outlined">delete</span></template>
                 </Button>
                 <Button type="button" text severity="secondary" class="!h-9 !w-9 shrink-0 !p-0">

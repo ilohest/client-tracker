@@ -270,7 +270,16 @@ const reorderSections = (targetId: string) => {
                 @update:model-value="updateSectionField(section.id, 'title', $event || '')"
               />
               <div class="ml-auto flex items-center justify-end gap-1">
-                <Button type="button" text severity="danger" class="!h-9 !w-9 shrink-0 !p-0" @click.stop="removeSection(section.id)">
+                <Button
+                  type="button"
+                  text
+                  rounded
+                  severity="danger"
+                  class="!h-9 !w-9 shrink-0 !p-0"
+                  aria-label="Supprimer"
+                  title="Supprimer"
+                  @click.stop="removeSection(section.id)"
+                >
                   <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
                 </Button>
                 <Button type="button" text severity="secondary" class="!h-9 !w-9 shrink-0 !p-0">
@@ -424,8 +433,11 @@ const reorderSections = (targetId: string) => {
               <Button
                 type="button"
                 text
+                rounded
                 severity="danger"
                 class="!h-9 !w-9"
+                aria-label="Supprimer"
+                title="Supprimer"
                 @click.stop="removeSubSection(section.id, sub.id)"
               >
                 <template #icon><span class="material-symbols-outlined text-base">delete</span></template>

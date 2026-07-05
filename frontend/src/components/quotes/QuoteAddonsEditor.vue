@@ -383,7 +383,10 @@ const toggleAddon = (addonId: string) => {
             </Button>
             <Button
               text
+              rounded
               severity="danger"
+              aria-label="Supprimer"
+              title="Supprimer"
               @click.stop="emit('removeAddon', addon.id)"
             >
               <template #icon
@@ -504,6 +507,8 @@ const toggleAddon = (addonId: string) => {
                         text
                         severity="danger"
                         class="!h-10 !w-10 !rounded-xl"
+                        aria-label="Supprimer"
+                        title="Supprimer"
                         @click="
                           emit('removeAddonItem', {
                             addonId: addon.id,
@@ -584,6 +589,8 @@ const toggleAddon = (addonId: string) => {
                               text
                               severity="danger"
                               class="!h-10 !w-10 !rounded-xl"
+                              aria-label="Supprimer"
+                              title="Supprimer"
                               @click="
                                 emit('removeAddonSubItem', {
                                   addonId: addon.id,

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { Client } from '@client-tracker/contracts';
-import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
-import Tag from 'primevue/tag';
-import { getCountryFlag, getCountryLabel } from '@/lib/countries';
-import { formatClientFullName } from '@/utils/address';
-import { formatDateTime } from '@/utils/date';
+import type { Client } from "@client-tracker/contracts";
+import Button from "primevue/button";
+import InputText from "primevue/inputtext";
+import Tag from "primevue/tag";
+import { getCountryFlag, getCountryLabel } from "@/lib/countries";
+import { formatClientFullName } from "@/utils/address";
+import { formatDateTime } from "@/utils/date";
 
 defineProps<{
   clients: Client[];
@@ -18,7 +18,7 @@ defineProps<{
 const emit = defineEmits<{
   select: [id: string];
   create: [];
-  'update:search': [value: string];
+  "update:search": [value: string];
 }>();
 </script>
 
@@ -26,13 +26,15 @@ const emit = defineEmits<{
   <section
     class="bg-surface-card border border-surface-dark/5 rounded-3xl p-4 h-full xl:sticky xl:top-6 xl:self-start xl:max-h-[85vh] xl:overflow-y-auto"
   >
-    <div class="sticky top-0 z-10 bg-surface-card pb-4">
+    <div class="sticky top-0 z-10 pb-4">
       <Button
         class="mb-4 w-full !justify-center !rounded-xl !py-3 font-semibold shadow-sm"
         @click="emit('create')"
         label="Nouveau client"
       >
-        <template #icon><span class="material-symbols-outlined text-lg">person_add</span></template>
+        <template #icon
+          ><span class="material-symbols-outlined text-lg">add</span></template
+        >
       </Button>
 
       <InputText
@@ -57,14 +59,28 @@ const emit = defineEmits<{
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <p class="font-bold font-heading text-surface-dark truncate">{{ formatClientFullName(client) }}</p>
-            <p class="text-sm text-surface-dark/55 truncate">{{ client.website || 'Site non renseigné' }}</p>
+            <p class="font-bold font-heading text-surface-dark truncate">
+              {{ formatClientFullName(client) }}
+            </p>
+            <p class="text-sm text-surface-dark/55 truncate">
+              {{ client.website || "Site non renseigné" }}
+            </p>
           </div>
-          <Tag :value="`${getCountryFlag(client.country)} ${getCountryLabel(client.country)}`" class="!bg-surface-dark/8 !text-surface-dark" rounded />
+          <Tag
+            :value="`${getCountryFlag(client.country)} ${getCountryLabel(client.country)}`"
+            class="!bg-surface-dark/8 !text-surface-dark"
+            rounded
+          />
         </div>
-        <div class="flex items-center justify-between mt-4 text-xs text-surface-dark/60">
+        <div
+          class="flex items-center justify-between mt-4 text-xs text-surface-dark/60"
+        >
           <span>{{ client.language.toUpperCase() }}</span>
-          <span>{{ client.isVatRegistered ? client.vatNumber || 'TVA active' : 'Non assujetti TVA' }}</span>
+          <span>{{
+            client.isVatRegistered
+              ? client.vatNumber || "TVA active"
+              : "Non assujetti TVA"
+          }}</span>
         </div>
         <p class="mt-2 text-[11px] leading-4 text-surface-dark/45">
           Modifié : {{ formatDateTime(client.updatedAt || client.createdAt) }}
@@ -80,7 +96,7 @@ const emit = defineEmits<{
             : 'border-surface-dark/12 text-surface-dark/50'
         "
       >
-        {{ emptyMessage || 'Aucun client ne correspond.' }}
+        {{ emptyMessage || "Aucun client ne correspond." }}
       </div>
     </div>
   </section>

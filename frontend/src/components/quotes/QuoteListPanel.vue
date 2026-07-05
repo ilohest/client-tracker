@@ -42,7 +42,7 @@ const emit = defineEmits<{
         :label="compact ? '' : 'Nouveau devis'"
         :title="compact ? 'Nouveau devis' : undefined"
         :aria-label="compact ? 'Nouveau devis' : undefined">
-        <template #icon><span class="material-symbols-outlined text-lg">post_add</span></template></Button>
+        <template #icon><span class="material-symbols-outlined text-lg">add</span></template></Button>
 
       <div v-if="!compact" class="flex flex-col gap-2.5">
         <InputText

@@ -46,6 +46,12 @@ const router = createRouter({
            meta: { title: 'Devis' }
         },
         {
+           path: 'projects',
+           name: 'projects',
+           component: () => import('../views/ProjectsWorkspace.vue'),
+           meta: { title: 'Projets' }
+        },
+        {
            path: 'timesheets',
            name: 'timesheets',
            component: () => import('../views/TimesheetsWorkspace.vue'),

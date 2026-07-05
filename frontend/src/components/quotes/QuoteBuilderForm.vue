@@ -491,7 +491,7 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           "
           @click="emit('newVersion')"
         >
-          <span class="material-symbols-outlined text-lg">difference</span>
+          <span class="material-symbols-outlined text-lg">add</span>
           <span class="hidden sm:inline">Nouvelle version</span>
         </Button>
       </div>
@@ -570,7 +570,7 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           <Button severity="secondary" @click="emit('createClient')" label="Nouveau client">
             <template #icon
               ><span class="material-symbols-outlined text-lg"
-                >person_add</span
+                >add</span
               ></template
             ></Button>
         </div>

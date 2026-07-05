@@ -307,6 +307,8 @@ email: user.email || '',
               text
               rounded
               severity="secondary"
+              aria-label="Modifier"
+              title="Modifier"
               @click="openEdit(data)"
             >
               <template #icon><span class="material-symbols-outlined text-lg">edit</span></template>
@@ -372,7 +374,17 @@ email: user.email || '',
       <template #footer>
         <Button label="Annuler" text @click="userDialog = false" />
         <Button
-          :label="isEditMode ? 'Enregistrer' : 'Créer'"
+          v-if="isEditMode"
+          aria-label="Enregistrer"
+          title="Enregistrer"
+          @click="saveUser"
+          :loading="submitting"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
+        </Button>
+        <Button
+          v-else
+          label="Créer"
           @click="saveUser"
           :loading="submitting"
         />

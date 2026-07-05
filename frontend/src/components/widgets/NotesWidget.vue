@@ -1,6 +1,6 @@
 <!-- components/widgets/NotesWidget.vue -->
 <script setup lang="ts">
-  import { ref, onMounted } from "vue";
+  import { reactive, ref, onMounted, watch } from "vue";
   import { useNotesStore, Note } from "../../stores/notesStore";
   import { storeToRefs } from "pinia"; // Important pour la réactivité
   import { useConfirm } from "primevue/useconfirm";
@@ -10,7 +10,6 @@
   import Button from "primevue/button";
   import InputText from "primevue/inputtext";
   import Textarea from "primevue/textarea";
-  import Dialog from "primevue/dialog";
   import ConfirmDialog from "primevue/confirmdialog";
 
   const store = useNotesStore();
@@ -19,11 +18,7 @@
   const toast = useToast();
 
   const newNote = ref("");
-
-  // État Édition
-  const isEditDialogVisible = ref(false);
-  const editingNote = ref<Note | null>(null);
-  const editContent = ref("");
+  const noteDrafts = reactive<Record<string, string>>({});
 
   // --- INITIALISATION ---
   onMounted(async () => {
@@ -49,6 +44,20 @@
     }
   };
 
+  watch(
+    notes,
+    (currentNotes) => {
+      const currentIds = new Set(currentNotes.map((note) => note.id));
+      for (const note of currentNotes) {
+        if (noteDrafts[note.id] === undefined) noteDrafts[note.id] = note.content;
+      }
+      for (const id of Object.keys(noteDrafts)) {
+        if (!currentIds.has(id)) delete noteDrafts[id];
+      }
+    },
+    { immediate: true },
+  );
+
   // --- DELETE ---
   const confirmDelete = (noteId: string) => {
     confirm.require({
@@ -69,23 +78,19 @@
   };
 
   // --- UPDATE ---
-  const openEditDialog = (note: Note) => {
-    editingNote.value = note;
-    editContent.value = note.content;
-    isEditDialogVisible.value = true;
+  const hasDraftChanges = (note: Note) => (noteDrafts[note.id] ?? note.content) !== note.content;
+
+  const updateNoteDraft = (noteId: string, value: string | undefined) => {
+    noteDrafts[noteId] = value || "";
   };
 
-  const saveEdit = async () => {
-    if (!editingNote.value) return;
+  const saveInlineEdit = async (note: Note) => {
+    if (!hasDraftChanges(note)) return;
 
-    // Appel au store (voir point ci-dessous)
-    const success = await store.updateNote(
-      editingNote.value.id,
-      editContent.value,
-    );
+    const success = await store.updateNote(note.id, noteDrafts[note.id] ?? "");
 
     if (success) {
-      isEditDialogVisible.value = false;
+      noteDrafts[note.id] = noteDrafts[note.id] ?? "";
       toast.add({
         severity: "success",
         summary: "Note mise à jour",
@@ -150,25 +155,33 @@
         :key="note.id"
         class="group p-3 bg-white hover:bg-primary/5 rounded-xl border border-surface-dark/8 hover:border-primary/20 transition-all text-sm text-surface-dark/70 flex justify-between items-start gap-2"
       >
-        <p
-          class="whitespace-pre-wrap flex-1 leading-relaxed cursor-pointer"
-          @click="openEditDialog(note)"
-        >
-          {{ note.content }}
-        </p>
+        <Textarea
+          :model-value="noteDrafts[note.id] ?? note.content"
+          @update:model-value="updateNoteDraft(note.id, $event)"
+          auto-resize
+          rows="2"
+          class="flex-1 !border-0 !bg-transparent !p-0 !text-sm !leading-relaxed !shadow-none focus:!ring-0"
+        />
 
         <div
           class="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
         >
           <button
-            @click.stop="openEditDialog(note)"
-            class="p-1 text-surface-dark/35 hover:text-primary hover:bg-primary/10 rounded transition-colors"
+            type="button"
+            aria-label="Enregistrer"
+            title="Enregistrer"
+            :disabled="!hasDraftChanges(note)"
+            @click.stop="saveInlineEdit(note)"
+            class="flex h-7 w-7 items-center justify-center rounded-full text-surface-dark/35 transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-25"
           >
-            <span class="material-symbols-outlined text-xs">edit</span>
+            <span class="material-symbols-outlined text-xs">save</span>
           </button>
           <button
+            type="button"
+            aria-label="Supprimer"
+            title="Supprimer"
             @click.stop="confirmDelete(note.id)"
-            class="p-1 text-surface-dark/35 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+            class="flex h-7 w-7 items-center justify-center rounded-full text-surface-dark/35 transition-colors hover:bg-red-50 hover:text-red-500"
           >
             <span class="material-symbols-outlined text-xs">delete</span>
           </button>
@@ -182,33 +195,6 @@
         Aucune note pour l'instant.
       </div>
     </div>
-
-    <Dialog
-      v-model:visible="isEditDialogVisible"
-      header="Modifier la note"
-      :modal="true"
-      class="w-[90vw] max-w-md"
-    >
-      <div class="flex flex-col gap-4 pt-2">
-        <Textarea
-          v-model="editContent"
-          rows="5"
-          class="w-full !text-sm"
-          autoResize
-        />
-        <div class="flex justify-end gap-2">
-          <Button
-            label="Annuler"
-            text
-            severity="secondary"
-            @click="isEditDialogVisible = false"
-          />
-          <Button label="Enregistrer" @click="saveEdit">
-            <template #icon><span class="material-symbols-outlined text-lg">check</span></template>
-          </Button>
-        </div>
-      </div>
-    </Dialog>
 
     <div
       class="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2 pointer-events-none"

@@ -4,7 +4,6 @@ import type { Client, ClientInput } from '@client-tracker/contracts';
 import Dialog from 'primevue/dialog';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
-import Textarea from 'primevue/textarea';
 import Checkbox from 'primevue/checkbox';
 import Select from 'primevue/select';
 import CountrySelect from '@/components/clients/CountrySelect.vue';
@@ -41,6 +40,7 @@ const form = reactive<ClientInput>({
   language: 'fr',
   stage: 'lead',
   notes: '',
+  clientNotes: [],
   documents: [],
   projects: [createClientProject()],
   onboardingTasks: createOnboardingTasks(),
@@ -74,6 +74,7 @@ watch(
         language: props.client.language,
         stage: props.client.stage || 'lead',
         notes: props.client.notes || '',
+        clientNotes: props.client.clientNotes || [],
         documents: props.client.documents || [],
         projects: props.client.projects?.length ? props.client.projects.map((project) => ({ ...project, onboardingTasks: project.onboardingTasks.map((task) => ({ ...task })) })) : [createClientProject()],
         onboardingTasks: props.client.onboardingTasks.map((task) => ({ ...task })),
@@ -101,6 +102,7 @@ watch(
       language: 'fr',
       stage: 'lead',
       notes: '',
+      clientNotes: [],
       documents: [],
       projects: [createClientProject()],
       onboardingTasks: createOnboardingTasks(),
@@ -116,6 +118,8 @@ const handleSave = () => {
       ...form,
       name: [form.firstName.trim(), form.lastName.trim()].filter(Boolean).join(' '),
       address: formatClientAddress(form),
+      notes: props.client?.notes || '',
+      clientNotes: props.client?.clientNotes || [],
       projects: form.projects.length ? form.projects : [createClientProject()],
       onboardingTasks: [...form.onboardingTasks],
     },
@@ -189,16 +193,16 @@ const handleSave = () => {
         <span class="text-sm font-semibold text-surface-dark">Pays</span>
         <CountrySelect v-model="form.country" />
       </label>
-      <label class="flex flex-col gap-2 md:col-span-2">
-        <span class="text-sm font-semibold text-surface-dark">Notes internes</span>
-        <Textarea v-model="form.notes" rows="4" />
-      </label>
     </div>
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <Button text severity="secondary" @click="emit('update:visible', false)">Annuler</Button>
-        <Button @click="handleSave">Enregistrer</Button>
+        <Button text severity="secondary" aria-label="Annuler" title="Annuler" @click="emit('update:visible', false)">
+          <template #icon><span class="material-symbols-outlined text-lg">close</span></template>
+        </Button>
+        <Button aria-label="Enregistrer" title="Enregistrer" @click="handleSave">
+          <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
+        </Button>
       </div>
     </template>
   </Dialog>

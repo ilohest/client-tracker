@@ -5,16 +5,19 @@ import { useRouter } from "vue-router";
 import type { TooltipOptions } from "primevue/tooltip";
 import WelcomeCard from "../components/dashboard/WelcomeCard.vue";
 import NotesWidget from "../components/widgets/NotesWidget.vue";
+import { useProjectsStore } from "../stores/projectsStore";
 import { useQuotesStore } from "../stores/quotesStore";
 import { useTimesheetsStore } from "../stores/timesheetsStore";
 import { quoteStatusMeta } from "../lib/clientPresets";
-import { formatCurrency, formatQuoteDate, getQuotePlatformLabel } from "../utils/quote";
+import { formatCurrency, formatQuoteDate } from "../utils/quote";
 
 const router = useRouter();
+const projectsStore = useProjectsStore();
 const quotesStore = useQuotesStore();
 const timesheetsStore = useTimesheetsStore();
 
 onMounted(() => {
+  if (!projectsStore.projects.length) void projectsStore.fetchProjects();
   if (!quotesStore.quotes.length) void quotesStore.fetchQuotes();
   if (!timesheetsStore.timesheets.length) void timesheetsStore.fetchTimesheets();
 });
@@ -96,12 +99,42 @@ const runningTimesheet = computed(() =>
 const recentQuotes = computed(() =>
   [...quotes.value]
     .sort((a, b) => (b.quoteDate || "").localeCompare(a.quoteDate || ""))
-    .slice(0, 6),
+    .slice(0, 3),
 );
+const activeProjects = computed(() =>
+  projectsStore.projects
+    .filter((project) => !["paid", "closed"].includes(project.status))
+    .sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || ""))),
+);
+const activeProjectsPreview = computed(() => activeProjects.value.slice(0, 4));
+const activeProjectsToInvoice = computed(() =>
+  activeProjects.value.reduce(
+    (total, project) => total + Math.max(0, Number(project.budgetExVat || 0) - Number(project.invoicedExVat || 0)),
+    0,
+  ),
+);
+const projectProgress = (project: (typeof activeProjects.value)[number]) => {
+  const milestones = project.milestones || [];
+  if (!milestones.length) return 0;
+  return Math.round((milestones.filter((item) => item.status === "done").length / milestones.length) * 100);
+};
 
 const openQuote = (id: string) => {
   quotesStore.selectQuote(id);
   router.push("/quotes");
+};
+
+const openProject = (id: string) => {
+  projectsStore.selectProject(id);
+  router.push("/projects");
+};
+
+const createQuote = () => {
+  router.push({ path: "/quotes", query: { new: "1" } });
+};
+
+const createClient = () => {
+  router.push({ path: "/clients", query: { new: "1" } });
 };
 
 const openTimesheets = () => {
@@ -121,7 +154,7 @@ const openTimesheets = () => {
           <div class="grid max-w-[300px] grid-cols-2 gap-2.5">
             <button
               class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-primary/15 bg-primary/10 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/15 hover:shadow-sm"
-              @click="router.push('/quotes')"
+              @click="createQuote"
             >
               <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 text-primary">
                 <span class="material-symbols-outlined text-xl">receipt_long</span>
@@ -130,7 +163,7 @@ const openTimesheets = () => {
             </button>
             <button
               class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-indigo-500/15 bg-indigo-500/10 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-indigo-500/30 hover:bg-indigo-500/15 hover:shadow-sm"
-              @click="router.push('/clients')"
+              @click="createClient"
             >
               <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 text-indigo-600">
                 <span class="material-symbols-outlined text-xl">groups</span>
@@ -154,12 +187,12 @@ const openTimesheets = () => {
             </button>
             <button
               class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-amber-500/15 bg-amber-500/10 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-amber-500/30 hover:bg-amber-500/15 hover:shadow-sm"
-              @click="router.push('/quote-templates')"
+              @click="router.push('/projects')"
             >
               <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 text-amber-600">
-                <span class="material-symbols-outlined text-xl">library_books</span>
+                <span class="material-symbols-outlined text-xl">workspaces</span>
               </span>
-              <span class="text-xs font-bold leading-tight text-surface-dark">Templates</span>
+              <span class="text-xs font-bold leading-tight text-surface-dark">Projets</span>
             </button>
           </div>
         </div>
@@ -208,56 +241,96 @@ const openTimesheets = () => {
     </div>
 
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.9fr)]">
-      <!-- Derniers devis -->
-      <div class="order-2 rounded-3xl border border-surface-dark/5 bg-surface-card p-6 xl:order-1">
-        <div class="mb-4 flex items-center justify-between">
-          <h3 class="font-heading text-lg font-bold text-surface-dark">Derniers devis</h3>
-          <button
-            class="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-            @click="router.push('/quotes')"
+      <div class="order-2 grid gap-4 lg:grid-cols-2 xl:order-1">
+        <!-- Derniers devis -->
+        <div class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5">
+          <div class="mb-3 flex items-center justify-between">
+            <h3 class="font-heading text-lg font-bold text-surface-dark">Derniers devis</h3>
+            <button
+              class="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+              @click="router.push('/quotes')"
+            >
+              Tout voir
+              <span class="material-symbols-outlined text-base">arrow_forward</span>
+            </button>
+          </div>
+
+          <div v-if="recentQuotes.length" class="flex flex-col divide-y divide-surface-dark/6">
+            <button
+              v-for="quote in recentQuotes"
+              :key="quote.id"
+              class="group flex items-center gap-3 rounded-xl px-2 py-3 text-left transition-colors first:pt-0 last:pb-0 hover:bg-surface-light/60"
+              @click="openQuote(quote.id)"
+            >
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-semibold text-surface-dark">
+                  {{ quote.title || quote.clientName || "Devis sans titre" }}
+                </p>
+                <p class="truncate text-xs text-surface-dark/50">
+                  {{ quote.quoteRef }}
+                  <span v-if="quote.quoteDate"> · {{ formatQuoteDate(quote.quoteDate) }}</span>
+                </p>
+              </div>
+              <span
+                class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                :class="quoteStatusMeta[quote.status].tagClass"
+                >{{ quoteStatusMeta[quote.status].label }}</span
+              >
+            </button>
+          </div>
+          <div
+            v-else
+            class="rounded-2xl border border-dashed border-surface-dark/12 p-6 text-center text-sm text-surface-dark/50"
           >
-            Tout voir
-            <span class="material-symbols-outlined text-base">arrow_forward</span>
-          </button>
+            Aucun devis pour l'instant.
+          </div>
         </div>
 
-        <div v-if="recentQuotes.length" class="flex flex-col divide-y divide-surface-dark/6">
-          <button
-            v-for="quote in recentQuotes"
-            :key="quote.id"
-            class="group flex items-center gap-4 py-3 text-left transition-colors first:pt-0 last:pb-0 hover:bg-surface-light/60 -mx-2 px-2 rounded-xl"
-            @click="openQuote(quote.id)"
-          >
-            <div class="min-w-0 flex-1">
-              <p class="truncate font-semibold text-surface-dark">
-                {{ quote.title || quote.clientName || "Devis sans titre" }}
-              </p>
-              <p class="truncate text-xs text-surface-dark/50">
-                {{ quote.quoteRef }}
-                <span v-if="quote.quoteDate"> · {{ formatQuoteDate(quote.quoteDate) }}</span>
-                <span v-if="getQuotePlatformLabel(quote.platform, quote.customPlatformLabel)" class="capitalize">
-                  · {{ getQuotePlatformLabel(quote.platform, quote.customPlatformLabel) }}
-                </span>
-              </p>
-            </div>
-            <span
-              class="shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-              :class="quoteStatusMeta[quote.status].tagClass"
-              >{{ quoteStatusMeta[quote.status].label }}</span
+        <div class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5">
+          <div class="mb-3 flex items-center justify-between">
+            <h3 class="font-heading text-lg font-bold text-surface-dark">Projets actifs</h3>
+            <button
+              class="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+              @click="router.push('/projects')"
             >
-            <span class="w-24 shrink-0 text-right font-heading text-sm font-bold text-surface-dark">
-              {{ formatCurrency(quote.totalWithVat) }}
-            </span>
-          </button>
-        </div>
-        <div
-          v-else
-          class="rounded-2xl border border-dashed border-surface-dark/12 p-8 text-center text-sm text-surface-dark/50"
-        >
-          Aucun devis pour l'instant.
-          <button class="ml-1 font-medium text-primary hover:underline" @click="router.push('/quotes')">
-            Créer un devis
-          </button>
+              Tout voir
+              <span class="material-symbols-outlined text-base">arrow_forward</span>
+            </button>
+          </div>
+
+          <div class="mb-3 grid grid-cols-2 gap-2">
+            <div class="rounded-2xl border border-surface-dark/6 bg-white p-3">
+              <p class="text-[11px] font-semibold uppercase text-surface-dark/45">Actifs</p>
+              <p class="mt-1 font-heading text-xl font-bold text-surface-dark">{{ activeProjects.length }}</p>
+            </div>
+            <div class="rounded-2xl border border-surface-dark/6 bg-white p-3">
+              <p class="text-[11px] font-semibold uppercase text-surface-dark/45">À facturer</p>
+              <p class="mt-1 truncate font-heading text-xl font-bold text-amber-600">{{ formatCurrency(activeProjectsToInvoice) }}</p>
+            </div>
+          </div>
+
+          <div v-if="activeProjectsPreview.length" class="flex flex-col gap-2">
+            <button
+              v-for="project in activeProjectsPreview"
+              :key="project.id"
+              class="rounded-2xl border border-surface-dark/6 bg-white p-3 text-left transition hover:border-primary/25 hover:bg-primary/5"
+              @click="openProject(project.id)"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-bold text-surface-dark">{{ project.title }}</p>
+                  <p class="mt-1 truncate text-xs text-surface-dark/50">{{ project.clientName || "Sans client" }}</p>
+                </div>
+                <span class="shrink-0 text-xs font-bold text-primary">{{ projectProgress(project) }}%</span>
+              </div>
+              <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-dark/6">
+                <div class="h-full rounded-full bg-primary" :style="{ width: `${projectProgress(project)}%` }"></div>
+              </div>
+            </button>
+          </div>
+          <div v-else class="rounded-2xl border border-dashed border-surface-dark/12 p-6 text-center text-sm text-surface-dark/50">
+            Aucun projet actif.
+          </div>
         </div>
       </div>
 

@@ -154,10 +154,23 @@ h1, h2, h3, h4, h5, h6 {
   .p-inputnumber-input {
     background: #ffffff;
     border-color: rgba(47, 43, 61, 0.14);
+    border-radius: 0.875rem;
     transition:
       border-color 160ms ease,
       box-shadow 160ms ease,
       background-color 160ms ease;
+  }
+
+  .p-select-label,
+  .p-multiselect-label,
+  .p-datepicker-input {
+    border-radius: 0.875rem;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    border-radius: 0.875rem;
   }
 
   .p-disabled,

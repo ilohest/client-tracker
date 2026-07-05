@@ -452,7 +452,10 @@ const getConditionTitle = (condition: QuoteCondition, index: number) =>
             <Button
               v-if="!isLockedLastCondition(index)"
               text
+              rounded
               severity="danger"
+              aria-label="Supprimer"
+              title="Supprimer"
               @click.stop="emit('removeCondition', condition.id)"
             >
               <template #icon
@@ -554,6 +557,8 @@ const getConditionTitle = (condition: QuoteCondition, index: number) =>
                         text
                         severity="danger"
                         class="!h-10 !w-10 !rounded-xl"
+                        aria-label="Supprimer"
+                        title="Supprimer"
                         :disabled="isLockedCondition(condition.id)"
                         @click="
                           !isLockedCondition(condition.id) && emit('removeConditionItem', {
@@ -641,6 +646,8 @@ const getConditionTitle = (condition: QuoteCondition, index: number) =>
                               text
                               severity="danger"
                               class="!h-10 !w-10 !rounded-xl"
+                              aria-label="Supprimer"
+                              title="Supprimer"
                               :disabled="isLockedCondition(condition.id)"
                               @click="
                                 !isLockedCondition(condition.id) && emit('removeConditionSubItem', {

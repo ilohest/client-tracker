@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import type { Timesheet, TimesheetInput, TimesheetSession } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import ColorPicker from "primevue/colorpicker";
@@ -8,22 +9,22 @@ import Dialog from "primevue/dialog";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
-import Textarea from "primevue/textarea";
 import type { TooltipOptions } from "primevue/tooltip";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
-import { useQuotesStore } from "@/stores/quotesStore";
+import { useProjectsStore } from "@/stores/projectsStore";
 import { useTimesheetsStore } from "@/stores/timesheetsStore";
 import { formatCurrency } from "@/utils/quote";
 
 const authStore = useAuthStore();
 const clientsStore = useClientsStore();
-const quotesStore = useQuotesStore();
+const projectsStore = useProjectsStore();
 const timesheetsStore = useTimesheetsStore();
 const toast = useToast();
 const confirm = useConfirm();
+const router = useRouter();
 
 const colorPool = [
   "#e96a5f",
@@ -54,9 +55,7 @@ const calendarView = ref<"month" | "week">("month");
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 
 const form = reactive({
-  sourceType: "quote" as "quote" | "custom",
-  quoteId: "",
-  clientId: "",
+  projectId: "",
   title: "",
   hourlyRate: 0,
   fixedPriceExVat: 0,
@@ -80,7 +79,7 @@ const manualSessionForm = reactive({
 
 onMounted(() => {
   if (!timesheetsStore.timesheets.length) void timesheetsStore.fetchTimesheets();
-  if (!quotesStore.quotes.length) void quotesStore.fetchQuotes();
+  if (!projectsStore.projects.length) void projectsStore.fetchProjects();
   if (!clientsStore.clients.length) void clientsStore.fetchClients();
   timerInterval = setInterval(() => {
     nowTick.value = Date.now();
@@ -95,34 +94,42 @@ const openTimesheets = computed(() => timesheetsStore.openTimesheets);
 const closedTimesheets = computed(() => timesheetsStore.closedTimesheets);
 const selectedTimesheet = computed(() => timesheetsStore.selectedTimesheet);
 const selectedIsClosed = computed(() => selectedTimesheet.value?.status === "closed");
-const acceptedQuotes = computed(() =>
-  quotesStore.quotes.filter((quote) => quote.status === "accepted"),
-);
-
-const quoteOptions = computed(() =>
-  acceptedQuotes.value.map((quote) => ({
-    label: `${quote.quoteRef} · ${quote.projectName || quote.title || quote.clientName || "Devis accepté"}`,
-    value: quote.id,
-  })),
-);
 const clientOptions = computed(() =>
   clientsStore.clients.map((client) => ({
     label: client.name || client.contactEmail || "Client",
     value: client.id,
   })),
 );
-const selectedQuote = computed(() =>
-  quotesStore.quotes.find((quote) => quote.id === form.quoteId) || null,
+const activeProjects = computed(() =>
+  projectsStore.projects.filter((project) => !["paid", "closed"].includes(project.status)),
 );
-const selectedClient = computed(() =>
-  clientsStore.clients.find((client) => client.id === form.clientId) || null,
+const linkedTimesheetByProjectId = (projectId: string) =>
+  timesheetsStore.timesheets.find((timesheet) => timesheet.projectId === projectId) ||
+  timesheetsStore.timesheets.find((timesheet) => projectsStore.projects.find((project) => project.id === projectId)?.timesheetId === timesheet.id) ||
+  null;
+const projectOptions = computed(() =>
+  activeProjects.value.map((project) => {
+    const linkedTimesheet = linkedTimesheetByProjectId(project.id);
+    return {
+      label: `${project.title}${project.clientName ? ` · ${project.clientName}` : ""}${linkedTimesheet ? " · timesheet existante" : ""}`,
+      value: project.id,
+    };
+  }),
 );
-const formColorPickerValue = computed({
-  get: () => toPickerColor(form.color),
-  set: (value) => {
-    form.color = normalizeHexColor(value, form.color);
-  },
-});
+const selectedProject = computed(() =>
+  projectsStore.projects.find((project) => project.id === form.projectId) || null,
+);
+const selectedProjectTimesheet = computed(() =>
+  selectedProject.value ? linkedTimesheetByProjectId(selectedProject.value.id) : null,
+);
+const selectedLinkedProject = computed(
+  () =>
+    projectsStore.projects.find((project) => {
+      const timesheet = selectedTimesheet.value;
+      if (!timesheet) return false;
+      return project.id === timesheet.projectId || project.timesheetId === timesheet.id;
+    }) || null,
+);
 const editColorPickerValue = computed({
   get: () => toPickerColor(editForm.color),
   set: (value) => {
@@ -269,22 +276,29 @@ const toDateInputValue = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-watch(selectedQuote, (quote) => {
-  if (!quote || form.sourceType !== "quote") return;
-  form.title = quote.projectName || quote.title || quote.clientName || "Projet devis";
-  form.clientId = quote.clientId || "";
-  form.fixedPriceExVat = Number(quote.subtotal || 0);
+watch(selectedProject, (project) => {
+  if (!project) {
+    form.title = "";
+    form.hourlyRate = Number(authStore.userProfile?.hourlyRate || 0);
+    form.fixedPriceExVat = 0;
+    form.color = colorPool[0];
+    return;
+  }
+
+  form.title = project.title || "Projet sans titre";
+  form.hourlyRate = Number(project.hourlyRate || authStore.userProfile?.hourlyRate || 0);
+  form.fixedPriceExVat = Number(project.budgetExVat || 0);
+  form.color = normalizeHexColor(project.color, colorPool[0]);
 });
 
 const resetForm = () => {
-  const nextColor = colorPool[openTimesheets.value.length % colorPool.length];
-  form.sourceType = "quote";
-  form.quoteId = "";
-  form.clientId = "";
-  form.title = "";
+  const firstProjectWithoutTimesheet =
+    activeProjects.value.find((project) => !linkedTimesheetByProjectId(project.id)) || activeProjects.value[0] || null;
+  form.projectId = firstProjectWithoutTimesheet?.id || "";
+  form.title = firstProjectWithoutTimesheet?.title || "";
   form.hourlyRate = Number(authStore.userProfile?.hourlyRate || 0);
-  form.fixedPriceExVat = 0;
-  form.color = nextColor;
+  form.fixedPriceExVat = Number(firstProjectWithoutTimesheet?.budgetExVat || 0);
+  form.color = normalizeHexColor(firstProjectWithoutTimesheet?.color, colorPool[openTimesheets.value.length % colorPool.length]);
 };
 
 const openCreateDialog = () => {
@@ -303,6 +317,13 @@ const openEditDialog = () => {
   editDialogOpen.value = true;
 };
 
+const openLinkedProject = () => {
+  const project = selectedLinkedProject.value;
+  if (!project) return;
+  projectsStore.selectProject(project.id);
+  router.push({ name: "projects" });
+};
+
 const showTimesheetError = (error: unknown) => {
   console.error(error);
   toast.add({
@@ -314,25 +335,47 @@ const showTimesheetError = (error: unknown) => {
 };
 
 const createTimesheet = async () => {
-  const quote = selectedQuote.value;
-  const client = selectedClient.value || clientsStore.clients.find((item) => item.id === quote?.clientId);
+  const project = selectedProject.value;
+  if (!project) {
+    toast.add({
+      severity: "warn",
+      summary: "Projet requis",
+      detail: "Sélectionne un projet existant pour créer une timesheet.",
+      life: 2800,
+    });
+    return;
+  }
+  if (selectedProjectTimesheet.value) {
+    toast.add({
+      severity: "warn",
+      summary: "Timesheet déjà liée",
+      detail: "Ce projet possède déjà une timesheet. Sélectionne-la dans la liste.",
+      life: 3200,
+    });
+    timesheetsStore.selectTimesheet(selectedProjectTimesheet.value.id);
+    createDialogOpen.value = false;
+    return;
+  }
+
   const payload: TimesheetInput = {
-    title: form.title.trim() || quote?.title || quote?.clientName || "Projet sans titre",
-    sourceType: form.sourceType,
-    quoteId: form.sourceType === "quote" ? quote?.id || "" : "",
-    quoteRef: form.sourceType === "quote" ? quote?.quoteRef || "" : "",
-    clientId: client?.id || "",
-    clientName: client?.name || quote?.clientName || "",
+    title: form.title.trim() || project.title || "Projet sans titre",
+    projectId: project.id,
+    sourceType: project.sourceType === "quote" ? "quote" : "custom",
+    quoteId: project.quoteId || "",
+    quoteRef: project.quoteRef || "",
+    clientId: project.clientId || "",
+    clientName: project.clientName || "",
     color: form.color,
     hourlyRate: Number(form.hourlyRate || 0),
     fixedPriceExVat: Number(form.fixedPriceExVat || 0),
-    projectStartDate: "",
+    projectStartDate: project.startedAt || "",
     status: "open",
     activeStartedAt: "",
   };
 
   try {
-    await timesheetsStore.createTimesheet(payload);
+    const timesheet = await timesheetsStore.createTimesheet(payload);
+    await projectsStore.updateProject(project.id, { timesheetId: timesheet.id });
     createDialogOpen.value = false;
   } catch (error) {
     showTimesheetError(error);
@@ -855,7 +898,7 @@ const changeCalendarPeriod = (offset: number) => {
                 <div class="mb-2 flex items-center gap-2">
                   <span class="h-3 w-3 rounded-full" :style="{ backgroundColor: selectedTimesheet.color }"></span>
                   <span class="text-xs font-semibold uppercase tracking-wide text-surface-dark/45">
-                    {{ selectedTimesheet.sourceType === "quote" ? "Devis accepté" : "Projet personnalisé" }}
+                    {{ selectedTimesheet.sourceType === "quote" ? "Devis accepté" : "Projet hors devis" }}
                   </span>
                 </div>
                 <h2 class="text-2xl font-bold text-surface-dark">{{ selectedTimesheet.title }}</h2>
@@ -868,7 +911,20 @@ const changeCalendarPeriod = (offset: number) => {
                 </p>
               </div>
               <div class="flex flex-wrap gap-2">
-                <Button label="Modifier" severity="secondary" outlined icon="pi pi-pencil" @click="openEditDialog" />
+                <Button
+                  label="Projet"
+                  severity="secondary"
+                  rounded
+                  class="!border !border-amber-500/15 !bg-amber-500/10 !text-surface-dark enabled:hover:!border-amber-500/30 enabled:hover:!bg-amber-500/15"
+                  :disabled="!selectedLinkedProject"
+                  :title="selectedLinkedProject ? 'Ouvrir le projet lié' : 'Aucun projet lié'"
+                  @click="openLinkedProject"
+                >
+                  <template #icon><span class="material-symbols-outlined text-lg text-amber-600">workspaces</span></template>
+                </Button>
+                <Button severity="secondary" outlined rounded aria-label="Modifier" title="Modifier" @click="openEditDialog">
+                  <template #icon><span class="material-symbols-outlined text-lg">edit</span></template>
+                </Button>
                 <Button
                   v-if="!selectedIsClosed"
                   label="Clôturer"
@@ -877,7 +933,9 @@ const changeCalendarPeriod = (offset: number) => {
                   icon="pi pi-check"
                   @click="closeSelected"
                 />
-                <Button label="Supprimer" severity="danger" outlined icon="pi pi-trash" @click="deleteSelected" />
+                <Button severity="danger" outlined rounded aria-label="Supprimer" title="Supprimer" @click="deleteSelected">
+                  <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
+                </Button>
               </div>
             </div>
 
@@ -1150,70 +1208,65 @@ const changeCalendarPeriod = (offset: number) => {
       <section v-else class="rounded-3xl border border-surface-dark/5 bg-surface-card p-10 text-center">
         <span class="material-symbols-outlined text-5xl text-primary">timer</span>
         <h2 class="mt-3 text-2xl font-bold text-surface-dark">Aucune timesheet sélectionnée</h2>
-        <p class="mt-2 text-sm text-surface-dark/50">Crée un suivi depuis un devis accepté ou un projet personnalisé.</p>
+        <p class="mt-2 text-sm text-surface-dark/50">Crée un suivi depuis un projet existant.</p>
         <Button class="mt-5" label="Créer une timesheet" icon="pi pi-plus" @click="openCreateDialog" />
       </section>
     </div>
 
     <Dialog v-model:visible="createDialogOpen" modal header="Nouvelle timesheet" :style="{ width: 'min(680px, 92vw)' }">
       <div class="grid gap-4">
-        <div class="grid gap-2 sm:grid-cols-2">
-          <button
-            type="button"
-            class="rounded-2xl border p-4 text-left"
-            :class="form.sourceType === 'quote' ? 'border-primary bg-primary/5' : 'border-surface-dark/10'"
-            @click="form.sourceType = 'quote'"
-          >
-            <span class="font-bold text-surface-dark">Depuis un devis accepté</span>
-            <span class="mt-1 block text-sm text-surface-dark/50">Budget HT et client préremplis.</span>
-          </button>
-          <button
-            type="button"
-            class="rounded-2xl border p-4 text-left"
-            :class="form.sourceType === 'custom' ? 'border-primary bg-primary/5' : 'border-surface-dark/10'"
-            @click="form.sourceType = 'custom'"
-          >
-            <span class="font-bold text-surface-dark">Projet personnalisé</span>
-            <span class="mt-1 block text-sm text-surface-dark/50">Client optionnel, budget manuel.</span>
-          </button>
-        </div>
-
-        <div v-if="form.sourceType === 'quote'" class="grid gap-1.5">
-          <label for="timesheet-quote" class="text-xs font-bold uppercase tracking-wide text-surface-dark/45">
-            Devis accepté
+        <div class="grid gap-1.5">
+          <label for="timesheet-project" class="text-xs font-bold uppercase tracking-wide text-surface-dark/45">
+            Projet existant
           </label>
           <Select
-            id="timesheet-quote"
-            v-model="form.quoteId"
-            :options="quoteOptions"
+            id="timesheet-project"
+            v-model="form.projectId"
+            :options="projectOptions"
             option-value="value"
             option-label="label"
-            placeholder="Choisir un devis accepté"
+            placeholder="Choisir un projet"
             class="w-full"
           />
+        </div>
+
+        <div
+          v-if="selectedProject"
+          class="rounded-2xl border p-4"
+          :class="selectedProjectTimesheet ? 'border-amber-500/20 bg-amber-500/5' : 'border-primary/20 bg-primary/5'"
+        >
+          <div class="flex items-start gap-3">
+            <span
+              class="mt-1 h-3 w-3 shrink-0 rounded-full"
+              :style="{ backgroundColor: selectedProject.color }"
+            ></span>
+            <div class="min-w-0 flex-1">
+              <p class="font-bold text-surface-dark">{{ selectedProject.title }}</p>
+              <p class="mt-1 text-sm text-surface-dark/55">
+                {{ selectedProject.clientName || "Sans client" }}
+                <template v-if="selectedProject.quoteRef"> · {{ selectedProject.quoteRef }}</template>
+                · {{ selectedProject.sourceType === "quote" ? "Projet depuis devis" : "Projet hors devis" }}
+              </p>
+              <p v-if="selectedProjectTimesheet" class="mt-3 text-sm font-semibold text-amber-700">
+                Une timesheet existe déjà pour ce projet.
+              </p>
+            </div>
+            <span class="text-sm font-bold text-surface-dark">{{ formatCurrency(selectedProject.budgetExVat) }}</span>
+          </div>
+        </div>
+
+        <div
+          v-else
+          class="rounded-2xl border border-dashed border-surface-dark/10 p-4 text-sm text-surface-dark/55"
+        >
+          Aucun projet actif disponible. Crée d'abord un projet dans la section Projets.
         </div>
 
         <div class="grid gap-1.5">
           <label for="timesheet-title" class="text-xs font-bold uppercase tracking-wide text-surface-dark/45">
-            Nom du projet
+            Nom affiché dans la timesheet
           </label>
-          <InputText id="timesheet-title" v-model="form.title" placeholder="Nom du projet" />
-        </div>
-
-        <div v-if="form.sourceType === 'custom'" class="grid gap-1.5">
-          <label for="timesheet-client" class="text-xs font-bold uppercase tracking-wide text-surface-dark/45">
-            Client associé
-          </label>
-          <Select
-            id="timesheet-client"
-            v-model="form.clientId"
-            :options="clientOptions"
-            option-value="value"
-            option-label="label"
-            show-clear
-            placeholder="Associer un client (optionnel)"
-            class="w-full"
-          />
+          <InputText id="timesheet-title" v-model="form.title" placeholder="Nom affiché" :disabled="!selectedProject" />
         </div>
 
         <div class="grid gap-3 sm:grid-cols-2">
@@ -1228,6 +1281,7 @@ const changeCalendarPeriod = (offset: number) => {
               currency="EUR"
               locale="fr-BE"
               placeholder="Taux horaire"
+              :disabled="!selectedProject"
             />
           </div>
           <div class="grid gap-1.5">
@@ -1241,50 +1295,28 @@ const changeCalendarPeriod = (offset: number) => {
               currency="EUR"
               locale="fr-BE"
               placeholder="Prix HT"
+              :disabled="!selectedProject"
             />
           </div>
         </div>
 
-        <div>
-          <p class="mb-2 text-xs font-bold uppercase tracking-wide text-surface-dark/40">Couleur calendrier</p>
-          <div class="mb-3 flex items-center gap-3">
-            <ColorPicker
-              v-model="formColorPickerValue"
-              format="hex"
-              append-to="body"
-              :base-z-index="1200"
-            />
-            <InputText v-model="form.color" class="max-w-36" placeholder="#e96a5f" />
-            <span
-              class="h-9 w-9 rounded-full border border-surface-dark/10"
-              :style="{ backgroundColor: normalizeHexColor(form.color) }"
-            ></span>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="color in colorPool"
-              :key="color"
-              type="button"
-              class="h-9 w-9 rounded-full border-4"
-              :class="form.color === color ? 'border-surface-dark/30' : 'border-white'"
-              :style="{ backgroundColor: color }"
-              @click="form.color = color"
-            ></button>
+        <div class="rounded-2xl border border-surface-dark/8 bg-white p-4">
+          <p class="text-xs font-bold uppercase tracking-wide text-surface-dark/40">Couleur calendrier</p>
+          <div class="mt-2 flex items-center gap-3">
+            <span class="h-9 w-9 rounded-full border border-surface-dark/10" :style="{ backgroundColor: normalizeHexColor(form.color) }"></span>
+            <span class="text-sm font-semibold text-surface-dark">{{ normalizeHexColor(form.color) }}</span>
           </div>
         </div>
-
-        <Textarea
-          auto-resize
-          readonly
-          rows="2"
-          class="text-sm"
-          model-value="Le prix HT divisé par le taux horaire donne les heures théoriques. Le compteur devient orange à l'approche du budget, rouge au dépassement."
-        />
       </div>
 
       <template #footer>
         <Button label="Annuler" severity="secondary" outlined @click="createDialogOpen = false" />
-        <Button label="Créer" icon="pi pi-check" :disabled="form.sourceType === 'quote' && !form.quoteId" @click="createTimesheet" />
+        <Button
+          label="Créer"
+          icon="pi pi-check"
+          :disabled="!selectedProject || Boolean(selectedProjectTimesheet)"
+          @click="createTimesheet"
+        />
       </template>
     </Dialog>
 
@@ -1363,10 +1395,15 @@ const changeCalendarPeriod = (offset: number) => {
       <template #footer>
         <Button label="Annuler" severity="secondary" outlined @click="manualSessionDialogOpen = false" />
         <Button
-          :label="editingSessionId ? 'Enregistrer' : 'Ajouter la session'"
-          icon="pi pi-check"
+          :label="editingSessionId ? undefined : 'Ajouter la session'"
+          :aria-label="editingSessionId ? 'Enregistrer' : undefined"
+          :title="editingSessionId ? 'Enregistrer' : undefined"
           @click="saveManualSession"
-        />
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-lg">{{ editingSessionId ? "save" : "add" }}</span>
+          </template>
+        </Button>
       </template>
     </Dialog>
 
@@ -1465,7 +1502,9 @@ const changeCalendarPeriod = (offset: number) => {
 
       <template #footer>
         <Button label="Annuler" severity="secondary" outlined @click="editDialogOpen = false" />
-        <Button label="Enregistrer" icon="pi pi-check" @click="saveTimesheetEdits" />
+        <Button aria-label="Enregistrer" title="Enregistrer" @click="saveTimesheetEdits">
+          <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
+        </Button>
       </template>
     </Dialog>
   </div>
