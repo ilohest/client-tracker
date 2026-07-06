@@ -216,15 +216,29 @@ const confirmDeleteClientNote = (noteId: string) => {
           </p>
         </div>
         <div class="client-bento-card rounded-2xl p-4">
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Coordonnées</p>
+          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Adresse de facturation</p>
           <p class="text-sm text-surface-dark/70 whitespace-pre-line">{{ formatClientAddress(client) || 'Adresse non renseignée' }}</p>
         </div>
         <div class="client-bento-card rounded-2xl p-4">
           <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Profil client</p>
-          <p class="text-sm text-surface-dark/70">Langue: {{ languageLabel[client.language] }}</p>
-          <p class="text-sm text-surface-dark/70 mt-1">Prénom: {{ client.firstName || 'Non renseigné' }}</p>
-          <p class="text-sm text-surface-dark/70 mt-1">Nom: {{ client.lastName || 'Non renseigné' }}</p>
-          <p class="text-sm text-surface-dark/70 mt-1">Société: {{ client.companyName || 'Non renseignée' }}</p>
+          <div class="mt-3 grid gap-2 text-sm">
+            <div class="flex items-center justify-between gap-4">
+              <span class="font-medium text-surface-dark/45">Langue</span>
+              <span class="text-right font-semibold text-surface-dark">{{ languageLabel[client.language] }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <span class="font-medium text-surface-dark/45">Prénom</span>
+              <span class="text-right font-semibold text-surface-dark">{{ client.firstName || 'Non renseigné' }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <span class="font-medium text-surface-dark/45">Nom</span>
+              <span class="text-right font-semibold text-surface-dark">{{ client.lastName || 'Non renseigné' }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <span class="font-medium text-surface-dark/45">Société</span>
+              <span class="text-right font-semibold text-surface-dark">{{ client.companyName || 'Non renseignée' }}</span>
+            </div>
+          </div>
         </div>
       </div>
 

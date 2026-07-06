@@ -255,11 +255,11 @@ const openTimesheets = () => {
             </button>
           </div>
 
-          <div v-if="recentQuotes.length" class="flex flex-col divide-y divide-surface-dark/6">
+          <div v-if="recentQuotes.length" class="flex flex-col gap-2">
             <button
               v-for="quote in recentQuotes"
               :key="quote.id"
-              class="group flex items-center gap-3 rounded-xl px-2 py-3 text-left transition-colors first:pt-0 last:pb-0 hover:bg-surface-light/60"
+              class="flex cursor-pointer items-center gap-3 rounded-2xl border border-surface-dark/6 bg-white p-3 text-left transition hover:border-primary/25 hover:bg-primary/5"
               @click="openQuote(quote.id)"
             >
               <div class="min-w-0 flex-1">

@@ -804,7 +804,9 @@ const changeCalendarPeriod = (offset: number) => {
           </p>
         </div>
       </div>
-      <Button label="Nouvelle timesheet" icon="pi pi-plus" @click="openCreateDialog" />
+      <Button label="Nouvelle timesheet" @click="openCreateDialog">
+        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+      </Button>
     </div>
 
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-[330px_minmax(0,1fr)]">
@@ -872,7 +874,7 @@ const changeCalendarPeriod = (offset: number) => {
               :class="
                 selectedTimesheet?.id === timesheet.id
                   ? 'border-primary/30 bg-primary/8 ring-1 ring-primary/20'
-                  : 'border-surface-dark/8 bg-white hover:border-primary/25 hover:shadow-sm'
+                  : 'border-surface-dark/8 bg-surface-dark/[0.035] hover:border-primary/25 hover:shadow-sm'
               "
               @click="timesheetsStore.selectTimesheet(timesheet.id)"
             >
@@ -930,9 +932,10 @@ const changeCalendarPeriod = (offset: number) => {
                   label="Clôturer"
                   severity="success"
                   outlined
-                  icon="pi pi-check"
                   @click="closeSelected"
-                />
+                >
+                  <template #icon><span class="material-symbols-outlined text-lg">check</span></template>
+                </Button>
                 <Button severity="danger" outlined rounded aria-label="Supprimer" title="Supprimer" @click="deleteSelected">
                   <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
                 </Button>
@@ -972,11 +975,14 @@ const changeCalendarPeriod = (offset: number) => {
                 <Button
                   class="mt-3 !h-16 !w-full !max-w-xs !justify-center !rounded-2xl !text-base !font-bold"
                   :label="selectedIsClosed ? 'Clôturée' : selectedTimesheet.activeStartedAt ? 'Pause' : 'Play'"
-                  :icon="selectedIsClosed ? 'pi pi-check' : selectedTimesheet.activeStartedAt ? 'pi pi-pause' : 'pi pi-play'"
                   :severity="selectedIsClosed ? 'secondary' : selectedTimesheet.activeStartedAt ? 'danger' : undefined"
                   :disabled="selectedIsClosed"
                   @click="toggleTimer"
-                />
+                >
+                  <template #icon>
+                    <span class="material-symbols-outlined text-lg">{{ selectedIsClosed ? 'check' : selectedTimesheet.activeStartedAt ? 'pause' : 'play_arrow' }}</span>
+                  </template>
+                </Button>
               </div>
 
               <div class="grid min-w-0 content-start gap-3 sm:grid-cols-2 xl:grid-cols-1 min-[1700px]:grid-cols-2">
@@ -1026,9 +1032,10 @@ const changeCalendarPeriod = (offset: number) => {
                 label="Ajouter"
                 severity="secondary"
                 outlined
-                icon="pi pi-plus"
                 @click="openManualSessionDialog"
-              />
+              >
+                <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+              </Button>
             </div>
             <div v-if="selectedTimesheet.sessions.length" class="flex max-h-[520px] flex-col gap-3 overflow-y-auto pr-1">
               <div
@@ -1102,11 +1109,15 @@ const changeCalendarPeriod = (offset: number) => {
                 </button>
               </div>
               <div class="flex items-center gap-2">
-                <Button severity="secondary" text icon="pi pi-chevron-left" @click="changeCalendarPeriod(-1)" />
+                <Button severity="secondary" text aria-label="Période précédente" @click="changeCalendarPeriod(-1)">
+                  <template #icon><span class="material-symbols-outlined text-lg">chevron_left</span></template>
+                </Button>
                 <span class="min-w-44 text-center text-sm font-bold capitalize text-surface-dark">
                   {{ calendarTitle }}
                 </span>
-                <Button severity="secondary" text icon="pi pi-chevron-right" @click="changeCalendarPeriod(1)" />
+                <Button severity="secondary" text aria-label="Période suivante" @click="changeCalendarPeriod(1)">
+                  <template #icon><span class="material-symbols-outlined text-lg">chevron_right</span></template>
+                </Button>
               </div>
             </div>
           </div>
@@ -1209,7 +1220,9 @@ const changeCalendarPeriod = (offset: number) => {
         <span class="material-symbols-outlined text-5xl text-primary">timer</span>
         <h2 class="mt-3 text-2xl font-bold text-surface-dark">Aucune timesheet sélectionnée</h2>
         <p class="mt-2 text-sm text-surface-dark/50">Crée un suivi depuis un projet existant.</p>
-        <Button class="mt-5" label="Créer une timesheet" icon="pi pi-plus" @click="openCreateDialog" />
+        <Button class="mt-5" label="Créer une timesheet" @click="openCreateDialog">
+          <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+        </Button>
       </section>
     </div>
 
@@ -1313,10 +1326,11 @@ const changeCalendarPeriod = (offset: number) => {
         <Button label="Annuler" severity="secondary" outlined @click="createDialogOpen = false" />
         <Button
           label="Créer"
-          icon="pi pi-check"
           :disabled="!selectedProject || Boolean(selectedProjectTimesheet)"
           @click="createTimesheet"
-        />
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">check</span></template>
+        </Button>
       </template>
     </Dialog>
 

@@ -17,7 +17,6 @@
   import InputIcon from "primevue/inputicon";
   import Dialog from "primevue/dialog";
   import Password from "primevue/password";
-  import FileUpload from "primevue/fileupload";
   import Avatar from "primevue/avatar";
   import SelectButton from "primevue/selectbutton";
 
@@ -37,7 +36,6 @@
 
   // --- DIALOGS STATES ---
   const userDialog = ref(false);
-  const importDialog = ref(false);
   const isEditMode = ref(false);
   const submitting = ref(false);
 
@@ -85,46 +83,6 @@ role: 'user' as 'user' | 'admin',
   const copyUid = (uid: string) => {
     navigator.clipboard.writeText(uid);
     toast.add({ severity: 'info', summary: 'Copié', detail: 'UID copié dans le presse-papier', life: 2000 });
-  };
-
-  // EXPORT JSON
-  const exportUsers = () => {
-    const dataStr = JSON.stringify(users.value, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    // Format date simple YYYY-MM-DD
-    const dateStr = new Date().toISOString().split('T')[0];
-    link.download = `users_export_${dateStr}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // IMPORT JSON
-  const onImport = async (event: any) => {
-    const file = event.files[0];
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            const importedData = JSON.parse(e.target?.result as string);
-            if (!Array.isArray(importedData)) throw new Error("Format invalide (Array attendu)");
-
-            let successCount = 0;
-            for (const u of importedData) {
-                 
-            }
-
-            toast.add({ severity: 'success', summary: 'Import terminé', detail: `${successCount} utilisateurs importés.` });
-            importDialog.value = false;
-            fetchUsers();
-
-        } catch (err) {
-            toast.add({ severity: 'error', summary: 'Erreur Import', detail: 'Fichier JSON invalide' });
-        }
-    };
-    reader.readAsText(file);
   };
 
   // CRUD
@@ -187,36 +145,6 @@ email: user.email || '',
           />
         </IconField>
 
-        <div class="flex gap-2">
-          <Button
-            label="Export"
-            outlined
-            severity="secondary"
-            @click="exportUsers"
-          >
-            <template #icon><span class="material-symbols-outlined text-lg">download</span></template>
-          </Button>
-          <Button
-            label="Import"
-            outlined
-            severity="secondary"
-            @click="importDialog = true"
-          >
-            <template #icon><span class="material-symbols-outlined text-lg">upload</span></template>
-          </Button>
-          <Button label="Nouveau" @click="openCreate">
-            <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
-          </Button>
-          <Button
-            text
-            rounded
-            severity="secondary"
-            @click="fetchUsers"
-            :loading="loading"
-          >
-            <template #icon><span class="material-symbols-outlined text-lg">refresh</span></template>
-          </Button>
-        </div>
       </div>
     </div>
 
@@ -389,29 +317,6 @@ email: user.email || '',
           :loading="submitting"
         />
       </template>
-    </Dialog>
-
-    <Dialog
-      v-model:visible="importDialog"
-      modal
-      header="Importer des utilisateurs"
-      class="w-full md:w-[400px]"
-    >
-      <div class="flex flex-col gap-4 text-center">
-        <p class="text-sm text-gray-500">
-          Sélectionnez un fichier JSON contenant une liste d'utilisateurs.
-        </p>
-        <FileUpload
-          mode="basic"
-          name="demo[]"
-          accept=".json"
-          :maxFileSize="1000000"
-          customUpload
-          @select="onImport"
-          auto
-          chooseLabel="Choisir un fichier JSON"
-        />
-      </div>
     </Dialog>
   </div>
 </template>

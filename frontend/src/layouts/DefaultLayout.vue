@@ -39,17 +39,21 @@ const toggleUserMenu = (event: any) => {
 
 // --- NAVIGATION ---
 // 1. Liens Principaux (Accessibles à tous ou connectés)
-const mainLinks = computed(() => [
-  { label: "Tableau de bord", icon: "home", to: "/" },
-  { label: "Devis", icon: "receipt_long", to: "/quotes" },
-  { label: "Projets", icon: "workspaces", to: "/projects" },
-  { label: "Timesheets", icon: "timer", to: "/timesheets" },
-  { label: "Clients", icon: "groups", to: "/clients" },
-  { label: "Templates", icon: "library_books", to: "/quote-templates" },
-  { label: "Design des devis", icon: "palette", to: "/quote-design" },
-  { label: "Infos profil", icon: "badge", to: "/profile" },
-  { label: "Documentation", icon: "menu_book", to: "/documentation" },
-]);
+const mainLinks = computed(() => {
+  const links = [
+    { label: "Tableau de bord", icon: "home", to: "/" },
+    { label: "Devis", icon: "receipt_long", to: "/quotes" },
+    { label: "Projets", icon: "workspaces", to: "/projects" },
+    { label: "Timesheets", icon: "timer", to: "/timesheets" },
+    { label: "Clients", icon: "groups", to: "/clients" },
+    { label: "Stats", icon: "monitoring", to: "/stats" },
+    { label: "Templates", icon: "library_books", to: "/quote-templates" },
+    { label: "Design des devis", icon: "palette", to: "/quote-design" },
+    { label: "Infos profil", icon: "badge", to: "/profile" },
+    { label: "Documentation", icon: "menu_book", to: "/documentation" },
+  ];
+  return links;
+});
 
 // 2. Liens Admin (Sous-menu)
 const adminLinks = computed(() => {

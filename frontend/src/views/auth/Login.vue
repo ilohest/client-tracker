@@ -11,9 +11,13 @@ import Password from "primevue/password";
 import Button from "primevue/button";
 import Checkbox from "primevue/checkbox";
 
+const DEMO_EMAIL = "demo@isaure-lohest.com";
+const DEMO_PASSWORD = "DevisioDemo2026!";
+
 const email = ref("");
 const password = ref("");
 const loading = ref(false);
+const demoLoading = ref(false);
 const rememberMe = ref(false);
 
 const authStore = useAuthStore();
@@ -35,6 +39,23 @@ const handleLogin = async () => {
       severity: "error",
       summary: "Échec de connexion",
       detail: authStore.error || "Identifiants incorrects.",
+      life: 3000,
+    });
+  }
+};
+
+const handleDemoLogin = async () => {
+  demoLoading.value = true;
+  const success = await authStore.loginUser(DEMO_EMAIL, DEMO_PASSWORD);
+  demoLoading.value = false;
+
+  if (success) {
+    router.push("/");
+  } else {
+    toast.add({
+      severity: "error",
+      summary: "Démo indisponible",
+      detail: authStore.error || "Impossible de charger la démo pour le moment.",
       life: 3000,
     });
   }
@@ -112,6 +133,22 @@ const handleLogin = async () => {
       </Button>
     </form>
 
-    
+    <div class="flex items-center gap-3 my-6">
+      <div class="h-px flex-1 bg-surface-dark/10"></div>
+      <span class="text-xs text-surface-dark/50 font-body">ou</span>
+      <div class="h-px flex-1 bg-surface-dark/10"></div>
+    </div>
+
+    <Button
+      type="button"
+      label="Voir la démo"
+      severity="secondary"
+      outlined
+      :loading="demoLoading"
+      class="w-full font-bold"
+      @click="handleDemoLogin"
+    >
+      <template #icon><span class="material-symbols-outlined text-lg">visibility</span></template>
+    </Button>
   </AuthLayout>
 </template>

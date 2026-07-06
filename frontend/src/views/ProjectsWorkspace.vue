@@ -175,17 +175,26 @@ const projectBudgetBase = (project: Project) => {
 const projectTotalBudget = (project: Project) =>
   projectBudgetBase(project) + projectSupplementTotal(project);
 
+const currentYear = new Date().getFullYear();
+const currentYearStart = `${currentYear}-01-01`;
+
+const isDateOnOrAfter = (value: string | undefined, startDate = "") => {
+  if (!startDate) return true;
+  if (!value) return false;
+  return value >= startDate;
+};
+
 const isMilestoneDone = (project: Project, label: string) =>
   project.milestones?.some(
     (milestone) => milestone.label === label && milestone.status === "done",
   ) || false;
 
-const isPaymentReceivedMilestoneDone = (
+const findPaymentReceivedMilestoneDone = (
   project: Project,
   index: number,
   stepId = "",
 ) =>
-  project.milestones?.some((milestone) => {
+  project.milestones?.find((milestone) => {
     if (milestone.status !== "done") return false;
     if (milestone.kind === "payment_received") {
       if (stepId && milestone.paymentScheduleStepId === stepId) return true;
@@ -193,29 +202,49 @@ const isPaymentReceivedMilestoneDone = (
     }
     if (index === 0 && milestone.label === "Acompte reçu") return true;
     return false;
-  }) || false;
+  }) || null;
 
-const hasLegacyFinalPaymentDone = (project: Project) =>
-  project.milestones?.some(
+const isPaymentReceivedMilestoneDone = (
+  project: Project,
+  index: number,
+  stepId = "",
+) => Boolean(findPaymentReceivedMilestoneDone(project, index, stepId));
+
+const legacyFinalPaymentMilestone = (project: Project) =>
+  project.milestones?.find(
     (milestone) =>
       milestone.status === "done" &&
       milestone.label === "Paiement final reçu" &&
       (!milestone.kind || milestone.paymentScheduleIndex === -1),
-  ) || false;
+  ) || null;
 
-const projectScheduledReceivedExVat = (project: Project) => {
+const hasLegacyFinalPaymentDone = (project: Project) =>
+  Boolean(legacyFinalPaymentMilestone(project));
+
+const projectScheduledReceivedExVat = (project: Project, sinceDate = "") => {
   const quote = project.quoteId
     ? quotesStore.quotes.find((item) => item.id === project.quoteId)
     : null;
-  if (!quote) return Number(project.invoicedExVat || project.paidExVat || 0);
+  if (!quote) {
+    if (sinceDate && !isDateOnOrAfter(projectStartDate(project), sinceDate))
+      return 0;
+    return Number(project.invoicedExVat || project.paidExVat || 0);
+  }
 
   const paymentSchedule = quote.paymentSchedule || [];
   if (!paymentSchedule.length) return 0;
-  if (hasLegacyFinalPaymentDone(project))
+  const legacyFinal = legacyFinalPaymentMilestone(project);
+  if (legacyFinal && isDateOnOrAfter(legacyFinal.date, sinceDate))
     return Number(quote.subtotal || 0) + projectSupplementTotal(project);
 
   return paymentSchedule.reduce((total, step, index) => {
-    if (!isPaymentReceivedMilestoneDone(project, index, step.id)) return total;
+    const paymentMilestone = findPaymentReceivedMilestoneDone(
+      project,
+      index,
+      step.id,
+    );
+    if (!paymentMilestone || !isDateOnOrAfter(paymentMilestone.date, sinceDate))
+      return total;
     const isFinalPayment = index === paymentSchedule.length - 1;
     return (
       total +
@@ -228,6 +257,12 @@ const projectScheduledReceivedExVat = (project: Project) => {
     );
   }, 0);
 };
+
+const projectToInvoiceExVat = (project: Project) =>
+  Math.max(
+    0,
+    projectTotalBudget(project) - projectScheduledReceivedExVat(project),
+  );
 
 const milestoneFinancialAmount = (
   project: Project,
@@ -340,19 +375,18 @@ const selectedProjectStatusValue = computed<ProjectStatus>(() => {
 
 const totalBudget = computed(() =>
   projectsStore.activeProjects.reduce(
-    (total, project) => total + projectTotalBudget(project),
+    (total, project) =>
+      total +
+      (isDateOnOrAfter(projectStartDate(project), currentYearStart)
+        ? projectTotalBudget(project)
+        : 0),
     0,
   ),
 );
 const totalInvoiced = computed(() =>
   projectsStore.projects.reduce(
-    (total, project) => total + Number(project.invoicedExVat || 0),
-    0,
-  ),
-);
-const totalPaid = computed(() =>
-  projectsStore.projects.reduce(
-    (total, project) => total + Number(project.paidExVat || 0),
+    (total, project) =>
+      total + projectScheduledReceivedExVat(project, currentYearStart),
     0,
   ),
 );
@@ -360,10 +394,9 @@ const totalToInvoice = computed(() =>
   projectsStore.projects.reduce(
     (total, project) =>
       total +
-      Math.max(
-        0,
-        projectTotalBudget(project) - projectScheduledReceivedExVat(project),
-      ),
+      (isDateOnOrAfter(projectStartDate(project), currentYearStart)
+        ? projectToInvoiceExVat(project)
+        : 0),
     0,
   ),
 );
@@ -730,11 +763,24 @@ const setMilestoneStatus = async (
           date:
             status === "done" && !milestone.date
               ? new Date().toISOString().slice(0, 10)
-              : milestone.date,
+              : status === "todo"
+                ? ""
+                : milestone.date,
         }
       : milestone,
   );
   await projectsStore.updateProject(project.id, { milestones });
+};
+
+const toggleMilestoneDone = async (
+  project: Project,
+  milestone: Project["milestones"][number],
+) => {
+  await setMilestoneStatus(
+    project,
+    milestone.id,
+    milestone.status === "done" ? "todo" : "done",
+  );
 };
 
 const defaultMilestoneLabel = (
@@ -1109,14 +1155,19 @@ onMounted(async () => {
           </p>
         </div>
       </div>
+      <Button label="Nouveau projet" @click="openCreateDialog">
+        <template #icon
+          ><span class="material-symbols-outlined text-lg">add</span></template
+        >
+      </Button>
     </div>
 
-    <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
       <div class="rounded-2xl border border-surface-dark/5 bg-white p-4">
         <p
           class="text-xs font-bold uppercase tracking-wide text-surface-dark/40"
         >
-          Budget actif
+          Budget actif · {{ currentYear }}
         </p>
         <p class="mt-2 text-2xl font-bold text-surface-dark">
           {{ formatCurrency(totalBudget) }}
@@ -1126,7 +1177,7 @@ onMounted(async () => {
         <p
           class="text-xs font-bold uppercase tracking-wide text-surface-dark/40"
         >
-          À facturer
+          À facturer · {{ currentYear }}
         </p>
         <p class="mt-2 text-2xl font-bold text-amber-600">
           {{ formatCurrency(totalToInvoice) }}
@@ -1136,20 +1187,10 @@ onMounted(async () => {
         <p
           class="text-xs font-bold uppercase tracking-wide text-surface-dark/40"
         >
-          Facturé
+          Facturé · {{ currentYear }}
         </p>
         <p class="mt-2 text-2xl font-bold text-surface-dark">
           {{ formatCurrency(totalInvoiced) }}
-        </p>
-      </div>
-      <div class="rounded-2xl border border-surface-dark/5 bg-white p-4">
-        <p
-          class="text-xs font-bold uppercase tracking-wide text-surface-dark/40"
-        >
-          Payé
-        </p>
-        <p class="mt-2 text-2xl font-bold text-emerald-600">
-          {{ formatCurrency(totalPaid) }}
         </p>
       </div>
     </div>
@@ -1192,18 +1233,6 @@ onMounted(async () => {
         class="h-full rounded-3xl border border-surface-dark/5 bg-surface-card p-4 xl:sticky xl:top-6 xl:max-h-[85vh] xl:self-start xl:overflow-y-auto"
       >
         <div class="sticky top-0 z-10 pb-4">
-          <Button
-            class="mb-4 w-full !justify-center !rounded-xl !py-3 font-semibold shadow-sm"
-            label="Nouveau projet"
-            @click="openCreateDialog"
-          >
-            <template #icon
-              ><span class="material-symbols-outlined text-lg"
-                >add</span
-              ></template
-            >
-          </Button>
-
           <div class="flex flex-col gap-2.5">
             <InputText
               v-model="projectSearch"
@@ -1246,7 +1275,9 @@ onMounted(async () => {
             :class="
               selectedProject?.id === project.id
                 ? 'border-primary/30 bg-primary/8 ring-1 ring-primary/20'
-                : 'border-surface-dark/8 bg-white hover:border-primary/25 hover:shadow-sm'
+                : projectMacroStatus(project) === 'closed'
+                  ? 'border-surface-dark/8 bg-surface-dark/[0.035] hover:border-primary/25 hover:shadow-sm'
+                  : 'border-surface-dark/8 bg-white hover:border-primary/25 hover:shadow-sm'
             "
             @click="projectsStore.selectProject(project.id)"
           >
@@ -1444,6 +1475,20 @@ onMounted(async () => {
                 </p>
               </div>
               <div
+                class="flex min-h-[104px] flex-col justify-between rounded-2xl border border-amber-500/15 bg-amber-500/5 p-4"
+              >
+                <p
+                  class="text-xs font-bold uppercase tracking-wide text-amber-700/70"
+                >
+                  À facturer
+                </p>
+                <p
+                  class="mt-3 break-words text-xl font-bold leading-tight text-amber-700"
+                >
+                  {{ formatCurrency(projectToInvoiceExVat(selectedProject)) }}
+                </p>
+              </div>
+              <div
                 class="flex min-h-[104px] flex-col justify-between rounded-2xl border border-surface-dark/6 bg-white p-4"
               >
                 <p
@@ -1610,20 +1655,18 @@ onMounted(async () => {
                         text
                         rounded
                         severity="success"
-                        aria-label="Terminer"
-                        title="Terminer"
-                        @click="
-                          setMilestoneStatus(
-                            selectedProject,
-                            milestone.id,
-                            'done',
-                          )
+                        :aria-label="
+                          milestone.status === 'done' ? 'Décocher' : 'Terminer'
                         "
+                        :title="
+                          milestone.status === 'done' ? 'Décocher' : 'Terminer'
+                        "
+                        @click="toggleMilestoneDone(selectedProject, milestone)"
                       >
                         <template #icon
-                          ><span class="material-symbols-outlined text-lg"
-                            >check</span
-                          ></template
+                          ><span class="material-symbols-outlined text-lg">{{
+                            milestone.status === "done" ? "check_box" : "check"
+                          }}</span></template
                         >
                       </Button>
                       <Button
@@ -1778,7 +1821,9 @@ onMounted(async () => {
           </div>
         </div>
 
-        <aside class="flex flex-col gap-4">
+        <aside
+          class="flex flex-col gap-4 2xl:sticky 2xl:top-6 2xl:max-h-[85vh] 2xl:self-start 2xl:overflow-y-auto"
+        >
           <div
             class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5"
           >

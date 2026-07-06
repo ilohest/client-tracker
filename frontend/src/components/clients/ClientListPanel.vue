@@ -3,7 +3,7 @@ import type { Client } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Tag from "primevue/tag";
-import { getCountryFlag, getCountryLabel } from "@/lib/countries";
+import { getCountryFlag } from "@/lib/countries";
 import { formatClientFullName } from "@/utils/address";
 import { formatDateTime } from "@/utils/date";
 
@@ -20,6 +20,9 @@ const emit = defineEmits<{
   create: [];
   "update:search": [value: string];
 }>();
+
+const clientDisplayName = (client: Client) =>
+  formatClientFullName(client) || client.companyName || client.name || "Client sans nom";
 </script>
 
 <template>
@@ -60,14 +63,14 @@ const emit = defineEmits<{
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <p class="font-bold font-heading text-surface-dark truncate">
-              {{ formatClientFullName(client) }}
+              {{ clientDisplayName(client) }}
             </p>
             <p class="text-sm text-surface-dark/55 truncate">
-              {{ client.website || "Site non renseigné" }}
+              {{ client.contactEmail || "Email non renseigné" }}
             </p>
           </div>
           <Tag
-            :value="`${getCountryFlag(client.country)} ${getCountryLabel(client.country)}`"
+            :value="getCountryFlag(client.country)"
             class="!bg-surface-dark/8 !text-surface-dark"
             rounded
           />

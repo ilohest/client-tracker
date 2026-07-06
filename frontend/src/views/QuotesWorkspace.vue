@@ -861,6 +861,12 @@ const baselineDraft = computed<QuoteDraft>(() => {
   const current = quotesStore.selectedQuote;
   if (!current) return newQuoteBaseline.value;
 
+  // Les champs client sont recalculés en direct depuis la fiche client (comme
+  // dans hydrateFromQuote) pour que la comparaison "modifications non
+  // sauvegardées" ne se déclenche pas juste parce que le format d'adresse
+  // stocké sur le devis diffère de la fiche client actuelle.
+  const liveClientFields = getLiveClientFields(current.clientId || "", current);
+
   return {
     clientId: current.clientId || "",
     templateId: current.templateId || "",
@@ -871,10 +877,10 @@ const baselineDraft = computed<QuoteDraft>(() => {
     platform: current.platform,
     customPlatformLabel: current.customPlatformLabel || "",
     language: current.language,
-    clientName: current.clientName,
-    clientAddress: current.clientAddress,
-    clientWebsite: current.clientWebsite,
-    vatRate: current.vatRate,
+    clientName: liveClientFields.clientName,
+    clientAddress: liveClientFields.clientAddress,
+    clientWebsite: liveClientFields.clientWebsite,
+    vatRate: liveClientFields.vatRate,
     projectSummary: current.projectSummary,
     investmentSummary: current.investmentSummary || "",
     investmentAmount: Number(current.investmentAmount || 0),
@@ -2746,15 +2752,24 @@ const closeMobileEditor = () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div class="flex flex-col gap-6 p-2">
     <ConfirmDialog />
 
-    <div class="flex items-center gap-3">
-      <span
-        class="material-symbols-outlined rounded-2xl bg-primary/10 p-2 text-2xl text-primary"
-        >receipt_long</span
-      >
-      <h1 class="text-3xl font-heading font-bold text-surface-dark">Devis</h1>
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex items-start gap-3">
+        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+          <span class="material-symbols-outlined text-2xl text-primary">receipt_long</span>
+        </span>
+        <div>
+          <h1 class="text-3xl font-heading font-bold text-surface-dark">Devis</h1>
+          <p class="mt-1 text-sm text-surface-dark/55">
+            {{ filteredQuotes.length }} devis · Suivi des propositions et de leur statut.
+          </p>
+        </div>
+      </div>
+      <Button class="hidden lg:inline-flex" label="Nouveau devis" @click="openCreateQuote">
+        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+      </Button>
     </div>
 
     <div class="lg:hidden">
@@ -2775,11 +2790,11 @@ const closeMobileEditor = () => {
     </div>
 
     <div
-      class="hidden lg:grid grid-cols-1 gap-6 items-start"
+      class="hidden lg:grid grid-cols-1 gap-6"
       :class="
         previewDialogVisible
           ? 'xl:grid-cols-[minmax(540px,1fr)_minmax(460px,0.9fr)]'
-          : 'xl:grid-cols-[340px_minmax(0,1fr)]'
+          : 'xl:grid-cols-[330px_minmax(0,1fr)]'
       "
     >
       <QuoteListPanel

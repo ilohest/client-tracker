@@ -1,50 +1,45 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import Button from 'primevue/button';
 import Tag from 'primevue/tag';
-import Card from 'primevue/card';
 import Tabs from 'primevue/tabs';
 import TabList from 'primevue/tablist';
 import Tab from 'primevue/tab';
 import TabPanels from 'primevue/tabpanels';
 import TabPanel from 'primevue/tabpanel';
+import { useAuthStore } from '@/stores/authStore';
 
-// --- DATA STATIQUE (Générée par EJS) ---
+const authStore = useAuthStore();
+
+// --- DATA STATIQUE ---
 const projectInfo = {
   name: 'Devisio',
   version: '1.0.0',
-  mode: 'Monorepo',
-  builder: 'Vite 6 + Turbolink'
+  mode: 'Monorepo (npm workspaces)',
+  builder: 'Vite 6'
 };
 
 const stack = [
   // FRONTEND CORE
   { name: 'Vue.js', version: '3.5+', icon: 'computer', category: 'Frontend', url: 'https://vuejs.org', desc: 'Framework UI réactif' },
-  { name: 'Vite', version: '6.0+', icon: 'bolt', category: 'Build', url: 'https://vitejs.dev', desc: 'Bundler ultra-rapide' },
+  { name: 'Vite', version: '6.1+', icon: 'bolt', category: 'Build', url: 'https://vitejs.dev', desc: 'Bundler ultra-rapide' },
   { name: 'Tailwind CSS', version: '4.0', icon: 'palette', category: 'Style', url: 'https://tailwindcss.com', desc: 'Utility-first CSS (V4 engine)' },
   { name: 'PrimeVue', version: '4.2+', icon: 'widgets', category: 'UI Lib', url: 'https://primevue.org', desc: 'Composants UI riches' },
   { name: 'Pinia', version: '2.3+', icon: 'database', category: 'State', url: 'https://pinia.vuejs.org', desc: 'Store management' },
 
   // BACKEND / INFRA
-  
-  { name: 'Firebase', version: '11.0+', icon: 'cloud', category: 'Infra', url: 'https://firebase.google.com/docs', desc: 'Auth, Firestore & Hosting' },
-
-  // FEATURES OPTIONNELLES
-  
-  
+  { name: 'Firebase', version: '11.3+', icon: 'cloud', category: 'Infra', url: 'https://firebase.google.com/docs', desc: 'Auth, Firestore & Storage' },
 
   // TOOLS
   { name: 'TypeScript', version: '5.7+', icon: 'code', category: 'Lang', url: 'https://www.typescriptlang.org', desc: 'Typage statique strict' },
-  { name: 'Zod', version: '3.22+', icon: 'check_circle', category: 'Validation', url: 'https://zod.dev', desc: 'Schéma validation (Shared)' },
+  { name: 'Zod', version: '3.23+', icon: 'check_circle', category: 'Validation', url: 'https://zod.dev', desc: 'Schéma validation (Shared)' },
 ];
 
 const scripts = [
-  
-  { cmd: 'npm run dev', desc: 'Lance le serveur de développement', context: 'Frontend' },
-  { cmd: 'npm run build', desc: 'Compile l\'application pour la prod', context: 'Frontend' },
-  
-  { cmd: 'npm run lint', desc: 'Vérifie la qualité du code (ESLint)', context: 'Global' },
-
+  { cmd: 'npm run dev', desc: 'Lance le serveur de développement Vite', context: 'Racine' },
+  { cmd: 'npm run build', desc: 'Typecheck (vue-tsc) + build de production', context: 'Racine' },
+  { cmd: 'npx vue-tsc --noEmit -p tsconfig.app.json', desc: 'Vérifie les types sans compiler', context: 'frontend/' },
+  { cmd: 'npm run create-admin', desc: 'Crée ou promeut un utilisateur admin (Auth + Firestore)', context: 'Racine' },
+  { cmd: 'firebase deploy', desc: 'Déploie les règles Firestore & Storage', context: 'Racine' },
+  { cmd: 'bash scripts/deploy-devisio.sh', desc: 'Build + déploiement sur le VPS (devisio.isaure-lohest.com)', context: 'Déploiement' },
 ];
 
 const openLink = (url: string) => {
@@ -56,11 +51,11 @@ const openLink = (url: string) => {
   <div class="flex flex-col gap-6 max-w-5xl mx-auto pb-10">
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div
-        class="md:col-span-2 bg-indigo-600 rounded-xl p-6 text-white shadow-lg flex flex-col justify-between relative overflow-hidden"
+        class="md:col-span-2 bg-primary rounded-xl p-6 text-white shadow-lg flex flex-col justify-between relative overflow-hidden"
       >
         <div class="z-10">
           <h1 class="text-3xl font-bold mb-2">Documentation</h1>
-          <p class="text-indigo-100 opacity-90">
+          <p class="text-white/80">
             Référence technique pour <strong>{{ projectInfo.name }}</strong
             >. <br />Utilisez cette page pour retrouver les versions et
             commandes utiles.
@@ -106,7 +101,7 @@ const openLink = (url: string) => {
           </div>
           <div>
             <p class="text-xs text-gray-500 uppercase font-bold">Stack</p>
-            <p class="font-bold text-gray-800">Fullstack TypeScript</p>
+            <p class="font-bold text-gray-800">100% TypeScript</p>
           </div>
         </div>
       </div>
@@ -116,7 +111,7 @@ const openLink = (url: string) => {
       class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
     >
       <Tabs value="0">
-        <TabList>
+        <TabList v-if="authStore.isAdmin">
           <Tab value="0">Technologies</Tab>
           <Tab value="1">Commandes</Tab>
           <Tab value="2">Architecture</Tab>
@@ -162,7 +157,7 @@ const openLink = (url: string) => {
             </div>
           </TabPanel>
 
-          <TabPanel value="1">
+          <TabPanel v-if="authStore.isAdmin" value="1">
             <div class="flex flex-col gap-0 divider-y divide-gray-100">
               <div
                 v-for="script in scripts"
@@ -186,17 +181,19 @@ const openLink = (url: string) => {
             </div>
           </TabPanel>
 
-          <TabPanel value="2">
+          <TabPanel v-if="authStore.isAdmin" value="2">
             <div
               class="prose prose-sm prose-indigo max-w-none p-2 text-gray-600"
             >
               <h3 class="text-gray-800">Structure du Monorepo</h3>
               <p>
-                Ce projet utilise les <strong>NPM Workspaces</strong> pour
-                partager du code et des types entre le Frontend et le Backend.
+                Ce projet utilise les <strong>NPM Workspaces</strong> : le
+                Frontend accède directement à Firebase, sans backend
+                intermédiaire, en s'appuyant sur des schémas partagés pour
+                garder le typage et la validation cohérents de bout en bout.
               </p>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
                 <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
                   <h4 class="flex items-center gap-2 m-0 mb-3 text-gray-800">
                     <span class="material-symbols-outlined text-yellow-500">folder</span>
@@ -204,11 +201,11 @@ const openLink = (url: string) => {
                   </h4>
                   <ul class="text-xs space-y-2 mb-0">
                     <li>
-                      📦 Contient les schémas <strong>Zod</strong> partagés.
+                      📦 Contient les schémas <strong>Zod</strong> partagés, importés en source (pas de build).
                     </li>
-                    <li>🔄 Sert de "Source of Truth" pour l'API.</li>
+                    <li>🔄 Sert de "Source of Truth" pour la forme des documents Firestore.</li>
                     <li>
-                      ✅ Assure que le Frontend envoie ce que le Backend attend.
+                      ✅ Valide les données à l'écriture comme à la lecture.
                     </li>
                   </ul>
                 </div>
@@ -218,18 +215,29 @@ const openLink = (url: string) => {
                     <span class="material-symbols-outlined text-green-500">folder</span> frontend
                   </h4>
                   <ul class="text-xs space-y-2 mb-0">
-                    <li>🚀 Application <strong>Vue 3</strong>.</li>
+                    <li>🚀 Application <strong>Vue 3</strong> (Vite, Pinia, Vue Router).</li>
                     <li>
                       🎨 Utilise <strong>Tailwind v4</strong> et PrimeVue.
                     </li>
                     <li>
-                      📡 Communique avec l'API via le client RPC Hono
-                      (Type-safe).
+                      📡 Accède directement à Firestore via les services
+                      (<code>src/services/*</code>), sans API intermédiaire.
                     </li>
                   </ul>
                 </div>
 
-                
+                <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <h4 class="flex items-center gap-2 m-0 mb-3 text-gray-800">
+                    <span class="material-symbols-outlined text-orange-500">local_fire_department</span> Firebase
+                  </h4>
+                  <ul class="text-xs space-y-2 mb-0">
+                    <li>🔐 <strong>Auth</strong> pour la connexion et la vérification d'email.</li>
+                    <li>🗄️ <strong>Firestore</strong> pour les données, toujours filtrées par <code>userId</code>.</li>
+                    <li>
+                      🛡️ Règles de sécurité dans <code>firestore.rules</code> / <code>storage.rules</code>.
+                    </li>
+                  </ul>
+                </div>
               </div>
             </div>
           </TabPanel>
