@@ -15,13 +15,26 @@ import { useToast } from "primevue/usetoast";
 import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
 import { useProjectsStore } from "@/stores/projectsStore";
+import { useQuotesStore } from "@/stores/quotesStore";
 import { useTimesheetsStore } from "@/stores/timesheetsStore";
+import { toDateObj } from "@/utils/date";
 import { formatCurrency } from "@/utils/quote";
 
 const authStore = useAuthStore();
 const clientsStore = useClientsStore();
 const projectsStore = useProjectsStore();
+const quotesStore = useQuotesStore();
 const timesheetsStore = useTimesheetsStore();
+
+// Devis initial d'un projet (par ordre de création) — sert de référence de facturation par défaut.
+const projectPrimaryQuote = (projectId: string) =>
+  quotesStore.quotes
+    .filter((quote) => quote.projectId === projectId)
+    .sort(
+      (a, b) =>
+        (toDateObj(a.createdAt)?.getTime() || 0) -
+        (toDateObj(b.createdAt)?.getTime() || 0),
+    )[0] || null;
 const toast = useToast();
 const confirm = useConfirm();
 const router = useRouter();
@@ -81,6 +94,7 @@ onMounted(() => {
   if (!timesheetsStore.timesheets.length) void timesheetsStore.fetchTimesheets();
   if (!projectsStore.projects.length) void projectsStore.fetchProjects();
   if (!clientsStore.clients.length) void clientsStore.fetchClients();
+  if (!quotesStore.quotes.length) void quotesStore.fetchQuotes();
   timerInterval = setInterval(() => {
     nowTick.value = Date.now();
   }, 1000);
@@ -94,6 +108,11 @@ const openTimesheets = computed(() => timesheetsStore.openTimesheets);
 const closedTimesheets = computed(() => timesheetsStore.closedTimesheets);
 const selectedTimesheet = computed(() => timesheetsStore.selectedTimesheet);
 const selectedIsClosed = computed(() => selectedTimesheet.value?.status === "closed");
+const sortedSessions = computed(() =>
+  [...(selectedTimesheet.value?.sessions || [])].sort(
+    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+  ),
+);
 const clientOptions = computed(() =>
   clientsStore.clients.map((client) => ({
     label: client.name || client.contactEmail || "Client",
@@ -357,12 +376,13 @@ const createTimesheet = async () => {
     return;
   }
 
+  const primaryQuote = projectPrimaryQuote(project.id);
   const payload: TimesheetInput = {
     title: form.title.trim() || project.title || "Projet sans titre",
     projectId: project.id,
     sourceType: project.sourceType === "quote" ? "quote" : "custom",
-    quoteId: project.quoteId || "",
-    quoteRef: project.quoteRef || "",
+    quoteId: primaryQuote?.id || "",
+    quoteRef: primaryQuote?.quoteRef || "",
     clientId: project.clientId || "",
     clientName: project.clientName || "",
     color: form.color,
@@ -786,7 +806,7 @@ const changeCalendarPeriod = (offset: number) => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 p-2">
+  <div class="flex flex-col gap-6">
     <ConfirmDialog />
 
     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1039,14 +1059,14 @@ const changeCalendarPeriod = (offset: number) => {
             </div>
             <div v-if="selectedTimesheet.sessions.length" class="flex max-h-[520px] flex-col gap-3 overflow-y-auto pr-1">
               <div
-                v-for="(session, index) in selectedTimesheet.sessions"
+                v-for="(session, index) in sortedSessions"
                 :key="session.id"
                 class="rounded-2xl border border-surface-dark/8 bg-white p-3"
               >
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex-1">
                     <p class="text-[11px] font-bold uppercase tracking-wide text-surface-dark/35">
-                      Session {{ index + 1 }}
+                      Session {{ sortedSessions.length - index }}
                     </p>
                     <p class="truncate text-sm font-semibold text-surface-dark">
                       {{ session.title || "Session sans titre" }}
@@ -1257,7 +1277,7 @@ const changeCalendarPeriod = (offset: number) => {
               <p class="font-bold text-surface-dark">{{ selectedProject.title }}</p>
               <p class="mt-1 text-sm text-surface-dark/55">
                 {{ selectedProject.clientName || "Sans client" }}
-                <template v-if="selectedProject.quoteRef"> · {{ selectedProject.quoteRef }}</template>
+                <template v-if="projectPrimaryQuote(selectedProject.id)"> · {{ projectPrimaryQuote(selectedProject.id)?.quoteRef }}</template>
                 · {{ selectedProject.sourceType === "quote" ? "Projet depuis devis" : "Projet hors devis" }}
               </p>
               <p v-if="selectedProjectTimesheet" class="mt-3 text-sm font-semibold text-amber-700">

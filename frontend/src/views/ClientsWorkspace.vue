@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import type { Client, ClientInput } from '@client-tracker/contracts';
+import Button from 'primevue/button';
 import ConfirmDialog from 'primevue/confirmdialog';
 import { useConfirm } from 'primevue/useconfirm';
 import { useToast } from 'primevue/usetoast';
@@ -173,14 +174,21 @@ const handleSaveNotes = async (notes: Client['clientNotes']) => {
   <div class="flex flex-col gap-6">
     <ConfirmDialog />
 
-    <div>
-      <div class="flex items-center gap-3">
-        <span
-          class="material-symbols-outlined rounded-2xl bg-primary/10 p-2 text-2xl text-primary"
-          >groups</span
-        >
-        <h1 class="text-3xl font-heading font-bold text-surface-dark">Clients</h1>
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex items-start gap-3">
+        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+          <span class="material-symbols-outlined text-2xl text-primary">groups</span>
+        </span>
+        <div>
+          <h1 class="text-3xl font-heading font-bold text-surface-dark">Clients</h1>
+          <p class="mt-1 text-sm text-surface-dark/55">
+            {{ clients.length }} client{{ clients.length > 1 ? "s" : "" }} · Suivi des fiches et de la relation client.
+          </p>
+        </div>
       </div>
+      <Button label="Nouveau client" @click="openCreateDialog">
+        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+      </Button>
     </div>
 
     <div class="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-6 min-h-[70vh]">

@@ -126,11 +126,16 @@ email: user.email || '',
     <div
       class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
     >
-      <div>
-        <h1 class="text-2xl font-bold text-gray-800">Utilisateurs</h1>
-        <p class="text-slate-500 text-sm">
-          Gérez votre communauté ({{ users.length }}).
-        </p>
+      <div class="flex items-start gap-3">
+        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+          <span class="material-symbols-outlined text-2xl text-primary">manage_accounts</span>
+        </span>
+        <div>
+          <h1 class="text-3xl font-heading font-bold text-surface-dark">Utilisateurs</h1>
+          <p class="mt-1 text-sm text-surface-dark/55">
+            Gérez votre communauté ({{ users.length }}).
+          </p>
+        </div>
       </div>
 
       <div

@@ -173,15 +173,18 @@ const globalSearchResults = computed<GlobalSearchResult[]>(() => {
     action: () => timesheetsStore.selectTimesheet(timesheet.id),
   }));
 
-  const projectResults = projectsStore.projects.map((project) => ({
-    id: `project-${project.id}`,
-    type: "page" as const,
-    title: project.title || "Projet sans titre",
-    subtitle: [project.clientName, project.quoteRef].filter(Boolean).join(" · ") || "Projet",
-    icon: "workspaces",
-    path: "/projects",
-    action: () => projectsStore.selectProject(project.id),
-  }));
+  const projectResults = projectsStore.projects.map((project) => {
+    const quoteRef = quotesStore.quotes.find((quote) => quote.projectId === project.id)?.quoteRef;
+    return {
+      id: `project-${project.id}`,
+      type: "page" as const,
+      title: project.title || "Projet sans titre",
+      subtitle: [project.clientName, quoteRef].filter(Boolean).join(" · ") || "Projet",
+      icon: "workspaces",
+      path: "/projects",
+      action: () => projectsStore.selectProject(project.id),
+    };
+  });
 
   return [...quoteResults, ...clientResults, ...projectResults, ...timesheetResults, ...templateResults, ...pageResults.value]
     .filter((result) =>

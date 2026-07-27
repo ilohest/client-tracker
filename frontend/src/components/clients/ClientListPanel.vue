@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { Client } from "@client-tracker/contracts";
-import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Tag from "primevue/tag";
 import { getCountryFlag } from "@/lib/countries";
@@ -22,7 +21,10 @@ const emit = defineEmits<{
 }>();
 
 const clientDisplayName = (client: Client) =>
-  formatClientFullName(client) || client.companyName || client.name || "Client sans nom";
+  formatClientFullName(client) ||
+  client.companyName ||
+  client.name ||
+  "Client sans nom";
 </script>
 
 <template>
@@ -30,16 +32,6 @@ const clientDisplayName = (client: Client) =>
     class="bg-surface-card border border-surface-dark/5 rounded-3xl p-4 h-full xl:sticky xl:top-6 xl:self-start xl:max-h-[85vh] xl:overflow-y-auto"
   >
     <div class="sticky top-0 z-10 pb-4">
-      <Button
-        class="mb-4 w-full !justify-center !rounded-xl !py-3 font-semibold shadow-sm"
-        @click="emit('create')"
-        label="Nouveau client"
-      >
-        <template #icon
-          ><span class="material-symbols-outlined text-lg">add</span></template
-        >
-      </Button>
-
       <InputText
         :model-value="search"
         placeholder="Rechercher un client"

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import type { Project, ProjectInput, Quote, TimesheetInput } from '@client-tracker/contracts';
 import { projectsService } from '@/services/projectsService';
+import { useQuotesStore } from '@/stores/quotesStore';
 import { useTimesheetsStore } from '@/stores/timesheetsStore';
 import { toDateObj } from '@/utils/date';
 import { calculatePaymentScheduleStepAmounts } from '@/utils/quote';
@@ -43,7 +44,14 @@ const paymentLabel = (quote: Quote, index: number, type: 'invoice' | 'received')
   return 'Paiement reçu';
 };
 
-const createMilestonesFromQuote = (quote: Quote, acceptedDate = ''): Project['milestones'] => {
+const createMilestonesFromQuote = (
+  quote: Quote,
+  acceptedDate = '',
+  options: { label?: string; includeWorkflowSteps?: boolean } = {},
+): Project['milestones'] => {
+  const { label = 'Devis accepté', includeWorkflowSteps = true } = options;
+  // Les jalons d'un avenant (2e devis et suivants) précisent la réf. du devis pour rester distincts.
+  const refSuffix = includeWorkflowSteps ? '' : ` — ${quote.quoteRef || quote.title}`;
   const schedule = quote.paymentSchedule?.length
     ? quote.paymentSchedule
     : [{ id: '', label: 'Paiement final', mode: 'percent' as const, value: 100 }];
@@ -52,31 +60,38 @@ const createMilestonesFromQuote = (quote: Quote, acceptedDate = ''): Project['mi
   const paymentMilestones = (index: number): Project['milestones'] => [
     {
       id: crypto.randomUUID(),
-      label: paymentLabel(quote, index, 'invoice'),
+      label: `${paymentLabel(quote, index, 'invoice')}${refSuffix}`,
       status: 'todo',
       date: '',
       kind: 'invoice_sent',
       paymentScheduleStepId: schedule[index]?.id || '',
       paymentScheduleIndex: index,
+      quoteId: quote.id,
     },
     {
       id: crypto.randomUUID(),
-      label: paymentLabel(quote, index, 'received'),
+      label: `${paymentLabel(quote, index, 'received')}${refSuffix}`,
       status: 'todo',
       date: '',
       kind: 'payment_received',
       paymentScheduleStepId: schedule[index]?.id || '',
       paymentScheduleIndex: index,
+      quoteId: quote.id,
     },
   ];
 
-  return [
-    { id: crypto.randomUUID(), label: 'Devis accepté', status: 'done', date: acceptedDate, kind: 'quote_accepted' },
+  const milestones: Project['milestones'] = [
+    { id: crypto.randomUUID(), label, status: 'done', date: acceptedDate, kind: 'quote_accepted', quoteId: quote.id },
     ...firstPaymentIndexes.flatMap(paymentMilestones),
-    { id: crypto.randomUUID(), label: 'Travail en cours', status: 'todo', date: '', kind: 'work' },
-    { id: crypto.randomUUID(), label: 'Validation client', status: 'todo', date: '', kind: 'approval' },
-    ...laterPaymentIndexes.flatMap(paymentMilestones),
   ];
+  if (includeWorkflowSteps) {
+    milestones.push(
+      { id: crypto.randomUUID(), label: 'Travail en cours', status: 'todo', date: '', kind: 'work' },
+      { id: crypto.randomUUID(), label: 'Validation client', status: 'todo', date: '', kind: 'approval' },
+    );
+  }
+  milestones.push(...laterPaymentIndexes.flatMap(paymentMilestones));
+  return milestones;
 };
 
 export const useProjectsStore = defineStore('projects', {
@@ -144,6 +159,9 @@ export const useProjectsStore = defineStore('projects', {
 
     async deleteProject(id: string) {
       this.error = null;
+      const quotesStore = useQuotesStore();
+      const linkedQuotes = quotesStore.quotes.filter((quote) => quote.projectId === id);
+      await Promise.all(linkedQuotes.map((quote) => quotesStore.setQuoteProjectId(quote.id, '')));
       await projectsService.delete(id);
       this.projects = this.projects.filter((project) => project.id !== id);
       if (this.selectedProjectId === id) this.selectedProjectId = this.projects[0]?.id || null;
@@ -159,8 +177,6 @@ export const useProjectsStore = defineStore('projects', {
         projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        quoteId: quote.id,
-        quoteRef: quote.quoteRef || '',
         timesheetId: '',
         clientId: quote.clientId || '',
         clientName: quote.clientName || '',
@@ -178,6 +194,9 @@ export const useProjectsStore = defineStore('projects', {
         nextAction: "Envoyer la facture d'acompte",
         milestones: createMilestonesFromQuote(quote, acceptedDate),
       });
+
+      const quotesStore = useQuotesStore();
+      await quotesStore.setQuoteProjectId(quote.id, project.id);
 
       const timesheetsStore = useTimesheetsStore();
       const timesheetPayload: TimesheetInput = {
@@ -198,6 +217,30 @@ export const useProjectsStore = defineStore('projects', {
       const timesheet = await timesheetsStore.createTimesheet(timesheetPayload);
       await this.updateProject(project.id, { timesheetId: timesheet.id });
       return { project: { ...project, timesheetId: timesheet.id }, timesheet };
+    },
+
+    // Lie un devis accepté existant (avenant) à un projet déjà en cours : le
+    // devis n'est pas dupliqué, seuls ses jalons de paiement s'ajoutent à la roadmap.
+    async attachQuoteToProject(project: Project, quote: Quote) {
+      const quotesStore = useQuotesStore();
+      await quotesStore.setQuoteProjectId(quote.id, project.id);
+      const acceptedDate = new Date().toISOString().slice(0, 10);
+      const newMilestones = createMilestonesFromQuote(quote, acceptedDate, {
+        label: `Devis accepté — ${quote.quoteRef || quote.title}`,
+        includeWorkflowSteps: false,
+      });
+      await this.updateProject(project.id, {
+        milestones: [...project.milestones, ...newMilestones],
+      });
+    },
+
+    // Détache un devis d'un projet : retire ses jalons associés, laisse le devis intact.
+    async detachQuoteFromProject(project: Project, quote: Quote) {
+      const quotesStore = useQuotesStore();
+      await quotesStore.setQuoteProjectId(quote.id, '');
+      await this.updateProject(project.id, {
+        milestones: project.milestones.filter((milestone) => milestone.quoteId !== quote.id),
+      });
     },
   },
 });

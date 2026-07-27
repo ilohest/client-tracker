@@ -227,14 +227,16 @@ const saveSettings = async () => {
 
 <template>
   <div class="flex flex-col gap-6">
-    <div>
-      <div class="flex items-center gap-3">
-        <span class="material-symbols-outlined rounded-2xl bg-primary/10 p-2 text-2xl text-primary">palette</span>
+    <div class="flex items-start gap-3">
+      <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+        <span class="material-symbols-outlined text-2xl text-primary">palette</span>
+      </span>
+      <div>
         <h1 class="text-3xl font-heading font-bold text-surface-dark">Design des devis</h1>
+        <p class="mt-1 text-sm text-surface-dark/55">
+          Personnalise les couleurs et les polices utilisées dans les devis générés en PDF.
+        </p>
       </div>
-      <p class="text-surface-dark/60 max-w-3xl mt-2">
-        Personnalise les couleurs et les polices utilisées dans les devis générés en PDF.
-      </p>
     </div>
 
     <section class="rounded-3xl border border-surface-dark/5 bg-surface-card p-6">

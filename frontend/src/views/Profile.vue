@@ -126,14 +126,18 @@ const handleLogoChange = async (event: Event) => {
 
 <template>
   <div class="flex flex-col gap-6">
-    <div class="flex items-center gap-3">
-      <span
-        class="material-symbols-outlined rounded-2xl bg-primary/10 p-2 text-2xl text-primary"
-        >badge</span
-      >
-      <h1 class="font-heading text-3xl font-bold text-surface-dark">
-        Infos profil
-      </h1>
+    <div class="flex items-start gap-3">
+      <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+        <span class="material-symbols-outlined text-2xl text-primary">badge</span>
+      </span>
+      <div>
+        <h1 class="text-3xl font-heading font-bold text-surface-dark">
+          Infos profil
+        </h1>
+        <p class="mt-1 text-sm text-surface-dark/55">
+          Coordonnées, facturation et identité affichées sur vos devis.
+        </p>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-8">

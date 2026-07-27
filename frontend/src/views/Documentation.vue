@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import Tag from 'primevue/tag';
 import Tabs from 'primevue/tabs';
 import TabList from 'primevue/tablist';
 import Tab from 'primevue/tab';
 import TabPanels from 'primevue/tabpanels';
 import TabPanel from 'primevue/tabpanel';
+import { useToast } from 'primevue/usetoast';
 import { useAuthStore } from '@/stores/authStore';
 
 const authStore = useAuthStore();
+const toast = useToast();
 
 // --- DATA STATIQUE ---
 const projectInfo = {
@@ -45,71 +46,50 @@ const scripts = [
 const openLink = (url: string) => {
   window.open(url, '_blank');
 };
+
+const copyCommand = async (cmd: string) => {
+  try {
+    await navigator.clipboard.writeText(cmd);
+    toast.add({ severity: 'info', summary: 'Copié', detail: 'Commande copiée dans le presse-papier.', life: 2000 });
+  } catch {
+    toast.add({ severity: 'error', summary: 'Erreur', detail: 'Impossible de copier la commande.', life: 2500 });
+  }
+};
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 max-w-5xl mx-auto pb-10">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div
-        class="md:col-span-2 bg-primary rounded-xl p-6 text-white shadow-lg flex flex-col justify-between relative overflow-hidden"
-      >
-        <div class="z-10">
-          <h1 class="text-3xl font-bold mb-2">Documentation</h1>
-          <p class="text-white/80">
-            Référence technique pour <strong>{{ projectInfo.name }}</strong
-            >. <br />Utilisez cette page pour retrouver les versions et
-            commandes utiles.
-          </p>
-        </div>
-        <div class="flex gap-2 mt-4 z-10">
-          <Tag
-            :value="projectInfo.mode"
-            severity="info"
-            class="!bg-white/20 !text-white border-0"
-          />
-          <Tag
-            :value="'v' + projectInfo.version"
-            severity="success"
-            class="!bg-white/20 !text-white border-0"
-          />
-        </div>
-        <span
-          class="material-symbols-outlined absolute -bottom-4 -right-4 text-9xl opacity-20 rotate-12"
-        >menu_book</span>
-      </div>
-
-      <div
-        class="bg-white rounded-xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center gap-4"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600"
-          >
-            <span class="material-symbols-outlined text-xl">check_circle</span>
-          </div>
-          <div>
-            <p class="text-xs text-gray-500 uppercase font-bold">Status</p>
-            <p class="font-bold text-gray-800">Opérationnel</p>
-          </div>
-        </div>
-        <div class="h-px bg-gray-100 w-full"></div>
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"
-          >
-            <span class="material-symbols-outlined text-xl">code</span>
-          </div>
-          <div>
-            <p class="text-xs text-gray-500 uppercase font-bold">Stack</p>
-            <p class="font-bold text-gray-800">100% TypeScript</p>
-          </div>
-        </div>
+  <div class="flex flex-col gap-6">
+    <div class="flex items-start gap-3">
+      <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+        <span class="material-symbols-outlined text-2xl text-primary">menu_book</span>
+      </span>
+      <div>
+        <h1 class="text-3xl font-heading font-bold text-surface-dark">Documentation</h1>
+        <p class="mt-1 text-sm text-surface-dark/55">
+          Référence technique pour <strong>{{ projectInfo.name }}</strong> · versions et commandes utiles.
+        </p>
       </div>
     </div>
 
-    <div
-      class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-    >
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div class="rounded-2xl border border-surface-dark/5 bg-white p-4">
+        <p class="text-xs font-bold uppercase tracking-wide text-surface-dark/40">Statut</p>
+        <p class="mt-2 flex items-center gap-2 text-lg font-bold text-surface-dark">
+          <span class="material-symbols-outlined text-xl text-emerald-500">check_circle</span>
+          Opérationnel
+        </p>
+      </div>
+      <div class="rounded-2xl border border-surface-dark/5 bg-white p-4">
+        <p class="text-xs font-bold uppercase tracking-wide text-surface-dark/40">Stack</p>
+        <p class="mt-2 text-lg font-bold text-surface-dark">100% TypeScript</p>
+      </div>
+      <div class="rounded-2xl border border-surface-dark/5 bg-white p-4">
+        <p class="text-xs font-bold uppercase tracking-wide text-surface-dark/40">{{ projectInfo.mode }}</p>
+        <p class="mt-2 text-lg font-bold text-surface-dark">v{{ projectInfo.version }} · {{ projectInfo.builder }}</p>
+      </div>
+    </div>
+
+    <div class="rounded-3xl border border-surface-dark/5 bg-surface-card overflow-hidden">
       <Tabs value="0">
         <TabList v-if="authStore.isAdmin">
           <Tab value="0">Technologies</Tab>
@@ -124,68 +104,71 @@ const openLink = (url: string) => {
               <div
                 v-for="tech in stack"
                 :key="tech.name"
-                class="group p-4 rounded-lg border border-gray-100 hover:border-indigo-100 hover:bg-indigo-50/30 transition-all cursor-pointer flex items-start gap-4"
+                class="group p-4 rounded-2xl border border-surface-dark/8 hover:border-primary/25 hover:bg-primary/5 transition-all cursor-pointer flex items-start gap-4"
                 @click="openLink(tech.url)"
               >
                 <div
-                  class="w-10 h-10 rounded-lg bg-gray-50 group-hover:bg-white flex items-center justify-center shadow-sm border border-gray-100 group-hover:scale-110 transition-transform"
+                  class="w-10 h-10 rounded-lg bg-surface-dark/[0.035] group-hover:bg-white flex items-center justify-center shadow-sm border border-surface-dark/8 group-hover:scale-110 transition-transform"
                 >
                   <span
-                    class="material-symbols-outlined text-xl text-gray-600 group-hover:text-indigo-600"
+                    class="material-symbols-outlined text-xl text-surface-dark/60 group-hover:text-primary"
                   >{{ tech.icon }}</span>
                 </div>
                 <div class="flex-1">
                   <div class="flex justify-between items-start">
                     <h3
-                      class="font-bold text-gray-800 group-hover:text-indigo-700"
+                      class="font-bold text-surface-dark group-hover:text-primary"
                     >
                       {{ tech.name }}
                     </h3>
                     <span
-                      class="text-[10px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 font-mono"
+                      class="text-[10px] bg-surface-dark/8 px-1.5 py-0.5 rounded text-surface-dark/55 font-mono"
                       >{{ tech.version }}</span
                     >
                   </div>
-                  <p class="text-xs text-gray-500 mt-1 leading-snug">
+                  <p class="text-xs text-surface-dark/50 mt-1 leading-snug">
                     {{ tech.desc }}
                   </p>
                 </div>
                 <span
-                  class="material-symbols-outlined text-xs text-gray-300 group-hover:text-indigo-300"
+                  class="material-symbols-outlined text-xs text-surface-dark/25 group-hover:text-primary/50"
                 >open_in_new</span>
               </div>
             </div>
           </TabPanel>
 
           <TabPanel v-if="authStore.isAdmin" value="1">
-            <div class="flex flex-col gap-0 divider-y divide-gray-100">
+            <div class="flex flex-col gap-0 divide-y divide-surface-dark/6">
               <div
                 v-for="script in scripts"
                 :key="script.cmd"
-                class="flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:bg-gray-50 transition-colors gap-3"
+                class="flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:bg-surface-dark/[0.02] transition-colors gap-3"
               >
                 <div class="flex items-center gap-4">
                   <span
-                    class="w-20 text-[10px] uppercase font-bold text-gray-400 text-center border border-gray-200 rounded px-1 py-0.5"
+                    class="w-20 text-[10px] uppercase font-bold text-surface-dark/40 text-center border border-surface-dark/10 rounded px-1 py-0.5"
                   >
                     {{ script.context }}
                   </span>
                   <code
-                    class="font-mono text-sm bg-slate-800 text-green-400 px-3 py-1.5 rounded-md select-all"
+                    class="group/cmd flex cursor-pointer items-center gap-2 font-mono text-sm bg-surface-dark text-emerald-400 px-3 py-1.5 rounded-md transition-colors hover:bg-surface-dark/85"
+                    title="Copier la commande"
+                    @click="copyCommand(script.cmd)"
                   >
                     {{ script.cmd }}
+                    <span class="material-symbols-outlined text-sm text-emerald-400/50 group-hover/cmd:text-emerald-400">content_copy</span>
                   </code>
                 </div>
-                <span class="text-sm text-gray-600">{{ script.desc }}</span>
+                <span class="text-sm text-surface-dark/60">{{ script.desc }}</span>
               </div>
             </div>
           </TabPanel>
 
           <TabPanel v-if="authStore.isAdmin" value="2">
             <div
-              class="prose prose-sm prose-indigo max-w-none p-2 text-gray-600"
+              class="prose prose-sm max-w-none p-2 text-surface-dark/70"
             >
-              <h3 class="text-gray-800">Structure du Monorepo</h3>
+              <h3 class="text-surface-dark font-heading">Structure du Monorepo</h3>
               <p>
                 Ce projet utilise les <strong>NPM Workspaces</strong> : le
                 Frontend accède directement à Firebase, sans backend
@@ -194,9 +177,9 @@ const openLink = (url: string) => {
               </p>
 
               <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-                <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                  <h4 class="flex items-center gap-2 m-0 mb-3 text-gray-800">
-                    <span class="material-symbols-outlined text-yellow-500">folder</span>
+                <div class="bg-surface-dark/[0.03] rounded-2xl p-4 border border-surface-dark/8">
+                  <h4 class="flex items-center gap-2 m-0 mb-3 text-surface-dark font-heading">
+                    <span class="material-symbols-outlined text-amber-500">folder</span>
                     packages/contracts
                   </h4>
                   <ul class="text-xs space-y-2 mb-0">
@@ -210,9 +193,9 @@ const openLink = (url: string) => {
                   </ul>
                 </div>
 
-                <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                  <h4 class="flex items-center gap-2 m-0 mb-3 text-gray-800">
-                    <span class="material-symbols-outlined text-green-500">folder</span> frontend
+                <div class="bg-surface-dark/[0.03] rounded-2xl p-4 border border-surface-dark/8">
+                  <h4 class="flex items-center gap-2 m-0 mb-3 text-surface-dark font-heading">
+                    <span class="material-symbols-outlined text-emerald-500">folder</span> frontend
                   </h4>
                   <ul class="text-xs space-y-2 mb-0">
                     <li>🚀 Application <strong>Vue 3</strong> (Vite, Pinia, Vue Router).</li>
@@ -226,9 +209,9 @@ const openLink = (url: string) => {
                   </ul>
                 </div>
 
-                <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                  <h4 class="flex items-center gap-2 m-0 mb-3 text-gray-800">
-                    <span class="material-symbols-outlined text-orange-500">local_fire_department</span> Firebase
+                <div class="bg-surface-dark/[0.03] rounded-2xl p-4 border border-surface-dark/8">
+                  <h4 class="flex items-center gap-2 m-0 mb-3 text-surface-dark font-heading">
+                    <span class="material-symbols-outlined text-primary">local_fire_department</span> Firebase
                   </h4>
                   <ul class="text-xs space-y-2 mb-0">
                     <li>🔐 <strong>Auth</strong> pour la connexion et la vérification d'email.</li>

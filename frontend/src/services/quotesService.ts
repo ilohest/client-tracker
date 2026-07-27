@@ -82,6 +82,13 @@ export const quotesService = {
     });
   },
 
+  async setProjectId(id: string, projectId: string): Promise<void> {
+    await updateDoc(doc(db, 'quotes', id), {
+      projectId,
+      updatedAt: serverTimestamp(),
+    });
+  },
+
   async delete(id: string): Promise<void> {
     await deleteDoc(doc(db, 'quotes', id));
   },

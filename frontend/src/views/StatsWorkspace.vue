@@ -57,30 +57,35 @@ const projectSupplementTotal = (project: Project) =>
 
 const paymentMilestoneMatches = (
   milestone: Project["milestones"][number],
+  quoteId: string,
   index: number,
   stepId = "",
 ) => {
   if (milestone.status !== "done") return false;
-  if (milestone.kind === "payment_received") {
+  if (milestone.kind === "payment_received" && milestone.quoteId === quoteId) {
     if (stepId && milestone.paymentScheduleStepId === stepId) return true;
     return milestone.paymentScheduleIndex === index;
   }
-  return index === 0 && milestone.label === "Acompte reçu";
+  return false;
 };
 
-const projectBillingEntries = (project: Project) => {
-  const quote = project.quoteId
-    ? quotesStore.quotes.find((item) => item.id === project.quoteId)
-    : null;
+const projectActiveQuotes = (project: Project): Quote[] =>
+  quotesStore.quotes
+    .filter(
+      (quote) =>
+        quote.projectId === project.id &&
+        !["superseded", "refused"].includes(quote.status),
+    )
+    .sort((a, b) => isoDate(a.createdAt).localeCompare(isoDate(b.createdAt)));
 
-  if (!quote) {
+const projectBillingEntries = (project: Project) => {
+  const activeQuotes = projectActiveQuotes(project);
+
+  if (!activeQuotes.length) {
     const date = isoDate(project.startedAt || project.createdAt);
     const amount = Number(project.invoicedExVat || project.paidExVat || 0);
     return date && amount > 0 ? [{ date, amount }] : [];
   }
-
-  const schedule = quote.paymentSchedule || [];
-  if (!schedule.length) return [];
 
   const legacyFinal = project.milestones?.find(
     (milestone) =>
@@ -89,27 +94,29 @@ const projectBillingEntries = (project: Project) => {
       (!milestone.kind || milestone.paymentScheduleIndex === -1),
   );
   if (legacyFinal?.date) {
-    return [
-      {
-        date: legacyFinal.date,
-        amount: Number(quote.subtotal || 0) + projectSupplementTotal(project),
-      },
-    ];
+    const total =
+      activeQuotes.reduce((sum, quote) => sum + Number(quote.subtotal || 0), 0) +
+      projectSupplementTotal(project);
+    return [{ date: legacyFinal.date, amount: total }];
   }
 
-  return schedule.flatMap((step, index) => {
-    const milestone = project.milestones?.find((item) =>
-      paymentMilestoneMatches(item, index, step.id),
-    );
-    if (!milestone?.date) return [];
-    const amount =
-      calculatePaymentScheduleStepAmounts(
-        step,
-        Number(quote.subtotal || 0),
-        Number(quote.totalWithVat || 0),
-      ).amountExcl +
-      (index === schedule.length - 1 ? projectSupplementTotal(project) : 0);
-    return [{ date: milestone.date, amount }];
+  const lastQuoteId = activeQuotes[activeQuotes.length - 1].id;
+  return activeQuotes.flatMap((quote) => {
+    const schedule = quote.paymentSchedule || [];
+    return schedule.flatMap((step, index) => {
+      const milestone = project.milestones?.find((item) =>
+        paymentMilestoneMatches(item, quote.id, index, step.id),
+      );
+      if (!milestone?.date) return [];
+      const isFinalPayment = quote.id === lastQuoteId && index === schedule.length - 1;
+      const amount =
+        calculatePaymentScheduleStepAmounts(
+          step,
+          Number(quote.subtotal || 0),
+          Number(quote.totalWithVat || 0),
+        ).amountExcl + (isFinalPayment ? projectSupplementTotal(project) : 0);
+      return [{ date: milestone.date, amount }];
+    });
   });
 };
 
@@ -292,7 +299,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 p-2">
+  <div class="flex flex-col gap-6">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
       <div class="flex items-start gap-3">
         <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">

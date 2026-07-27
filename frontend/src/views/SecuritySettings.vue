@@ -64,10 +64,15 @@ const handleDeleteAccount = () => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-4 py-8">
-    <div class="mb-8">
-      <h1 class="font-heading text-3xl font-bold text-surface-dark">Sécurité</h1>
-      <p class="text-surface-dark/60">Gère l’accès à ton compte et les informations techniques de connexion.</p>
+  <div class="flex flex-col gap-6">
+    <div class="flex items-start gap-3">
+      <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+        <span class="material-symbols-outlined text-2xl text-primary">lock</span>
+      </span>
+      <div>
+        <h1 class="text-3xl font-heading font-bold text-surface-dark">Sécurité</h1>
+        <p class="mt-1 text-sm text-surface-dark/55">Gère l’accès à ton compte et les informations techniques de connexion.</p>
+      </div>
     </div>
 
     <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">

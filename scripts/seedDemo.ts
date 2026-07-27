@@ -13,6 +13,7 @@ import {
   getFirestore,
   doc,
   setDoc,
+  updateDoc,
   addDoc,
   collection,
   getDocs,
@@ -706,12 +707,14 @@ async function main() {
 
   const projectDefs: Array<{
     key: string;
+    quoteId: string;
     input: ProjectInput;
     createdAt: string;
     updatedAt: string;
   }> = [
     {
       key: 'kalimo',
+      quoteId: kalimoQuoteRef.id,
       createdAt: iso(2026, 1, 15),
       updatedAt: iso(2026, 6, 20),
       input: {
@@ -721,8 +724,6 @@ async function main() {
         projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        quoteId: kalimoQuoteRef.id,
-        quoteRef: kalimoQuote.quoteRef,
         timesheetId: '',
         clientId: clientIds.kalimo,
         clientName: kalimo.name,
@@ -749,6 +750,7 @@ async function main() {
     },
     {
       key: 'studio',
+      quoteId: studioQuoteRef.id,
       createdAt: iso(2026, 1, 25),
       updatedAt: iso(2026, 3, 10),
       input: {
@@ -758,8 +760,6 @@ async function main() {
         projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        quoteId: studioQuoteRef.id,
-        quoteRef: studioQuote.quoteRef,
         timesheetId: '',
         clientId: clientIds.studio,
         clientName: studio.name,
@@ -785,6 +785,7 @@ async function main() {
     },
     {
       key: 'willems',
+      quoteId: willemsQuoteRef.id,
       createdAt: iso(2026, 2, 10),
       updatedAt: iso(2026, 4, 5),
       input: {
@@ -794,8 +795,6 @@ async function main() {
         projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        quoteId: willemsQuoteRef.id,
-        quoteRef: willemsQuote.quoteRef,
         timesheetId: '',
         clientId: clientIds.willems,
         clientName: willems.name,
@@ -821,6 +820,7 @@ async function main() {
     },
     {
       key: 'boulangerie',
+      quoteId: boulangerieQuoteRef.id,
       createdAt: iso(2026, 5, 25),
       updatedAt: iso(2026, 6, 25),
       input: {
@@ -830,8 +830,6 @@ async function main() {
         projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        quoteId: boulangerieQuoteRef.id,
-        quoteRef: boulangerieQuote.quoteRef,
         timesheetId: '',
         clientId: clientIds.boulangerie,
         clientName: boulangerie.name,
@@ -857,6 +855,7 @@ async function main() {
     },
     {
       key: 'nordplast',
+      quoteId: nordplastQuoteRef.id,
       createdAt: iso(2026, 6, 15),
       updatedAt: iso(2026, 6, 20),
       input: {
@@ -866,8 +865,6 @@ async function main() {
         projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        quoteId: nordplastQuoteRef.id,
-        quoteRef: nordplastQuote.quoteRef,
         timesheetId: '',
         clientId: clientIds.nordplast,
         clientName: nordplast.name,
@@ -895,7 +892,7 @@ async function main() {
   ];
 
   const projectRefs: Record<string, string> = {};
-  for (const { key, input, createdAt, updatedAt } of projectDefs) {
+  for (const { key, quoteId, input, createdAt, updatedAt } of projectDefs) {
     const ref = await addDoc(collection(db, 'projects'), {
       ...input,
       userId: uid,
@@ -903,6 +900,7 @@ async function main() {
       updatedAt,
     });
     projectRefs[key] = ref.id;
+    await updateDoc(doc(db, 'quotes', quoteId), { projectId: ref.id });
   }
 
   console.log('Creation des suivis de temps...');

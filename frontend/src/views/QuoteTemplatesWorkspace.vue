@@ -1784,14 +1784,23 @@ onMounted(async () => {
   <div class="flex flex-col gap-6">
     <ConfirmDialog />
 
-    <div class="flex items-center gap-3">
-      <span
-        class="material-symbols-outlined rounded-2xl bg-primary/10 p-2 text-2xl text-primary"
-        >library_books</span
-      >
-      <h1 class="text-3xl font-heading font-bold text-surface-dark">
-        Templates
-      </h1>
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex items-start gap-3">
+        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+          <span class="material-symbols-outlined text-2xl text-primary">library_books</span>
+        </span>
+        <div>
+          <h1 class="text-3xl font-heading font-bold text-surface-dark">
+            Templates
+          </h1>
+          <p class="mt-1 text-sm text-surface-dark/55">
+            Base commune et templates de stack réutilisables pour vos devis.
+          </p>
+        </div>
+      </div>
+      <Button label="Nouveau template" @click="createTemplate">
+        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+      </Button>
     </div>
 
     <div
@@ -1867,16 +1876,6 @@ onMounted(async () => {
                 </h2>
               </div>
             </div>
-            <Button
-              class="mb-4 w-full !justify-center !rounded-xl !py-3 font-semibold shadow-sm"
-              @click="createTemplate"
-              label="Nouveau template"
-            >
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >add</span
-                ></template
-              ></Button>
 
             <div class="flex flex-col gap-3">
               <div

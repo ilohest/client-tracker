@@ -82,6 +82,15 @@ const languageLabel: Record<Client['language'], string> = {
 };
 
 const quoteStatusLabel = (status: QuoteStatus): string => quoteStatusMeta[status].label;
+
+const projectQuoteRefsLabel = (project: Project): string => {
+  const refs = props.quotes
+    .filter((quote) => quote.projectId === project.id)
+    .map((quote) => quote.quoteRef)
+    .filter(Boolean);
+  if (refs.length) return refs.join(' + ');
+  return project.sourceType === 'custom' ? 'Hors devis' : 'Devis lié';
+};
 const quoteStatusTagClass = (status: QuoteStatus): string => quoteStatusMeta[status].tagClass;
 
 const shouldShowPlatformTag = computed(() => {
@@ -374,7 +383,7 @@ const confirmDeleteClientNote = (noteId: string) => {
               <div class="min-w-0">
                 <p class="truncate font-semibold text-surface-dark">{{ project.title }}</p>
                 <p class="mt-1 text-sm text-surface-dark/55">
-                  {{ project.quoteRef || (project.sourceType === 'custom' ? 'Hors devis' : 'Devis lié') }}
+                  {{ projectQuoteRefsLabel(project) }}
                 </p>
               </div>
               <Tag :value="projectStatusLabel[project.status]" :class="projectStatusClass(project)" rounded />

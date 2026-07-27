@@ -93,6 +93,19 @@ export const useQuotesStore = defineStore('quotes', {
       }
     },
 
+    async setQuoteProjectId(id: string, projectId: string) {
+      this.error = null;
+      await quotesService.setProjectId(id, projectId);
+      const index = this.quotes.findIndex((entry) => entry.id === id);
+      if (index >= 0) {
+        this.quotes[index] = {
+          ...this.quotes[index],
+          projectId,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    },
+
     async deleteQuote(id: string) {
       this.error = null;
       await quotesService.delete(id);

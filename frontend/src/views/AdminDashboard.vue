@@ -8,11 +8,16 @@
 
 <template>
   <div class="flex flex-col gap-6">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-800">Administration Système</h1>
-      <p class="text-slate-500 text-sm">
-        Gestion technique et configuration de l'application.
-      </p>
+    <div class="flex items-start gap-3">
+      <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+        <span class="material-symbols-outlined text-2xl text-primary">admin_panel_settings</span>
+      </span>
+      <div>
+        <h1 class="text-3xl font-heading font-bold text-surface-dark">Administration Système</h1>
+        <p class="mt-1 text-sm text-surface-dark/55">
+          Gestion technique et configuration de l'application.
+        </p>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

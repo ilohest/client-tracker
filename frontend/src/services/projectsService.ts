@@ -77,6 +77,7 @@ const normalizeMilestone = (milestone: Project['milestones'][number]): Project['
     kind,
     paymentScheduleStepId: milestone.paymentScheduleStepId || '',
     paymentScheduleIndex,
+    quoteId: milestone.quoteId || '',
   };
 };
 
@@ -133,8 +134,6 @@ const normalizeProject = (item: Project): Project => ({
   projectNotes: normalizeProjectNotes(item),
   projectSupplements: normalizeProjectSupplements(item),
   sourceType: item.sourceType || 'custom',
-  quoteId: item.quoteId || '',
-  quoteRef: item.quoteRef || '',
   timesheetId: item.timesheetId || '',
   clientId: item.clientId || '',
   clientName: item.clientName || '',

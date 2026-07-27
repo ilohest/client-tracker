@@ -19,11 +19,13 @@ import Textarea from "primevue/textarea";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import { useRouter } from "vue-router";
+import { quoteStatusMeta } from "@/lib/clientPresets";
 import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
 import { useProjectsStore } from "@/stores/projectsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
 import { useTimesheetsStore } from "@/stores/timesheetsStore";
+import { toDateObj } from "@/utils/date";
 import {
   calculatePaymentScheduleStepAmounts,
   formatCurrency,
@@ -140,12 +142,33 @@ const selectedTimesheet = computed(() =>
       ) || null
     : null,
 );
-const selectedQuote = computed(() =>
-  selectedProject.value?.quoteId
-    ? quotesStore.quotes.find(
-        (item) => item.id === selectedProject.value?.quoteId,
-      ) || null
-    : null,
+// Tous les devis liés à un projet (devis initial + avenants), du plus ancien au plus récent.
+const projectQuotes = (project: Project): Quote[] =>
+  quotesStore.quotes
+    .filter((quote) => quote.projectId === project.id)
+    .sort(
+      (a, b) =>
+        (toDateObj(a.createdAt)?.getTime() || 0) -
+        (toDateObj(b.createdAt)?.getTime() || 0),
+    );
+
+// Devis liés dont le montant compte réellement (exclut les versions remplacées et les refus).
+const projectActiveQuotes = (project: Project): Quote[] =>
+  projectQuotes(project).filter(
+    (quote) => !["superseded", "refused"].includes(quote.status),
+  );
+
+const selectedProjectQuotes = computed(() =>
+  selectedProject.value ? projectQuotes(selectedProject.value) : [],
+);
+const selectedProjectActiveQuotes = computed(() =>
+  selectedProject.value ? projectActiveQuotes(selectedProject.value) : [],
+);
+const selectedPrimaryQuote = computed(
+  () =>
+    selectedProjectActiveQuotes.value[0] ||
+    selectedProjectQuotes.value[0] ||
+    null,
 );
 
 const milestoneKindOptions: Array<{
@@ -166,10 +189,12 @@ const projectSupplementTotal = (project: Project) =>
   );
 
 const projectBudgetBase = (project: Project) => {
-  const quote = project.quoteId
-    ? quotesStore.quotes.find((item) => item.id === project.quoteId)
-    : null;
-  return Number(quote?.subtotal ?? project.budgetExVat ?? 0);
+  const activeQuotes = projectActiveQuotes(project);
+  if (!activeQuotes.length) return Number(project.budgetExVat || 0);
+  return activeQuotes.reduce(
+    (total, quote) => total + Number(quote.subtotal || 0),
+    0,
+  );
 };
 
 const projectTotalBudget = (project: Project) =>
@@ -191,24 +216,25 @@ const isMilestoneDone = (project: Project, label: string) =>
 
 const findPaymentReceivedMilestoneDone = (
   project: Project,
+  quoteId: string,
   index: number,
   stepId = "",
 ) =>
   project.milestones?.find((milestone) => {
     if (milestone.status !== "done") return false;
-    if (milestone.kind === "payment_received") {
+    if (milestone.kind === "payment_received" && milestone.quoteId === quoteId) {
       if (stepId && milestone.paymentScheduleStepId === stepId) return true;
       return milestone.paymentScheduleIndex === index;
     }
-    if (index === 0 && milestone.label === "Acompte reçu") return true;
     return false;
   }) || null;
 
 const isPaymentReceivedMilestoneDone = (
   project: Project,
+  quoteId: string,
   index: number,
   stepId = "",
-) => Boolean(findPaymentReceivedMilestoneDone(project, index, stepId));
+) => Boolean(findPaymentReceivedMilestoneDone(project, quoteId, index, stepId));
 
 const legacyFinalPaymentMilestone = (project: Project) =>
   project.milestones?.find(
@@ -222,38 +248,47 @@ const hasLegacyFinalPaymentDone = (project: Project) =>
   Boolean(legacyFinalPaymentMilestone(project));
 
 const projectScheduledReceivedExVat = (project: Project, sinceDate = "") => {
-  const quote = project.quoteId
-    ? quotesStore.quotes.find((item) => item.id === project.quoteId)
-    : null;
-  if (!quote) {
+  const activeQuotes = projectActiveQuotes(project);
+  if (!activeQuotes.length) {
     if (sinceDate && !isDateOnOrAfter(projectStartDate(project), sinceDate))
       return 0;
     return Number(project.invoicedExVat || project.paidExVat || 0);
   }
 
-  const paymentSchedule = quote.paymentSchedule || [];
-  if (!paymentSchedule.length) return 0;
   const legacyFinal = legacyFinalPaymentMilestone(project);
   if (legacyFinal && isDateOnOrAfter(legacyFinal.date, sinceDate))
-    return Number(quote.subtotal || 0) + projectSupplementTotal(project);
+    return projectTotalBudget(project);
 
-  return paymentSchedule.reduce((total, step, index) => {
-    const paymentMilestone = findPaymentReceivedMilestoneDone(
-      project,
-      index,
-      step.id,
-    );
-    if (!paymentMilestone || !isDateOnOrAfter(paymentMilestone.date, sinceDate))
-      return total;
-    const isFinalPayment = index === paymentSchedule.length - 1;
+  const lastQuoteId = activeQuotes[activeQuotes.length - 1].id;
+  return activeQuotes.reduce((quoteTotal, quote) => {
+    const paymentSchedule = quote.paymentSchedule || [];
+    if (!paymentSchedule.length) return quoteTotal;
     return (
-      total +
-      calculatePaymentScheduleStepAmounts(
-        step,
-        Number(quote.subtotal || 0),
-        Number(quote.totalWithVat || 0),
-      ).amountExcl +
-      (isFinalPayment ? projectSupplementTotal(project) : 0)
+      quoteTotal +
+      paymentSchedule.reduce((total, step, index) => {
+        const paymentMilestone = findPaymentReceivedMilestoneDone(
+          project,
+          quote.id,
+          index,
+          step.id,
+        );
+        if (
+          !paymentMilestone ||
+          !isDateOnOrAfter(paymentMilestone.date, sinceDate)
+        )
+          return total;
+        const isFinalPayment =
+          quote.id === lastQuoteId && index === paymentSchedule.length - 1;
+        return (
+          total +
+          calculatePaymentScheduleStepAmounts(
+            step,
+            Number(quote.subtotal || 0),
+            Number(quote.totalWithVat || 0),
+          ).amountExcl +
+          (isFinalPayment ? projectSupplementTotal(project) : 0)
+        );
+      }, 0)
     );
   }, 0);
 };
@@ -270,8 +305,9 @@ const milestoneFinancialAmount = (
 ) => {
   if (!["invoice_sent", "payment_received"].includes(milestone.kind || ""))
     return null;
-  const quote = project.quoteId
-    ? quotesStore.quotes.find((item) => item.id === project.quoteId)
+  const activeQuotes = projectActiveQuotes(project);
+  const quote = milestone.quoteId
+    ? activeQuotes.find((item) => item.id === milestone.quoteId)
     : null;
   const paymentSchedule = quote?.paymentSchedule || [];
   if (!quote || !paymentSchedule.length) return null;
@@ -293,13 +329,14 @@ const milestoneFinancialAmount = (
   const step = paymentSchedule[scheduleIndex];
   if (!step) return null;
 
+  const isLastQuote = activeQuotes[activeQuotes.length - 1]?.id === quote.id;
   const amount =
     calculatePaymentScheduleStepAmounts(
       step,
       Number(quote.subtotal || 0),
       Number(quote.totalWithVat || 0),
     ).amountExcl +
-    (scheduleIndex === paymentSchedule.length - 1
+    (isLastQuote && scheduleIndex === paymentSchedule.length - 1
       ? projectSupplementTotal(project)
       : 0);
 
@@ -313,9 +350,8 @@ const milestoneFinancialAmount = (
 };
 
 const projectDepositPercent = (project: Project) => {
-  const quote = project.quoteId
-    ? quotesStore.quotes.find((item) => item.id === project.quoteId)
-    : null;
+  // L'acompte concerne le devis initial du projet.
+  const quote = projectActiveQuotes(project)[0];
   const firstPaymentStep = quote?.paymentSchedule?.[0];
   if (!quote || !firstPaymentStep) return 0;
 
@@ -327,30 +363,37 @@ const projectDepositPercent = (project: Project) => {
 };
 
 const projectPaymentProgressLabel = (project: Project) => {
-  const quote = project.quoteId
-    ? quotesStore.quotes.find((item) => item.id === project.quoteId)
-    : null;
-  const paymentSchedule = quote?.paymentSchedule || [];
-  if (!quote || !paymentSchedule.length) return "";
+  const activeQuotes = projectActiveQuotes(project);
+  const allSteps = activeQuotes.flatMap((quote) =>
+    (quote.paymentSchedule || []).map((step, index) => ({ quote, step, index })),
+  );
+  if (!allSteps.length) return "";
 
-  const receivedCount = paymentSchedule.filter((step, index) =>
-    isPaymentReceivedMilestoneDone(project, index, step.id),
+  const receivedCount = allSteps.filter(({ quote, step, index }) =>
+    isPaymentReceivedMilestoneDone(project, quote.id, index, step.id),
   ).length;
   const depositPercent = projectDepositPercent(project);
-  if (paymentSchedule.length <= 1) return "Paiement final 100 %";
+  if (allSteps.length <= 1) return "Paiement final 100 %";
   if (depositPercent > 0) {
-    return `${receivedCount}/${paymentSchedule.length} paiements reçus · acompte ${depositPercent.toFixed(0)} %`;
+    return `${receivedCount}/${allSteps.length} paiements reçus · acompte ${depositPercent.toFixed(0)} %`;
   }
-  return `${receivedCount}/${paymentSchedule.length} paiements reçus`;
+  return `${receivedCount}/${allSteps.length} paiements reçus`;
 };
 
 const acceptedQuotesWithoutProject = computed(() =>
   quotesStore.quotes.filter(
-    (quote) =>
-      quote.status === "accepted" &&
-      !projectsStore.projects.some((project) => project.quoteId === quote.id),
+    (quote) => quote.status === "accepted" && !quote.projectId,
   ),
 );
+
+// Devis acceptés du même client, non liés à un projet : candidats à l'attache comme avenant.
+const attachableQuotesForSelectedProject = computed(() => {
+  if (!selectedProject.value) return [];
+  const clientId = selectedProject.value.clientId;
+  return acceptedQuotesWithoutProject.value.filter(
+    (quote) => !clientId || quote.clientId === clientId,
+  );
+});
 
 const projectMacroStatus = (project: Project): ProjectMacroStatus => {
   if (["paid", "closed"].includes(project.status)) return "closed";
@@ -459,7 +502,7 @@ const searchableProjectText = (project: Project) =>
   [
     project.title,
     project.clientName,
-    project.quoteRef,
+    ...projectQuotes(project).map((quote) => quote.quoteRef),
     project.description,
     project.notes,
     ...(project.projectNotes || []).map((note) => note.content),
@@ -617,8 +660,6 @@ const createProjectPayload = (): ProjectInput => {
     projectNotes: [],
     projectSupplements: [],
     sourceType: "custom",
-    quoteId: "",
-    quoteRef: "",
     timesheetId: "",
     clientId: form.clientId,
     clientName: client?.name || "",
@@ -1069,10 +1110,45 @@ const deleteSelected = () => {
   });
 };
 
-const openQuote = () => {
-  if (!selectedQuote.value) return;
-  quotesStore.selectQuote(selectedQuote.value.id);
+const openQuote = (quote?: Quote | null) => {
+  const target = quote || selectedPrimaryQuote.value;
+  if (!target) return;
+  quotesStore.selectQuote(target.id);
   router.push({ name: "quotes" });
+};
+
+const attachQuoteId = ref("");
+
+const attachQuoteToSelectedProject = async () => {
+  const project = selectedProject.value;
+  const quote = attachableQuotesForSelectedProject.value.find(
+    (item) => item.id === attachQuoteId.value,
+  );
+  if (!project || !quote) return;
+  await projectsStore.attachQuoteToProject(project, quote);
+  attachQuoteId.value = "";
+  toast.add({
+    severity: "success",
+    summary: "Devis lié",
+    detail: "L'avenant est ajouté à la roadmap du projet.",
+    life: 2600,
+  });
+};
+
+const detachQuoteFromSelectedProject = (quote: Quote) => {
+  const project = selectedProject.value;
+  if (!project) return;
+  confirm.require({
+    message: `Détacher le devis "${quote.quoteRef}" de ce projet ? Ses jalons de paiement associés seront retirés de la roadmap.`,
+    header: "Détacher le devis",
+    icon: "pi pi-exclamation-triangle",
+    rejectProps: { label: "Annuler", severity: "secondary", outlined: true },
+    acceptProps: { label: "Détacher", severity: "danger" },
+    accept: async () => {
+      await projectsStore.detachQuoteFromProject(project, quote);
+      toast.add({ severity: "secondary", summary: "Devis détaché", life: 2200 });
+    },
+  });
 };
 
 const openTimesheet = () => {
@@ -1132,7 +1208,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 p-2">
+  <div class="flex flex-col gap-6">
     <ConfirmDialog />
 
     <div
@@ -1359,8 +1435,8 @@ onMounted(async () => {
                     class="text-xs font-bold uppercase tracking-wide text-surface-dark/40"
                   >
                     {{
-                      selectedProject.sourceType === "quote"
-                        ? selectedProject.quoteRef || "Devis lié"
+                      selectedProjectQuotes.length
+                        ? selectedProjectQuotes.map((quote) => quote.quoteRef).join(" + ")
                         : "Hors devis"
                     }}
                   </span>
@@ -1736,6 +1812,108 @@ onMounted(async () => {
             >
               <div>
                 <h3 class="text-lg font-bold text-surface-dark">
+                  Devis liés
+                </h3>
+                <p class="text-sm text-surface-dark/50">
+                  Devis initial + avenants ajoutés au fil du projet.
+                </p>
+              </div>
+              <span
+                class="rounded-full bg-primary/10 px-3 py-1 text-sm font-bold text-primary"
+              >
+                {{ formatCurrency(projectBudgetBase(selectedProject)) }}
+              </span>
+            </div>
+
+            <div
+              v-if="attachableQuotesForSelectedProject.length"
+              class="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]"
+            >
+              <Select
+                v-model="attachQuoteId"
+                :options="
+                  attachableQuotesForSelectedProject.map((quote) => ({
+                    label: `${quote.quoteRef} · ${quote.clientName} · ${formatCurrency(quote.subtotal)}`,
+                    value: quote.id,
+                  }))
+                "
+                option-label="label"
+                option-value="value"
+                placeholder="Attacher un devis accepté comme avenant..."
+                class="w-full"
+              />
+              <Button
+                label="Attacher"
+                :disabled="!attachQuoteId"
+                class="!rounded-xl"
+                @click="attachQuoteToSelectedProject"
+              >
+                <template #icon
+                  ><span class="material-symbols-outlined text-lg"
+                    >link</span
+                  ></template
+                >
+              </Button>
+            </div>
+
+            <div class="grid gap-2">
+              <div
+                v-for="quote in selectedProjectQuotes"
+                :key="quote.id"
+                class="flex items-center justify-between gap-3 rounded-2xl border border-surface-dark/8 bg-white p-3"
+              >
+                <button
+                  type="button"
+                  class="min-w-0 flex-1 text-left"
+                  @click="openQuote(quote)"
+                >
+                  <p class="truncate text-sm font-bold text-surface-dark">
+                    {{ quote.quoteRef }}
+                  </p>
+                  <p class="text-xs text-surface-dark/40">
+                    {{ quote.title || quote.projectName }}
+                  </p>
+                </button>
+                <span
+                  class="rounded-full px-2 py-0.5 text-xs font-bold"
+                  :class="quoteStatusMeta[quote.status].tagClass"
+                  >{{ quoteStatusMeta[quote.status].label }}</span
+                >
+                <span class="text-sm font-bold text-surface-dark">
+                  {{ formatCurrency(quote.subtotal) }}
+                </span>
+                <Button
+                  text
+                  rounded
+                  severity="danger"
+                  aria-label="Détacher"
+                  title="Détacher du projet"
+                  @click="detachQuoteFromSelectedProject(quote)"
+                >
+                  <template #icon
+                    ><span class="material-symbols-outlined text-lg"
+                      >link_off</span
+                    ></template
+                  >
+                </Button>
+              </div>
+              <p
+                v-if="!selectedProjectQuotes.length"
+                class="rounded-2xl border border-dashed border-surface-dark/10 p-5 text-center text-sm text-surface-dark/45"
+              >
+                Aucun devis lié à ce projet.
+              </p>
+            </div>
+          </div>
+
+          <div
+            class="rounded-3xl border border-surface-dark/5 bg-surface-card p-6"
+          >
+            <div
+              class="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between"
+            >
+              <div>
+                <h3 class="text-lg font-bold text-surface-dark">
                   Suppléments payants
                 </h3>
                 <p class="text-sm text-surface-dark/50">
@@ -1842,10 +2020,23 @@ onMounted(async () => {
                 >
               </Button>
               <Button
+                v-if="!selectedProjectQuotes.length"
                 label="Devis"
-                :disabled="!selectedQuote"
-                class="!justify-start !rounded-xl !border !border-primary/15 !bg-primary/10 !text-primary hover:!border-primary/30 hover:!bg-primary/15 disabled:!bg-primary/5 disabled:!opacity-50"
-                @click="openQuote"
+                disabled
+                class="!justify-start !rounded-xl !border !border-primary/15 !bg-primary/10 !text-primary disabled:!bg-primary/5 disabled:!opacity-50"
+              >
+                <template #icon
+                  ><span class="material-symbols-outlined text-lg"
+                    >receipt_long</span
+                  ></template
+                >
+              </Button>
+              <Button
+                v-for="quote in selectedProjectQuotes"
+                :key="quote.id"
+                :label="quote.quoteRef || 'Devis'"
+                class="!justify-start !rounded-xl !border !border-primary/15 !bg-primary/10 !text-primary hover:!border-primary/30 hover:!bg-primary/15"
+                @click="openQuote(quote)"
               >
                 <template #icon
                   ><span class="material-symbols-outlined text-lg"
