@@ -293,12 +293,15 @@ const toggleAddon = (addonId: string) => {
       <div>
         <h3 class="font-heading font-bold text-surface-dark">Options complémentaires</h3>
       </div>
-      <Button severity="secondary" @click="emit('addAddon')" label="Ajouter une option">
-        <template #icon
-          ><span class="material-symbols-outlined text-lg"
-            >playlist_add</span
-          ></template
-        ></Button>
+      <div class="flex flex-wrap items-center gap-2">
+        <slot name="headerActions" />
+        <Button severity="secondary" @click="emit('addAddon')" label="Ajouter une option">
+          <template #icon
+            ><span class="material-symbols-outlined text-lg"
+              >playlist_add</span
+            ></template
+          ></Button>
+      </div>
     </div>
 
     <div

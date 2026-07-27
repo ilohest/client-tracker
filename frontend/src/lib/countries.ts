@@ -48,3 +48,24 @@ export const getCountryLabel = (countryCode: string): string =>
 
 export const isEuroCountry = (countryCode: string): boolean =>
   euroCountryCodes.has(countryCode);
+
+const diacriticsPattern = new RegExp('[\\u0300-\\u036f]', 'g');
+
+const normalizeCountryText = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(diacriticsPattern, '');
+
+const countryLabelLookup = new Set(
+  countryOptions.map((country) => normalizeCountryText(country.label)),
+);
+
+/** Vrai si la ligne est un pays, qu'il soit écrit en code (« BE ») ou en toutes lettres (« Belgique »). */
+export const isCountryLine = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^[A-Z]{2}$/i.test(trimmed)) return true;
+  return countryLabelLookup.has(normalizeCountryText(trimmed));
+};

@@ -5,6 +5,7 @@ import type {
   QuoteAddon,
   QuoteCondition,
   QuoteDiscountType,
+  QuoteInvestmentLine,
   QuoteLanguage,
   QuotePart,
   QuotePaymentScheduleStep,
@@ -19,6 +20,7 @@ import Select from "primevue/select";
 import Textarea from "primevue/textarea";
 import QuoteAddonsEditor from "@/components/quotes/QuoteAddonsEditor.vue";
 import QuoteConditionsEditor from "@/components/quotes/QuoteConditionsEditor.vue";
+import QuoteInvestmentLinesEditor from "@/components/quotes/QuoteInvestmentLinesEditor.vue";
 import QuotePaymentScheduleEditor from "@/components/quotes/QuotePaymentScheduleEditor.vue";
 import QuotePartsEditor from "@/components/quotes/QuotePartsEditor.vue";
 import { getCountryFlag, getCountryLabel } from "@/lib/countries";
@@ -61,6 +63,9 @@ const props = defineProps<{
   projectSummary: string;
   investmentSummary: string;
   investmentAmount: number;
+  investmentLines?: QuoteInvestmentLine[];
+  /** Un template de départ est sélectionné → on propose la réapplication par section. */
+  canReapplyTemplate?: boolean;
   parts: QuotePart[];
   currencyLocale?: string;
   conditions: QuoteCondition[];
@@ -93,6 +98,10 @@ const emit = defineEmits<{
   "update:projectSummary": [value: string];
   "update:investmentSummary": [value: string];
   "update:investmentAmount": [value: number];
+  "update:investmentLines": [value: QuoteInvestmentLine[]];
+  reapplyTemplateSection: [
+    section: "projectSummary" | "parts" | "conditions" | "roadmap" | "addons",
+  ];
   "update:parts": [value: QuotePart[]];
   "update:paymentSchedule": [value: QuotePaymentScheduleStep[]];
   "update:status": [value: QuoteStatus];
@@ -420,6 +429,8 @@ const handleInvestmentSummary = (value: string | undefined) =>
   emit("update:investmentSummary", value || "");
 const handleInvestmentAmount = (value: number | null | undefined) =>
   emit("update:investmentAmount", Number(value || 0));
+const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
+  emit("update:investmentLines", value);
 const amountFormatter = new Intl.NumberFormat("fr-FR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -706,6 +717,15 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
             />
           </label>
         </div>
+        <div class="mt-3">
+          <QuoteInvestmentLinesEditor
+            :model-value="investmentLines || []"
+            :investment-amount="investmentAmount"
+            :parts="parts"
+            :currency-locale="currencyLocale"
+            @update:model-value="handleInvestmentLines"
+          />
+        </div>
         <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <label class="flex flex-col gap-2">
             <span class="text-sm font-semibold text-surface-dark"
@@ -800,12 +820,27 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       v-if="!isBase"
       class="mt-6 rounded-3xl bg-white border border-surface-dark/5 p-5"
     >
-      <div class="mb-3">
+      <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 class="font-heading font-bold text-surface-dark">
             Description projet
           </h3>
         </div>
+        <Button
+          v-if="isQuote && canReapplyTemplate"
+          type="button"
+          text
+          severity="secondary"
+          size="small"
+          class="!rounded-xl"
+          label="Réappliquer"
+          title="Remplacer cette section par la version du template"
+          @click="emit('reapplyTemplateSection', 'projectSummary')"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-base">restart_alt</span>
+          </template>
+        </Button>
       </div>
       <Textarea
         :model-value="projectSummary"
@@ -819,14 +854,31 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       v-if="!isBase"
       class="mt-6 rounded-3xl bg-white border border-surface-dark/5 p-5"
     >
-      <div class="mb-4">
-        <h3 class="font-heading font-bold text-surface-dark">
-          Contenu du devis
-        </h3>
-        <p class="mt-1 text-sm text-surface-dark/55">
-          Structure ton devis en parties. Chaque partie a son propre prix, peut
-          être marquée optionnelle, et s'affiche en texte ou en tableau.
-        </p>
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h3 class="font-heading font-bold text-surface-dark">
+            Contenu du devis
+          </h3>
+          <p class="mt-1 text-sm text-surface-dark/55">
+            Structure ton devis en parties. Chaque partie a son propre prix, peut
+            être marquée optionnelle, et s'affiche en texte ou en tableau.
+          </p>
+        </div>
+        <Button
+          v-if="isQuote && canReapplyTemplate"
+          type="button"
+          text
+          severity="secondary"
+          size="small"
+          class="!rounded-xl"
+          label="Réappliquer"
+          title="Remplacer les parties par celles du template"
+          @click="emit('reapplyTemplateSection', 'parts')"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-base">restart_alt</span>
+          </template>
+        </Button>
       </div>
       <QuotePartsEditor
         :model-value="parts"
@@ -856,7 +908,24 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       @promote-addon-sub-item-to-item="
         emit('promoteAddonSubItemToItem', $event)
       "
-    />
+    >
+      <template v-if="isQuote && canReapplyTemplate" #headerActions>
+        <Button
+          type="button"
+          text
+          severity="secondary"
+          size="small"
+          class="!rounded-xl"
+          label="Réappliquer"
+          title="Remplacer les options par celles du template"
+          @click="emit('reapplyTemplateSection', 'addons')"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-base">restart_alt</span>
+          </template>
+        </Button>
+      </template>
+    </QuoteAddonsEditor>
 
     <QuotePaymentScheduleEditor
       v-if="!isTemplate"
@@ -904,7 +973,24 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       @promote-condition-sub-item-to-item="
         emit('promoteRoadmapSubItemToItem', $event)
       "
-    />
+    >
+      <template v-if="isQuote && canReapplyTemplate" #headerActions>
+        <Button
+          type="button"
+          text
+          severity="secondary"
+          size="small"
+          class="!rounded-xl"
+          label="Réappliquer"
+          title="Remplacer la feuille de route par celle du template"
+          @click="emit('reapplyTemplateSection', 'roadmap')"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-base">restart_alt</span>
+          </template>
+        </Button>
+      </template>
+    </QuoteConditionsEditor>
 
     <QuoteConditionsEditor
       :conditions="conditions"
@@ -954,7 +1040,24 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       @promote-condition-sub-item-to-item="
         emit('promoteConditionSubItemToItem', $event)
       "
-    />
+    >
+      <template v-if="isQuote && canReapplyTemplate" #headerActions>
+        <Button
+          type="button"
+          text
+          severity="secondary"
+          size="small"
+          class="!rounded-xl"
+          label="Réappliquer"
+          title="Remplacer les conditions par celles du template"
+          @click="emit('reapplyTemplateSection', 'conditions')"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-base">restart_alt</span>
+          </template>
+        </Button>
+      </template>
+    </QuoteConditionsEditor>
 
     <QuoteConditionsEditor
       v-if="!isTemplate"

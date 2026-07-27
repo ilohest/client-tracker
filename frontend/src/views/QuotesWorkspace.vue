@@ -25,6 +25,7 @@ import type {
   QuoteTemplateLocalizedContent,
 } from "@client-tracker/contracts";
 import Button from "primevue/button";
+import Checkbox from "primevue/checkbox";
 import ConfirmDialog from "primevue/confirmdialog";
 import Dialog from "primevue/dialog";
 import Select from "primevue/select";
@@ -56,6 +57,7 @@ import { renderQuoteDocumentHtml } from "@/utils/quotePdf";
 import {
   calculateAddonTotal,
   calculateQuotePartsTotals,
+  cloneInvestmentLines,
   clonePaymentSchedule,
   cloneQuoteParts,
   createEmptyQuotePart,
@@ -130,6 +132,7 @@ const createDraft = (): QuoteDraft => ({
   projectSummary: "",
   investmentSummary: "",
   investmentAmount: 0,
+  investmentLines: [],
   emailDraft: "",
   emailSubject: "",
   emailBody: "",
@@ -381,6 +384,7 @@ const createDraftFromTemplate = (
     projectSummary: localizedContent.projectSummary,
     investmentSummary: "",
     investmentAmount: 0,
+    investmentLines: [],
     emailDraft: "",
     emailSubject: "",
     emailBody: "",
@@ -634,6 +638,12 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   projectSummary: draft.projectSummary,
   investmentSummary: draft.investmentSummary || "",
   investmentAmount: Number(draft.investmentAmount || 0),
+  investmentLines: (draft.investmentLines || []).map((line) => ({
+    label: line.label || "",
+    mode: line.mode || "fixed",
+    value: Number(line.value || 0),
+    note: line.note || "",
+  })),
   emailDraft: draft.emailDraft,
   emailSubject: draft.emailSubject,
   emailBody: draft.emailBody,
@@ -749,8 +759,21 @@ const livePreviewStandaloneHtml = computed(() =>
   }),
 );
 const quotePdfDocumentTitle = computed(() => {
-  const reference = (livePreviewQuote.value.quoteRef || form.quoteRef || "devis").trim();
-  return reference.replace(/[\\/:*?"<>|]+/g, "-") || "devis";
+  const quote = livePreviewQuote.value;
+  const quoteDate = quote.quoteDate || form.quoteDate;
+  const clientName = quote.clientName || form.clientName;
+  // La référence reste celle de la V1 pour toute la famille de versions : elle
+  // encode donc une date périmée. Le titre du fichier suit la date réelle du devis.
+  const reference =
+    (quoteDate
+      ? generateQuoteReference(clientName, parseQuoteDate(quoteDate))
+      : "") ||
+    quote.quoteRef ||
+    form.quoteRef ||
+    "devis";
+  const version = Number(quote.version || 1);
+  const withVersion = version > 1 ? `${reference}_V${version}` : reference;
+  return withVersion.trim().replace(/[\\/:*?"<>|]+/g, "-") || "devis";
 });
 
 const getPreviewScrollElement = (): HTMLElement | null => {
@@ -884,6 +907,7 @@ const baselineDraft = computed<QuoteDraft>(() => {
     projectSummary: current.projectSummary,
     investmentSummary: current.investmentSummary || "",
     investmentAmount: Number(current.investmentAmount || 0),
+    investmentLines: cloneInvestmentLines(current.investmentLines || []),
     emailDraft: current.emailDraft,
     emailSubject: current.emailSubject || "",
     emailBody: current.emailBody || "",
@@ -960,7 +984,10 @@ const filteredQuotes = computed(() => {
 // Ne jamais retomber sur un autre devis, sinon la sauvegarde écraserait celui-ci.
 const quoteId = computed(() => quotesStore.selectedQuoteId);
 const selectedLinkedProject = computed(
-  () => projectsStore.projects.find((project) => project.quoteId === quoteId.value) || null,
+  () =>
+    projectsStore.projects.find(
+      (project) => project.id === quotesStore.selectedQuote?.projectId,
+    ) || null,
 );
 const selectedQuoteMetadata = computed(() => {
   const quote = quotesStore.selectedQuote;
@@ -1046,6 +1073,7 @@ const hydrateFromQuote = (quote: Quote | null) => {
     projectSummary: quote.projectSummary,
     investmentSummary: quote.investmentSummary || "",
     investmentAmount: Number(quote.investmentAmount || 0),
+    investmentLines: cloneInvestmentLines(quote.investmentLines || []),
     emailDraft: composeLegacyEmailDraft(
       emailSubject,
       emailBody,
@@ -1083,11 +1111,129 @@ const hydrateFromQuote = (quote: Quote | null) => {
     status: quote.status,
   });
   rememberAutoEmail(emailSubject, emailBody, form.language);
+  // On repart d'un historique vierge à chaque changement de devis.
+  resetQuoteHistory();
+};
+
+/*
+ * Historique local du formulaire (Cmd/Ctrl+Z, Cmd/Ctrl+Maj+Z).
+ * On historise des snapshots JSON du draft ; dans un champ texte on laisse
+ * l'annulation native du navigateur agir sur la frappe.
+ */
+const UNDO_HISTORY_LIMIT = 50;
+const undoStack = ref<string[]>([]);
+const redoStack = ref<string[]>([]);
+let historySnapshot = JSON.stringify(form);
+let restoringHistory = false;
+let historyTimer: ReturnType<typeof setTimeout> | null = null;
+
+const resetQuoteHistory = () => {
+  if (historyTimer) {
+    clearTimeout(historyTimer);
+    historyTimer = null;
+  }
+  undoStack.value = [];
+  redoStack.value = [];
+  historySnapshot = JSON.stringify(form);
+};
+
+// Les frappes rapprochées sont regroupées en une seule entrée d'historique.
+watch(
+  form,
+  () => {
+    if (restoringHistory) return;
+    if (historyTimer) clearTimeout(historyTimer);
+    historyTimer = setTimeout(() => {
+      historyTimer = null;
+      const next = JSON.stringify(form);
+      if (next === historySnapshot) return;
+      undoStack.value.push(historySnapshot);
+      if (undoStack.value.length > UNDO_HISTORY_LIMIT) undoStack.value.shift();
+      redoStack.value = [];
+      historySnapshot = next;
+    }, 350);
+  },
+  { deep: true },
+);
+
+const applyHistorySnapshot = (snapshot: string) => {
+  restoringHistory = true;
+  Object.assign(form, JSON.parse(snapshot) as QuoteDraft);
+  historySnapshot = snapshot;
+  void nextTick(() => {
+    restoringHistory = false;
+  });
+};
+
+/** Vide le regroupement en cours pour ne pas perdre la modification la plus récente. */
+const flushPendingHistory = () => {
+  if (historyTimer) {
+    clearTimeout(historyTimer);
+    historyTimer = null;
+  }
+  const current = JSON.stringify(form);
+  if (current !== historySnapshot) {
+    undoStack.value.push(historySnapshot);
+    historySnapshot = current;
+  }
+};
+
+const undoLastChange = () => {
+  flushPendingHistory();
+  const previous = undoStack.value.pop();
+  if (!previous) {
+    toast.add({
+      severity: "info",
+      summary: "Rien à annuler",
+      detail: "Aucune modification récente dans ce devis.",
+      life: 1800,
+    });
+    return;
+  }
+  redoStack.value.push(JSON.stringify(form));
+  applyHistorySnapshot(previous);
+  toast.add({
+    severity: "secondary",
+    summary: "Modification annulée",
+    detail: "Cmd/Ctrl + Maj + Z pour rétablir.",
+    life: 1800,
+  });
+};
+
+const redoLastChange = () => {
+  const next = redoStack.value.pop();
+  if (!next) return;
+  undoStack.value.push(JSON.stringify(form));
+  applyHistorySnapshot(next);
+  toast.add({
+    severity: "secondary",
+    summary: "Modification rétablie",
+    life: 1600,
+  });
+};
+
+const isTextEditingTarget = (target: EventTarget | null): boolean => {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  if (element.isContentEditable) return true;
+  const tag = element.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA";
+};
+
+const handleUndoShortcut = (event: KeyboardEvent) => {
+  if (!(event.metaKey || event.ctrlKey)) return;
+  if (event.key.toLowerCase() !== "z") return;
+  // Dans un champ texte, l'annulation native du navigateur reste prioritaire.
+  if (isTextEditingTarget(event.target)) return;
+  event.preventDefault();
+  if (event.shiftKey) redoLastChange();
+  else undoLastChange();
 };
 
 onMounted(async () => {
   syncCompactMode();
   window.addEventListener("resize", syncCompactMode);
+  window.addEventListener("keydown", handleUndoShortcut);
   await Promise.all([
     quotesStore.fetchQuotes(),
     clientsStore.fetchClients(),
@@ -1099,7 +1245,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("resize", syncCompactMode);
+  window.removeEventListener("keydown", handleUndoShortcut);
   if (unsavedAttentionTimeout) clearTimeout(unsavedAttentionTimeout);
+  if (historyTimer) clearTimeout(historyTimer);
 });
 
 watch(isCompactQuotesView, (compact) => {
@@ -2362,6 +2510,134 @@ const duplicateQuote = async (id: string) => {
   });
 };
 
+/**
+ * Sections du template réappliquables indépendamment sur un devis existant.
+ * Le mail, l'acceptation, les principes et l'échéancier viennent de la base
+ * commune (bouton « Réappliquer la base »), pas d'ici.
+ */
+type TemplateSectionKey =
+  | "projectSummary"
+  | "parts"
+  | "conditions"
+  | "roadmap"
+  | "addons";
+
+const templateSectionOptions: Array<{
+  key: TemplateSectionKey;
+  label: string;
+  hint: string;
+}> = [
+  {
+    key: "projectSummary",
+    label: "Résumé du projet",
+    hint: "Le texte de présentation du projet",
+  },
+  {
+    key: "parts",
+    label: "Parties & prix",
+    hint: "Les parties du devis, leurs sections et leurs prix",
+  },
+  {
+    key: "conditions",
+    label: "Conditions",
+    hint: "Les conditions du template (et les conditions communes liées)",
+  },
+  {
+    key: "roadmap",
+    label: "Feuille de route & calendrier",
+    hint: "Les phases et le calendrier estimé",
+  },
+  {
+    key: "addons",
+    label: "Options complémentaires",
+    hint: "Les add-ons proposés en fin de devis",
+  },
+];
+
+const reapplySectionDialogVisible = ref(false);
+const reapplySectionSelection = ref<TemplateSectionKey[]>([]);
+
+const openReapplySectionDialog = () => {
+  const template = quoteTemplatesStore.templates.find(
+    (entry) => entry.id === selectedTemplateId.value,
+  );
+  if (!template) return;
+  reapplySectionSelection.value = [];
+  reapplySectionDialogVisible.value = true;
+};
+
+/** Réapplique uniquement les sections demandées, sans toucher au reste du devis. */
+const applyTemplateSections = (keys?: TemplateSectionKey[]) => {
+  const template = quoteTemplatesStore.templates.find(
+    (entry) => entry.id === selectedTemplateId.value,
+  );
+  const sections = keys ?? reapplySectionSelection.value;
+  if (!template || !sections.length) return;
+
+  const targetLanguage = form.language || template.language;
+  const nextDraft = createDraftFromTemplate(template, targetLanguage);
+
+  sections.forEach((section) => {
+    switch (section) {
+      case "projectSummary":
+        form.projectSummary = nextDraft.projectSummary;
+        break;
+      case "parts":
+        form.parts = nextDraft.parts;
+        break;
+      case "conditions":
+        form.conditions = nextDraft.conditions;
+        break;
+      case "roadmap":
+        form.roadmap = nextDraft.roadmap;
+        break;
+      case "addons":
+        form.addons = nextDraft.addons;
+        break;
+    }
+  });
+
+  form.templateId = template.id;
+  reapplySectionDialogVisible.value = false;
+
+  const appliedLabels = templateSectionOptions
+    .filter((option) => sections.includes(option.key))
+    .map((option) => option.label)
+    .join(", ");
+  toast.add({
+    severity: "success",
+    summary: "Sections réappliquées",
+    detail: `${appliedLabels} — depuis le template ${template.name}.`,
+    life: 3000,
+  });
+};
+
+/** Bouton « Réappliquer » d'une section précise, avec confirmation. */
+const confirmReapplyTemplateSection = (section: TemplateSectionKey) => {
+  const template = quoteTemplatesStore.templates.find(
+    (entry) => entry.id === selectedTemplateId.value,
+  );
+  if (!template) return;
+  const option = templateSectionOptions.find((entry) => entry.key === section);
+  if (!option) return;
+
+  confirm.require({
+    message: `Remplacer « ${option.label} » par la version actuelle du template ${template.name} ? Le reste du devis n’est pas touché.`,
+    header: `Réappliquer : ${option.label}`,
+    icon: "warning",
+    rejectProps: {
+      label: "Annuler",
+      severity: "secondary",
+      outlined: true,
+    },
+    acceptProps: {
+      label: "Réappliquer",
+      severity: "danger",
+    },
+    accept: () => applyTemplateSections([section]),
+  });
+};
+
 const applySelectedTemplate = (templateId?: string | null) => {
   const resolvedTemplateId = templateId ?? selectedTemplateId.value;
   const template = quoteTemplatesStore.templates.find(
@@ -2387,6 +2663,7 @@ const applySelectedTemplate = (templateId?: string | null) => {
     vatRate: form.vatRate,
     investmentSummary: form.investmentSummary,
     investmentAmount: form.investmentAmount,
+    investmentLines: form.investmentLines,
   };
 
   Object.assign(form, nextDraft, preserved);
@@ -2426,27 +2703,7 @@ const handleTemplateSelection = (value: string | null) => {
 };
 
 const confirmReapplyTemplate = () => {
-  const template = quoteTemplatesStore.templates.find(
-    (entry) => entry.id === selectedTemplateId.value,
-  );
-  if (!template) return;
-
-  confirm.require({
-    message:
-      "Réappliquer ce template va écraser le contenu déjà présent dans ce devis : parties, conditions, feuille de route, options complémentaires, mail et échéancier. Continuer ?",
-    header: "Réappliquer le template ?",
-    icon: "warning",
-    rejectProps: {
-      label: "Annuler",
-      severity: "secondary",
-      outlined: true,
-    },
-    acceptProps: {
-      label: "Réappliquer",
-      severity: "danger",
-    },
-    accept: () => applySelectedTemplate(template.id),
-  });
+  openReapplySectionDialog();
 };
 
 const applyBaseCommonContentToQuote = () => {
@@ -2752,7 +3009,7 @@ const closeMobileEditor = () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 p-2">
+  <div class="flex flex-col gap-6">
     <ConfirmDialog />
 
     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -2854,7 +3111,8 @@ const closeMobileEditor = () => {
                 outlined
                 :disabled="!selectedTemplateId"
                 @click="confirmReapplyTemplate"
-                label="Réappliquer"
+                label="Réappliquer…"
+                title="Choisir les sections du template à réappliquer"
               >
                 <template #icon
                   ><span class="material-symbols-outlined text-lg"
@@ -2884,7 +3142,7 @@ const closeMobileEditor = () => {
                 severity="secondary"
                 size="small"
                 class="!ml-1 !rounded-xl !px-2 !py-1"
-                label="Réappliquer"
+                label="Réappliquer la base"
                 @click="confirmApplyBaseCommonContent"
               >
                 <template #icon>
@@ -2928,6 +3186,8 @@ const closeMobileEditor = () => {
           :project-summary="form.projectSummary"
           :investment-summary="form.investmentSummary"
           :investment-amount="form.investmentAmount"
+          :investment-lines="form.investmentLines"
+          :can-reapply-template="Boolean(selectedTemplateId)"
           :parts="form.parts"
           :currency-locale="currencyLocale"
           :status="form.status"
@@ -2958,6 +3218,8 @@ const closeMobileEditor = () => {
           @update:project-summary="form.projectSummary = $event"
           @update:investment-summary="form.investmentSummary = $event"
           @update:investment-amount="form.investmentAmount = $event"
+          @update:investment-lines="form.investmentLines = $event"
+          @reapply-template-section="confirmReapplyTemplateSection"
           @update:parts="form.parts = $event"
           @update:payment-schedule="form.paymentSchedule = $event"
           @update:status="form.status = $event"
@@ -3403,6 +3665,76 @@ const closeMobileEditor = () => {
       </section>
     </div>
 
+    <!-- Réapplication sélective : on ne réécrase que les sections cochées. -->
+    <Dialog
+      v-model:visible="reapplySectionDialogVisible"
+      modal
+      :draggable="false"
+      dismissable-mask
+      header="Réappliquer des sections du template"
+      :style="{ width: '32rem', maxWidth: '95vw' }"
+    >
+      <p class="mb-4 text-sm text-surface-dark/60">
+        Coche uniquement les sections à remplacer par la version actuelle du
+        template. Le reste du devis n’est pas touché.
+      </p>
+      <div class="flex flex-col gap-2">
+        <label
+          v-for="option in templateSectionOptions"
+          :key="option.key"
+          :for="`reapply-${option.key}`"
+          class="flex cursor-pointer items-start gap-3 rounded-xl border border-surface-dark/8 bg-surface-light p-3 transition hover:border-primary/30"
+        >
+          <Checkbox
+            v-model="reapplySectionSelection"
+            :input-id="`reapply-${option.key}`"
+            :value="option.key"
+          />
+          <span class="flex min-w-0 flex-col">
+            <span class="text-sm font-semibold text-surface-dark">{{ option.label }}</span>
+            <span class="text-xs text-surface-dark/50">{{ option.hint }}</span>
+          </span>
+        </label>
+      </div>
+      <template #footer>
+        <Button
+          text
+          severity="secondary"
+          :label="
+            reapplySectionSelection.length === templateSectionOptions.length
+              ? 'Tout décocher'
+              : 'Tout sélectionner'
+          "
+          @click="
+            reapplySectionSelection =
+              reapplySectionSelection.length === templateSectionOptions.length
+                ? []
+                : templateSectionOptions.map((option) => option.key)
+          "
+        />
+        <Button
+          text
+          severity="secondary"
+          label="Annuler"
+          @click="reapplySectionDialogVisible = false"
+        />
+        <Button
+          severity="danger"
+          :disabled="!reapplySectionSelection.length"
+          :label="
+            reapplySectionSelection.length
+              ? `Réappliquer (${reapplySectionSelection.length})`
+              : 'Réappliquer'
+          "
+          @click="applyTemplateSections()"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-lg">restart_alt</span>
+          </template>
+        </Button>
+      </template>
+    </Dialog>
+
     <Dialog
       v-model:visible="mobileEditorVisible"
       modal
@@ -3503,7 +3835,8 @@ const closeMobileEditor = () => {
                 outlined
                 :disabled="!selectedTemplateId"
                 @click="confirmReapplyTemplate"
-                label="Réappliquer"
+                label="Réappliquer…"
+                title="Choisir les sections du template à réappliquer"
               >
                 <template #icon
                   ><span class="material-symbols-outlined text-lg"
@@ -3533,7 +3866,7 @@ const closeMobileEditor = () => {
                 severity="secondary"
                 size="small"
                 class="!ml-1 !rounded-xl !px-2 !py-1"
-                label="Réappliquer"
+                label="Réappliquer la base"
                 @click="confirmApplyBaseCommonContent"
               >
                 <template #icon>
@@ -3577,6 +3910,8 @@ const closeMobileEditor = () => {
           :project-summary="form.projectSummary"
           :investment-summary="form.investmentSummary"
           :investment-amount="form.investmentAmount"
+          :investment-lines="form.investmentLines"
+          :can-reapply-template="Boolean(selectedTemplateId)"
           :parts="form.parts"
           :currency-locale="currencyLocale"
           :status="form.status"
@@ -3607,6 +3942,8 @@ const closeMobileEditor = () => {
           @update:project-summary="form.projectSummary = $event"
           @update:investment-summary="form.investmentSummary = $event"
           @update:investment-amount="form.investmentAmount = $event"
+          @update:investment-lines="form.investmentLines = $event"
+          @reapply-template-section="confirmReapplyTemplateSection"
           @update:parts="form.parts = $event"
           @update:payment-schedule="form.paymentSchedule = $event"
           @update:status="form.status = $event"

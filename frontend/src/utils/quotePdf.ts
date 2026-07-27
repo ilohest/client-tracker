@@ -1,13 +1,14 @@
 import type {
   Quote,
   QuoteCondition,
+  QuoteInvestmentLine,
   QuoteLanguage,
   QuotePart,
   QuotePaymentScheduleStep,
   QuoteSection,
   UserProfile,
 } from "@client-tracker/contracts";
-import { getCountryLabel } from "@/lib/countries";
+import { getCountryLabel, isCountryLine } from "@/lib/countries";
 import {
   getQuotePdfFontStack,
   getQuotePdfFontVariantStyle,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/quotePdfTheme";
 import { getEstimatedTimelineTitle } from "@/lib/clientPresets";
 import {
+  calculateInvestmentLineAmount,
   calculatePaymentScheduleStepAmounts,
   formatCurrency,
   formatQuoteDate,
@@ -35,6 +37,7 @@ interface DocLabels {
   quoteNo: string;
   date: string;
   validity: string;
+  project: string;
   for: string;
   proposal: string;
   scope: string;
@@ -69,6 +72,7 @@ const LABELS: Record<QuoteLanguage, DocLabels> = {
     quoteNo: "Devis n°",
     date: "Date",
     validity: "Validité",
+    project: "Projet",
     for: "Pour",
     proposal: "Proposition de projet",
     scope: "Portée du projet",
@@ -101,6 +105,7 @@ const LABELS: Record<QuoteLanguage, DocLabels> = {
     quoteNo: "Quote no.",
     date: "Date",
     validity: "Valid until",
+    project: "Project",
     for: "For",
     proposal: "Project proposal",
     scope: "Project scope",
@@ -133,6 +138,7 @@ const LABELS: Record<QuoteLanguage, DocLabels> = {
     quoteNo: "Presupuesto n.º",
     date: "Fecha",
     validity: "Validez",
+    project: "Proyecto",
     for: "Para",
     proposal: "Propuesta de proyecto",
     scope: "Alcance del proyecto",
@@ -413,33 +419,53 @@ const renderInvestmentTable = (
   discountLabel: string,
   investmentSummary: string = "",
   investmentAmount: number = 0,
+  investmentLines: QuoteInvestmentLine[] = [],
   renderVariables: (value: string) => string = (value) => value,
 ): string => {
   const investmentParts = parts.filter(
     (part) => part.includeInInvestment !== false,
   );
+  const hasCustomLines = investmentLines.length > 0;
   const hasGlobalInvestment = Number(investmentAmount || 0) > 0;
-  const rows = hasGlobalInvestment
-    ? `<tr>
+
+  // Priorité : lignes libres > prix global > lignes dérivées des parties.
+  let rows: string;
+  if (hasCustomLines) {
+    rows = investmentLines
+      .map((line, index) => {
+        const label = line.label?.trim() || `${t.partFallback} ${index + 1}`;
+        const note = line.note?.trim()
+          ? `<div class="row-desc">${escapeHtml(renderVariables(line.note))}</div>`
+          : "";
+        return `<tr>
+        <td><div class="row-title">${escapeHtml(renderVariables(label))}</div>${note}</td>
+        <td class="amount">${money(calculateInvestmentLineAmount(line, Number(investmentAmount || 0)))}</td>
+      </tr>`;
+      })
+      .join("");
+  } else if (hasGlobalInvestment) {
+    rows = `<tr>
         <td><div class="row-title">${escapeHtml(renderVariables(investmentSummary.trim() || t.investment))}</div></td>
         <td class="amount">${money(Number(investmentAmount || 0))}</td>
-      </tr>`
-    : investmentParts
-        .map((part, index) => {
-          const label = part.title?.trim() || `${t.partFallback} ${index + 1}`;
-          const badge = part.optional
-            ? ` <span class="part-badge">${escapeHtml(t.optional)}</span>`
+      </tr>`;
+  } else {
+    rows = investmentParts
+      .map((part, index) => {
+        const label = part.title?.trim() || `${t.partFallback} ${index + 1}`;
+        const badge = part.optional
+          ? ` <span class="part-badge">${escapeHtml(t.optional)}</span>`
+          : "";
+        const note =
+          part.optional && part.priceNote?.trim()
+            ? `<div class="row-desc">${escapeHtml(renderVariables(part.priceNote))}</div>`
             : "";
-          const note =
-            part.optional && part.priceNote?.trim()
-              ? `<div class="row-desc">${escapeHtml(renderVariables(part.priceNote))}</div>`
-              : "";
-          return `<tr${part.optional ? ' class="optional-row"' : ""}>
+        return `<tr${part.optional ? ' class="optional-row"' : ""}>
         <td><div class="row-title">${escapeHtml(renderVariables(label))}${badge}</div>${note}</td>
         <td class="amount">${money(Number(part.price || 0))}</td>
       </tr>`;
-        })
-        .join("");
+      })
+      .join("");
+  }
 
   return `<section class="doc-section avoid-break">
     <h2>${escapeHtml(t.investment)}</h2>
@@ -710,10 +736,16 @@ const buildClientAddressHtml = (quote: Quote, t: DocLabels): string => {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const displayAddressLines = mergeDetachedHouseNumber(addressLines).map(
-    (line) =>
-      /^[A-Z]{2}$/i.test(line) ? getCountryLabel(line.toUpperCase()) : line,
-  );
+  const mergedLines = mergeDetachedHouseNumber(addressLines);
+  // Un pays seul (sans rue ni ville) n'apporte rien au bloc destinataire : on le retire.
+  const hasRealAddress = mergedLines.some((line) => !isCountryLine(line));
+  const displayAddressLines = hasRealAddress
+    ? mergedLines.map((line) =>
+        /^[A-Z]{2}$/i.test(line.trim())
+          ? getCountryLabel(line.trim().toUpperCase())
+          : line,
+      )
+    : [];
   const rows = [
     quote.clientName?.trim()
       ? `<div class="client-name">${escapeHtml(quote.clientName.trim())}</div>`
@@ -833,6 +865,7 @@ export const renderQuoteDocumentHtml = (
     discountLabel,
     quote.investmentSummary || "",
     quote.investmentAmount || 0,
+    quote.investmentLines || [],
     renderVariables,
   );
   const paymentScheduleTable = renderPaymentScheduleTable(
@@ -1012,10 +1045,9 @@ export const renderQuoteDocumentHtml = (
   .address-label { color: var(--title); font-size: 7.4pt; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
   .doc-meta { flex: 1 1 58%; background: var(--band); color: #fff; border-radius: 12px; padding: 16px 18px; }
   .doc-meta .doc-title {     text-align: right; font-family: ${bodyFontStack}; color: #fff; font-size: 19pt; font-style: ${bodyFontStyle.style}; font-weight: 600; line-height: 1.2; letter-spacing: .2px; margin-bottom: 12px; }
-  .doc-meta .meta-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; align-items: baseline; font-size: 9pt; padding: 3px 0; color: var(--meta-text); }
-  .doc-meta .meta-label { color: var(--meta-label); font-size: 7.4pt; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; }
+  .doc-meta .meta-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px; align-items: baseline; font-size: 9pt; padding: 3px 0; color: var(--meta-text); }
+  .doc-meta .meta-label { color: var(--meta-label); font-size: 7.4pt; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; white-space: nowrap; }
   .doc-meta .meta-value { color: #fff; font-weight: 500; text-align: right; }
-  .doc-meta .divider { height: 1px; background: rgba(255,255,255,.16); margin: 10px 0; }
   .doc-meta .client-row { align-items: start; padding-top: 0; }
   .doc-meta .client { display: grid; gap: 5px; font-size: 10pt; color: #fff; line-height: 1.35; text-align: right; }
   .doc-meta .client-name { font-weight: 700; }
@@ -1373,7 +1405,7 @@ export const renderQuoteDocumentHtml = (
         <div class="meta-row"><span class="meta-label">${escapeHtml(t.quoteNo)}</span><strong class="meta-value">${escapeHtml(quote.quoteRef)}</strong></div>
         ${quoteDate ? `<div class="meta-row"><span class="meta-label">${escapeHtml(t.date)}</span><strong class="meta-value">${escapeHtml(quoteDate)}</strong></div>` : ""}
         ${validity ? `<div class="meta-row"><span class="meta-label">${escapeHtml(t.validity)}</span><strong class="meta-value">${escapeHtml(validity)}</strong></div>` : ""}
-        <div class="divider"></div>
+        ${quote.projectName?.trim() ? `<div class="meta-row"><span class="meta-label">${escapeHtml(t.project)}</span><strong class="meta-value">${escapeHtml(renderVariables(quote.projectName.trim()))}</strong></div>` : ""}
         <div class="meta-row client-row">
           <span class="meta-label">${escapeHtml(t.for)}</span>
           <div class="client">${clientBlock}</div>

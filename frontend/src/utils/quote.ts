@@ -1,4 +1,4 @@
-import type { Quote, QuoteAddon, QuoteConditionItem, QuoteDiscountType, QuoteInput, QuotePart, QuotePaymentScheduleStep, QuoteSection, VatRate } from '@client-tracker/contracts';
+import type { Quote, QuoteAddon, QuoteConditionItem, QuoteDiscountType, QuoteInput, QuoteInvestmentLine, QuotePart, QuotePaymentScheduleStep, QuoteSection, VatRate } from '@client-tracker/contracts';
 
 export const createEntityId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -200,6 +200,67 @@ export const calculatePaymentScheduleStepAmounts = (
   };
 };
 
+/** Crée une ligne d'investissement vide (montant fixe par défaut). */
+export const createInvestmentLine = (): QuoteInvestmentLine => ({
+  id: createEntityId(),
+  label: '',
+  mode: 'fixed',
+  value: 0,
+  note: '',
+});
+
+/**
+ * Montant HT d'une ligne d'investissement. En mode `percent`, la valeur est un
+ * pourcentage du Prix global HT (`investmentAmount`) passé en base.
+ */
+export const calculateInvestmentLineAmount = (
+  line: QuoteInvestmentLine,
+  investmentAmount: number,
+): number => {
+  const value = Math.max(Number(line.value || 0), 0);
+  const amount =
+    line.mode === 'percent'
+      ? Number(investmentAmount || 0) * (value / 100)
+      : value;
+  return Number(amount.toFixed(2));
+};
+
+/** Somme HT des lignes d'investissement (base = Prix global HT). */
+export const calculateInvestmentLinesTotal = (
+  lines: QuoteInvestmentLine[] = [],
+  investmentAmount: number = 0,
+): number =>
+  Number(
+    lines
+      .reduce((sum, line) => sum + calculateInvestmentLineAmount(line, investmentAmount), 0)
+      .toFixed(2),
+  );
+
+export const cloneInvestmentLines = (
+  lines: QuoteInvestmentLine[] = [],
+): QuoteInvestmentLine[] =>
+  lines.map((line) => ({
+    id: line.id || createEntityId(),
+    label: line.label || '',
+    mode: line.mode || 'fixed',
+    value: Number(line.value || 0),
+    note: line.note || '',
+  }));
+
+/** Convertit les parties incluses en lignes d'investissement (montant fixe). */
+export const investmentLinesFromParts = (
+  parts: QuotePart[] = [],
+): QuoteInvestmentLine[] =>
+  parts
+    .filter((part) => part.includeInInvestment !== false)
+    .map((part, index) => ({
+      id: createEntityId(),
+      label: part.title?.trim() || `Partie ${index + 1}`,
+      mode: 'fixed' as const,
+      value: Number(part.price || 0),
+      note: part.optional && part.priceNote?.trim() ? part.priceNote.trim() : '',
+    }));
+
 export const getQuotePlatformLabel = (platform: Quote['platform'], customPlatformLabel: string = ''): string => {
   if (platform === 'other' && customPlatformLabel.trim()) return customPlatformLabel.trim();
   return platform;
@@ -253,6 +314,7 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     projectSummary: quote.projectSummary,
     investmentSummary: quote.investmentSummary || '',
     investmentAmount: Number(quote.investmentAmount || 0),
+    investmentLines: cloneInvestmentLines(quote.investmentLines || []),
     emailDraft: quote.emailDraft,
     emailSubject: quote.emailSubject || '',
     emailBody: quote.emailBody || '',
@@ -301,4 +363,5 @@ export const createQuoteVersionInput = (quote: Quote, nextVersion: number): Quot
   quoteRef: quote.quoteRef,
   version: nextVersion,
   versionGroupId: quote.versionGroupId || quote.id,
+  projectId: quote.projectId || '',
 });

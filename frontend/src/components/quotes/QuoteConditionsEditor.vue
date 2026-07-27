@@ -346,10 +346,13 @@ const getConditionTitle = (condition: QuoteCondition, index: number) =>
       <div>
         <h3 class="font-heading font-bold text-surface-dark">{{ props.sectionTitle }}</h3>
       </div>
-      <Button severity="secondary" @click="emit('addCondition')" :label="props.addButtonLabel">
-        <template #icon
-          ><span class="material-symbols-outlined text-lg">add</span></template
-        ></Button>
+      <div class="flex flex-wrap items-center gap-2">
+        <slot name="headerActions" />
+        <Button severity="secondary" @click="emit('addCondition')" :label="props.addButtonLabel">
+          <template #icon
+            ><span class="material-symbols-outlined text-lg">add</span></template
+          ></Button>
+      </div>
     </div>
 
     <div

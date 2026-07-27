@@ -291,6 +291,21 @@ export const quoteAddonSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+export const quoteInvestmentLineModeSchema = z.enum(['percent', 'fixed']);
+
+/**
+ * Ligne libre du tableau « Investissement ». `mode: 'fixed'` = montant HT ;
+ * `mode: 'percent'` = pourcentage du Prix global HT (`investmentAmount`) — pratique
+ * pour répartir un total sans erreur d'addition.
+ */
+export const quoteInvestmentLineSchema = z.object({
+  id: z.string(),
+  label: z.string().default(''),
+  mode: quoteInvestmentLineModeSchema.default('fixed'),
+  value: z.number().default(0),
+  note: z.string().default(''),
+});
+
 export const quotePaymentScheduleStepSchema = z.object({
   id: z.string(),
   label: z.string().default(''),
@@ -348,6 +363,7 @@ export const quoteSchema = z.object({
   projectSummary: z.string().default(''),
   investmentSummary: z.string().optional().default(''),
   investmentAmount: z.number().optional().default(0),
+  investmentLines: z.array(quoteInvestmentLineSchema).default([]),
   emailDraft: z.string().default(''),
   emailSubject: z.string().default(''),
   emailBody: z.string().default(''),
@@ -355,6 +371,7 @@ export const quoteSchema = z.object({
   discountValue: z.number().default(0),
   version: z.number().default(1),
   versionGroupId: z.string().default(''),
+  projectId: z.string().optional(),
   parts: z.array(quotePartSchema).default([]),
   conditions: z.array(quoteConditionSchema).default([]),
   roadmap: z.array(quoteConditionSchema).default([]),
@@ -483,6 +500,7 @@ export const projectMilestoneSchema = z.object({
   kind: z.enum(['quote_accepted', 'invoice_sent', 'payment_received', 'work', 'approval', 'custom']).optional(),
   paymentScheduleStepId: z.string().optional(),
   paymentScheduleIndex: z.number().optional(),
+  quoteId: z.string().optional(),
 });
 
 export const projectNoteSchema = z.object({
@@ -508,8 +526,6 @@ export const projectSchema = z.object({
   projectNotes: z.array(projectNoteSchema).default([]),
   projectSupplements: z.array(projectSupplementSchema).default([]),
   sourceType: projectSourceTypeSchema.default('custom'),
-  quoteId: z.string().optional().default(''),
-  quoteRef: z.string().optional().default(''),
   timesheetId: z.string().optional().default(''),
   clientId: z.string().optional().default(''),
   clientName: z.string().optional().default(''),
@@ -561,6 +577,8 @@ export type Client = z.infer<typeof clientSchema>;
 export type ClientInput = z.infer<typeof clientInputSchema>;
 export type QuoteSection = z.infer<typeof quoteSectionSchema>;
 export type QuotePaymentScheduleStep = z.infer<typeof quotePaymentScheduleStepSchema>;
+export type QuoteInvestmentLineMode = z.infer<typeof quoteInvestmentLineModeSchema>;
+export type QuoteInvestmentLine = z.infer<typeof quoteInvestmentLineSchema>;
 export type QuotePartDisplayStyle = z.infer<typeof quotePartDisplayStyleSchema>;
 export type QuotePart = z.infer<typeof quotePartSchema>;
 export type QuoteConditionSubItem = z.infer<typeof quoteConditionSubItemSchema>;
