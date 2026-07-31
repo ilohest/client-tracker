@@ -1,7 +1,8 @@
 // seedDemo.ts
 // Cree (ou reinitialise) le compte demo public de Devisio avec des donnees fictives,
 // etalees depuis le debut de l'annee pour un rendu realiste.
-// Usage: npx tsx --tsconfig frontend/tsconfig.app.json scripts/seedDemo.ts
+// Usage (depuis la racine): npx tsx --tsconfig frontend/tsconfig.app.json scripts/seedDemo.ts
+import { loadEnvFile } from 'node:process';
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
@@ -41,13 +42,25 @@ import {
 } from '@/lib/clientPresets';
 import { createEntityId, generateQuoteReference, calculateQuotePartsTotals } from '@/utils/quote';
 
+loadEnvFile('frontend/.env');
+
+const getRequiredEnv = (name: string): string => {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`Variable d'environnement manquante: ${name}`);
+  }
+
+  return value;
+};
+
 const firebaseConfig = {
-  apiKey: 'AIzaSyC_po_4c3WnQtKYhH49QWPV2oJjcfgLTUU',
-  authDomain: 'client-tracker-ce99d.firebaseapp.com',
-  projectId: 'client-tracker-ce99d',
-  storageBucket: 'client-tracker-ce99d.firebasestorage.app',
-  messagingSenderId: '1075751922196',
-  appId: '1:1075751922196:web:8adfcfd3de0c9f822d5501',
+  apiKey: getRequiredEnv('VITE_FIREBASE_API_KEY'),
+  authDomain: getRequiredEnv('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: getRequiredEnv('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: getRequiredEnv('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: getRequiredEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: getRequiredEnv('VITE_FIREBASE_APP_ID'),
 };
 
 const DEMO_EMAIL = 'demo@isaure-lohest.com';
@@ -79,7 +92,7 @@ const part = (
 ): QuotePart => ({
   id: createEntityId(),
   title,
-  displayStyle: 'text',
+  displayStyle: 'flow',
   price,
   optional: false,
   includeInInvestment: true,
@@ -88,11 +101,12 @@ const part = (
     {
       id: createEntityId(),
       title: sectionTitle,
-      description: '',
-      displayMode: 'bullets',
-      price: 0,
-      items: items.map((text) => ({ id: createEntityId(), text, subItems: [] })),
-      subSections: [],
+      blocks: items.map((text) => ({
+        id: createEntityId(),
+        kind: 'bullet' as const,
+        depth: 0,
+        text,
+      })),
     },
   ],
 });
@@ -265,7 +279,7 @@ async function main() {
       vatNumber: 'BE0741852963',
       platform: 'custom',
       language: 'fr',
-      stage: 'build_in_progress',
+      stage: 'active',
       notes: 'Startup SaaS RH, plateforme développée depuis janvier, beta privée en cours.',
       clientNotes: [],
       documents: [],
@@ -293,7 +307,7 @@ async function main() {
       vatNumber: '',
       platform: 'squarespace',
       language: 'es',
-      stage: 'done',
+      stage: 'recurring',
       notes: 'Site livré et en ligne depuis mars.',
       clientNotes: [],
       documents: [],
@@ -321,7 +335,7 @@ async function main() {
       vatNumber: 'BE0812345678',
       platform: 'custom',
       language: 'fr',
-      stage: 'done',
+      stage: 'former',
       notes: 'Site vitrine sur mesure (hors CMS), livré début avril.',
       clientNotes: [],
       documents: [],
@@ -349,7 +363,7 @@ async function main() {
       vatNumber: 'BE0456789123',
       platform: 'shopify',
       language: 'fr',
-      stage: 'build_in_progress',
+      stage: 'active',
       notes: 'Ouverture prévue pour la rentrée, souhaite un système de précommande.',
       clientNotes: [],
       documents: [],
@@ -377,7 +391,7 @@ async function main() {
       vatNumber: 'FR12345678901',
       platform: '',
       language: 'fr',
-      stage: 'build_in_progress',
+      stage: 'active',
       notes: 'Intégration technique : connexion de leur ERP interne à la plateforme B2B de leurs distributeurs.',
       clientNotes: [],
       documents: [],
@@ -405,7 +419,7 @@ async function main() {
       vatNumber: 'BE0678912345',
       platform: 'squarespace',
       language: 'fr',
-      stage: 'quote_sent',
+      stage: 'opportunity',
       notes: 'Souhaite une vitrine simple avec galerie photo et page contact.',
       clientNotes: [],
       documents: [],
@@ -433,7 +447,7 @@ async function main() {
       vatNumber: '',
       platform: '',
       language: 'fr',
-      stage: 'lead',
+      stage: 'prospect',
       notes: 'Premier contact, à relancer pour cadrer le besoin.',
       clientNotes: [],
       documents: [],

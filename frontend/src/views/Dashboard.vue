@@ -10,6 +10,10 @@ import { useQuotesStore } from "../stores/quotesStore";
 import { useTimesheetsStore } from "../stores/timesheetsStore";
 import { quoteStatusMeta } from "../lib/clientPresets";
 import { formatCurrency, formatQuoteDate } from "../utils/quote";
+import {
+  projectActiveQuotes,
+  projectToInvoiceExVat,
+} from "../utils/projectFinance";
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
@@ -109,12 +113,19 @@ const activeProjects = computed(() =>
 const activeProjectsPreview = computed(() => activeProjects.value.slice(0, 4));
 const activeProjectsToInvoice = computed(() =>
   activeProjects.value.reduce(
-    (total, project) => total + Math.max(0, Number(project.budgetExVat || 0) - Number(project.invoicedExVat || 0)),
+    (total, project) =>
+      total +
+      projectToInvoiceExVat(
+        project,
+        projectActiveQuotes(project, quotesStore.quotes),
+      ),
     0,
   ),
 );
 const projectProgress = (project: (typeof activeProjects.value)[number]) => {
-  const milestones = project.milestones || [];
+  const milestones = (project.milestones || []).filter(
+    (item) => !["invoice_sent", "payment_received"].includes(item.kind || ""),
+  );
   if (!milestones.length) return 0;
   return Math.round((milestones.filter((item) => item.status === "done").length / milestones.length) * 100);
 };
@@ -126,11 +137,11 @@ const openQuote = (id: string) => {
 
 const openProject = (id: string) => {
   projectsStore.selectProject(id);
-  router.push("/projects");
+  router.push({ name: "project-detail", params: { id } });
 };
 
 const createQuote = () => {
-  router.push({ path: "/quotes", query: { new: "1" } });
+  router.push({ name: "quote-new" });
 };
 
 const createClient = () => {

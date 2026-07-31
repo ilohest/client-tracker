@@ -18,6 +18,7 @@
 
     "create-admin": "npm run create-admin -w scripts",
     "migrate-project-quotes": "npm run migrate-project-quotes -w scripts",
+    "migrate-quote-blocks": "npm run migrate-quote-blocks -w scripts",
 
     "login": "firebase login",
     "deploy": "firebase deploy"

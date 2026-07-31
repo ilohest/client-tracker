@@ -53,8 +53,23 @@ const normalizeClientNotes = (item: Client): Client['clientNotes'] => {
   ];
 };
 
+/** Compatibilité avec l'ancien pipeline, qui mélangeait relation et étapes projet. */
+const normalizeClientStage = (value: unknown): Client['stage'] => {
+  if (['prospect', 'opportunity', 'active', 'recurring', 'paused', 'former'].includes(String(value))) {
+    return value as Client['stage'];
+  }
+  if (value === 'lead') return 'prospect';
+  if (value === 'quote_sent') return 'opportunity';
+  if (value === 'done') return 'former';
+  if (['quote_signed', 'content_pending', 'build_in_progress', 'review', 'launch'].includes(String(value))) {
+    return 'active';
+  }
+  return 'prospect';
+};
+
 const normalizeClient = (item: Client): Client => ({
   ...item,
+  stage: normalizeClientStage(item.stage),
   notes: item.notes || '',
   clientNotes: normalizeClientNotes(item),
   documents: item.documents || [],

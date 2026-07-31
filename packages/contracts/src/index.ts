@@ -138,14 +138,12 @@ export const clientPlatformSchema = z.enum([
 export const quoteLanguageSchema = z.enum(['fr', 'en', 'es']);
 export const vatRateSchema = z.union([z.literal(0), z.literal(21)]);
 export const clientStageSchema = z.enum([
-  'lead',
-  'quote_sent',
-  'quote_signed',
-  'content_pending',
-  'build_in_progress',
-  'review',
-  'launch',
-  'done',
+  'prospect',
+  'opportunity',
+  'active',
+  'recurring',
+  'paused',
+  'former',
 ]);
 
 export const onboardingTaskStatusSchema = z.enum([
@@ -215,7 +213,7 @@ export const clientSchema = z.object({
   vatNumber: z.string().optional().default(''),
   platform: clientPlatformSchema.default(''),
   language: quoteLanguageSchema,
-  stage: clientStageSchema.default('lead'),
+  stage: clientStageSchema.default('prospect'),
   notes: z.string().optional().default(''),
   clientNotes: z.array(clientNoteSchema).default([]),
   documents: z.array(clientDocumentSchema).default([]),
@@ -232,10 +230,39 @@ export const clientInputSchema = clientSchema.omit({
   updatedAt: true,
 });
 
-export const quoteSubsectionSchema = z.object({
+/**
+ * Contenu d'une ligne de devis : une liste *à plat* de blocs, façon éditeur de
+ * blocs (Notion/Craft). L'imbrication des listes passe par `depth`, pas par des
+ * tableaux imbriqués — un seul concept à éditer, et Firestore reste content
+ * (pas de tableau dans un tableau).
+ */
+export const quoteBlockKindSchema = z.enum([
+  'paragraph',
+  'bullet',
+  'numbered',
+  'heading',
+  'table',
+]);
+
+export const quoteTableRowSchema = z.object({
   id: z.string(),
-  title: z.string(),
-  body: z.string(),
+  cells: z.array(z.string()).default([]),
+});
+
+export const quoteTableSchema = z.object({
+  columns: z.array(z.string()).default([]),
+  rows: z.array(quoteTableRowSchema).default([]),
+  hasHeader: z.boolean().default(true),
+});
+
+export const quoteBlockSchema = z.object({
+  id: z.string(),
+  kind: quoteBlockKindSchema.default('paragraph'),
+  /** Niveau d'indentation (0 = racine). Ignoré par les blocs `table`. */
+  depth: z.number().int().min(0).max(3).default(0),
+  text: z.string().default(''),
+  /** Renseigné uniquement quand `kind === 'table'`. */
+  table: quoteTableSchema.optional(),
 });
 
 export const quoteConditionSubItemSchema = z.object({
@@ -252,19 +279,16 @@ export const quoteConditionItemSchema = z.object({
 export const quoteSectionSchema = z.object({
   id: z.string(),
   title: z.string(),
-  description: z.string(),
-  displayMode: z.enum(['title', 'bullets', 'numbered']).default('bullets'),
-  items: z.array(quoteConditionItemSchema).default([]),
-  price: z.number(),
-  subSections: z.array(quoteSubsectionSchema).default([]),
+  blocks: z.array(quoteBlockSchema).default([]),
 });
 
-export const quotePartDisplayStyleSchema = z.enum(['text', 'table']);
+/** Mise en page d'une partie : 'flow' = blocs fluides, 'framed' = cellules encadrées. */
+export const quotePartDisplayStyleSchema = z.enum(['flow', 'framed']);
 
 export const quotePartSchema = z.object({
   id: z.string(),
   title: z.string().default(''),
-  displayStyle: quotePartDisplayStyleSchema.default('text'),
+  displayStyle: quotePartDisplayStyleSchema.default('flow'),
   price: z.number().default(0),
   optional: z.boolean().default(false),
   includeInInvestment: z.boolean().default(true),
@@ -497,10 +521,11 @@ export const projectMilestoneSchema = z.object({
   label: z.string(),
   status: z.enum(['todo', 'done', 'blocked']).default('todo'),
   date: z.string().optional().default(''),
-  kind: z.enum(['quote_accepted', 'invoice_sent', 'payment_received', 'work', 'approval', 'custom']).optional(),
+  kind: z.enum(['quote_accepted', 'invoice_sent', 'payment_received', 'work', 'approval', 'delivery', 'custom']).optional(),
   paymentScheduleStepId: z.string().optional(),
   paymentScheduleIndex: z.number().optional(),
   quoteId: z.string().optional(),
+  addOnId: z.string().optional(),
 });
 
 export const projectNoteSchema = z.object({
@@ -515,6 +540,7 @@ export const projectSupplementSchema = z.object({
   title: z.string(),
   amountExVat: z.number().default(0),
   createdAt: z.string(),
+  description: z.string().optional().default(''),
 });
 
 export const projectSchema = z.object({
@@ -535,6 +561,7 @@ export const projectSchema = z.object({
   budgetExVat: z.number().default(0),
   invoicedExVat: z.number().default(0),
   paidExVat: z.number().default(0),
+  billingWaivedExVat: z.number().default(0),
   hourlyRate: z.number().default(0),
   startedAt: z.string().optional().default(''),
   dueDate: z.string().optional().default(''),
@@ -575,6 +602,10 @@ export type ClientDocument = z.infer<typeof clientDocumentSchema>;
 export type ClientProject = z.infer<typeof clientProjectSchema>;
 export type Client = z.infer<typeof clientSchema>;
 export type ClientInput = z.infer<typeof clientInputSchema>;
+export type QuoteBlockKind = z.infer<typeof quoteBlockKindSchema>;
+export type QuoteTableRow = z.infer<typeof quoteTableRowSchema>;
+export type QuoteTable = z.infer<typeof quoteTableSchema>;
+export type QuoteBlock = z.infer<typeof quoteBlockSchema>;
 export type QuoteSection = z.infer<typeof quoteSectionSchema>;
 export type QuotePaymentScheduleStep = z.infer<typeof quotePaymentScheduleStepSchema>;
 export type QuoteInvestmentLineMode = z.infer<typeof quoteInvestmentLineModeSchema>;

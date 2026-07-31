@@ -55,14 +55,14 @@ const projectSupplementTotal = (project: Project) =>
     0,
   );
 
-const paymentMilestoneMatches = (
+const invoiceMilestoneMatches = (
   milestone: Project["milestones"][number],
   quoteId: string,
   index: number,
   stepId = "",
 ) => {
   if (milestone.status !== "done") return false;
-  if (milestone.kind === "payment_received" && milestone.quoteId === quoteId) {
+  if (milestone.kind === "invoice_sent" && milestone.quoteId === quoteId) {
     if (stepId && milestone.paymentScheduleStepId === stepId) return true;
     return milestone.paymentScheduleIndex === index;
   }
@@ -82,9 +82,31 @@ const projectBillingEntries = (project: Project) => {
   const activeQuotes = projectActiveQuotes(project);
 
   if (!activeQuotes.length) {
-    const date = isoDate(project.startedAt || project.createdAt);
-    const amount = Number(project.invoicedExVat || project.paidExVat || 0);
-    return date && amount > 0 ? [{ date, amount }] : [];
+    const invoiceMilestone = project.milestones?.find(
+      (milestone) =>
+        milestone.kind === "invoice_sent" &&
+        !milestone.addOnId &&
+        milestone.status === "done" &&
+        milestone.date,
+    );
+    const date = invoiceMilestone?.date || isoDate(project.startedAt || project.createdAt);
+    const amount = invoiceMilestone
+      ? Number(project.budgetExVat || 0)
+      : Number(project.invoicedExVat || 0);
+    const baseEntries = date && amount > 0 ? [{ date, amount }] : [];
+    const addOnEntries = (project.projectSupplements || []).flatMap((addOn) => {
+      const milestone = project.milestones?.find(
+        (item) =>
+          item.addOnId === addOn.id &&
+          item.kind === "invoice_sent" &&
+          item.status === "done" &&
+          item.date,
+      );
+      return milestone?.date
+        ? [{ date: milestone.date, amount: Number(addOn.amountExVat || 0) }]
+        : [];
+    });
+    return [...baseEntries, ...addOnEntries];
   }
 
   const legacyFinal = project.milestones?.find(
@@ -101,11 +123,21 @@ const projectBillingEntries = (project: Project) => {
   }
 
   const lastQuoteId = activeQuotes[activeQuotes.length - 1].id;
-  return activeQuotes.flatMap((quote) => {
-    const schedule = quote.paymentSchedule || [];
+  const linkedAddOnIds = new Set(
+    (project.milestones || []).map((milestone) => milestone.addOnId || "").filter(Boolean),
+  );
+  const legacyAddOnTotal = (project.projectSupplements || []).reduce(
+    (total, addOn) =>
+      linkedAddOnIds.has(addOn.id) ? total : total + Number(addOn.amountExVat || 0),
+    0,
+  );
+  const quoteEntries = activeQuotes.flatMap((quote) => {
+    const schedule = quote.paymentSchedule?.length
+      ? quote.paymentSchedule
+      : [{ id: "", label: "Paiement final", mode: "percent" as const, value: 100 }];
     return schedule.flatMap((step, index) => {
       const milestone = project.milestones?.find((item) =>
-        paymentMilestoneMatches(item, quote.id, index, step.id),
+        invoiceMilestoneMatches(item, quote.id, index, step.id),
       );
       if (!milestone?.date) return [];
       const isFinalPayment = quote.id === lastQuoteId && index === schedule.length - 1;
@@ -114,10 +146,23 @@ const projectBillingEntries = (project: Project) => {
           step,
           Number(quote.subtotal || 0),
           Number(quote.totalWithVat || 0),
-        ).amountExcl + (isFinalPayment ? projectSupplementTotal(project) : 0);
+        ).amountExcl + (isFinalPayment ? legacyAddOnTotal : 0);
       return [{ date: milestone.date, amount }];
     });
   });
+  const addOnEntries = (project.projectSupplements || []).flatMap((addOn) => {
+    const milestone = project.milestones?.find(
+      (item) =>
+        item.addOnId === addOn.id &&
+        item.kind === "invoice_sent" &&
+        item.status === "done" &&
+        item.date,
+    );
+    return milestone?.date
+      ? [{ date: milestone.date, amount: Number(addOn.amountExVat || 0) }]
+      : [];
+  });
+  return [...quoteEntries, ...addOnEntries];
 };
 
 const acceptedQuoteEntries = computed(() =>

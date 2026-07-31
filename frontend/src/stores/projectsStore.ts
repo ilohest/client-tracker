@@ -41,6 +41,8 @@ const paymentLabel = (quote: Quote, index: number, type: 'invoice' | 'received')
     return `Facture ${stepLabel} envoyée`;
   }
 
+  if (isDeposit) return 'Acompte reçu';
+  if (isLastPayment || isOnlyPayment) return 'Paiement final reçu';
   return 'Paiement reçu';
 };
 
@@ -88,6 +90,8 @@ const createMilestonesFromQuote = (
     milestones.push(
       { id: crypto.randomUUID(), label: 'Travail en cours', status: 'todo', date: '', kind: 'work' },
       { id: crypto.randomUUID(), label: 'Validation client', status: 'todo', date: '', kind: 'approval' },
+      { id: crypto.randomUUID(), label: 'Implémentation des retours', status: 'todo', date: '', kind: 'work' },
+      { id: crypto.randomUUID(), label: 'Livraison', status: 'todo', date: '', kind: 'delivery' },
     );
   }
   milestones.push(...laterPaymentIndexes.flatMap(paymentMilestones));
@@ -186,6 +190,7 @@ export const useProjectsStore = defineStore('projects', {
         budgetExVat: Number(quote.subtotal || 0),
         invoicedExVat: 0,
         paidExVat: 0,
+        billingWaivedExVat: 0,
         hourlyRate,
         startedAt: acceptedDate,
         dueDate: '',
@@ -222,13 +227,30 @@ export const useProjectsStore = defineStore('projects', {
     // Lie un devis accepté existant (avenant) à un projet déjà en cours : le
     // devis n'est pas dupliqué, seuls ses jalons de paiement s'ajoutent à la roadmap.
     async attachQuoteToProject(project: Project, quote: Quote) {
+      await this.attachQuotesToProject(project, [quote]);
+    },
+
+    // Liaison groupée : une seule mise à jour du projet évite qu'un ajout
+    // successif écrase les jalons créés pour le devis précédent.
+    async attachQuotesToProject(project: Project, quotes: Quote[]) {
       const quotesStore = useQuotesStore();
-      await quotesStore.setQuoteProjectId(quote.id, project.id);
+      const quotesWithoutMilestones = quotes.filter(
+        (quote) =>
+          !project.milestones.some((milestone) => milestone.quoteId === quote.id),
+      );
+      if (!quotesWithoutMilestones.length) return;
+      await Promise.all(
+        quotesWithoutMilestones
+          .filter((quote) => quote.projectId !== project.id)
+          .map((quote) => quotesStore.setQuoteProjectId(quote.id, project.id)),
+      );
       const acceptedDate = new Date().toISOString().slice(0, 10);
-      const newMilestones = createMilestonesFromQuote(quote, acceptedDate, {
-        label: `Devis accepté — ${quote.quoteRef || quote.title}`,
-        includeWorkflowSteps: false,
-      });
+      const newMilestones = quotesWithoutMilestones.flatMap((quote) =>
+        createMilestonesFromQuote(quote, acceptedDate, {
+          label: `Devis accepté — ${quote.quoteRef || quote.title}`,
+          includeWorkflowSteps: false,
+        }),
+      );
       await this.updateProject(project.id, {
         milestones: [...project.milestones, ...newMilestones],
       });

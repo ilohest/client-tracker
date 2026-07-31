@@ -1,11 +1,13 @@
 import type {
   Quote,
+  QuoteBlock,
   QuoteCondition,
   QuoteInvestmentLine,
   QuoteLanguage,
   QuotePart,
   QuotePaymentScheduleStep,
   QuoteSection,
+  QuoteTable,
   UserProfile,
 } from "@client-tracker/contracts";
 import { getCountryLabel, isCountryLine } from "@/lib/countries";
@@ -309,49 +311,86 @@ const buildProfileVariableRenderer = (
     );
 };
 
-const resolveSectionDisplayMode = (
-  value: unknown,
-): NonNullable<QuoteSection["displayMode"]> => {
-  if (value === "title" || value === "bullets" || value === "numbered") {
-    return value;
-  }
-  if (value && typeof value === "object" && "value" in value) {
-    const optionValue = (value as { value?: unknown }).value;
-    if (
-      optionValue === "title" ||
-      optionValue === "bullets" ||
-      optionValue === "numbered"
-    ) {
-      return optionValue;
-    }
-  }
-  return "bullets";
-};
+const MAX_PDF_INDENT = 3;
 
-const renderSectionItems = (
-  section: QuoteSection,
+const renderBlockTable = (
+  table: QuoteTable,
   renderVariables: (value: string) => string,
 ): string => {
-  const displayMode = resolveSectionDisplayMode(section.displayMode);
-  if (displayMode === "title")
-    return renderRichText(renderVariables(section.description));
-  const description = section.description?.trim()
-    ? `<div class="section-description">${renderRichText(renderVariables(section.description))}</div>`
+  const cell = (value: string, tag: "td" | "th") =>
+    `<${tag}>${escapeHtml(renderVariables(value || ""))}</${tag}>`;
+  const head = table.hasHeader
+    ? `<thead><tr>${table.columns.map((column) => cell(column, "th")).join("")}</tr></thead>`
     : "";
-  if (section.items?.length) {
-    const tag = displayMode === "numbered" ? "ol" : "ul";
-    const items = section.items
-      .map((item) => {
-        const subs = (item.subItems || [])
-          .map((sub) => `<li>${escapeHtml(renderVariables(sub.text))}</li>`)
-          .join("");
-        const subList = subs ? `<ul class="sub">${subs}</ul>` : "";
-        return `<li>${escapeHtml(renderVariables(item.text))}${subList}</li>`;
-      })
-      .join("");
-    return `${description}<${tag} class="section-items">${items}</${tag}>`;
-  }
-  return description;
+  const body = (table.rows || [])
+    .map((row) => `<tr>${(row.cells || []).map((value) => cell(value, "td")).join("")}</tr>`)
+    .join("");
+  return `<table class="content-table">${head}<tbody>${body}</tbody></table>`;
+};
+
+/**
+ * Convertit la liste plate de blocs en HTML : les blocs de liste consécutifs
+ * sont regroupés en `<ul>`/`<ol>` imbriqués selon leur `depth`.
+ */
+const renderBlocks = (
+  blocks: QuoteBlock[],
+  renderVariables: (value: string) => string,
+): string => {
+  const out: string[] = [];
+  /** Pile des listes ouvertes, du niveau 0 vers le plus profond. */
+  const openLists: Array<"ul" | "ol"> = [];
+
+  const closeListsTo = (depth: number) => {
+    while (openLists.length > depth) {
+      out.push(`</li></${openLists.pop()}>`);
+    }
+  };
+
+  (blocks || []).forEach((block) => {
+    const text = escapeHtml(renderVariables(block.text || ""));
+
+    if (block.kind === "bullet" || block.kind === "numbered") {
+      const tag = block.kind === "numbered" ? "ol" : "ul";
+      // Un niveau ne peut s'ouvrir que juste sous le dernier ouvert.
+      const depth = Math.min(Math.max(0, block.depth || 0), openLists.length);
+
+      if (depth < openLists.length) closeListsTo(depth + 1);
+
+      if (depth === openLists.length) {
+        // Nouveau niveau : la liste s'ouvre à l'intérieur du <li> courant.
+        if (openLists.length) out.push(`<${tag} class="sub">`);
+        else out.push(`<${tag} class="section-items">`);
+        openLists.push(tag);
+      } else if (openLists[depth] !== tag) {
+        // Changement de type au même niveau : on referme et on rouvre.
+        closeListsTo(depth);
+        out.push(depth ? `<${tag} class="sub">` : `<${tag} class="section-items">`);
+        openLists.push(tag);
+      } else {
+        out.push("</li>");
+      }
+
+      out.push(`<li>${text}`);
+      return;
+    }
+
+    closeListsTo(0);
+    if (!text && block.kind !== "table") return;
+
+    if (block.kind === "heading") {
+      out.push(`<div class="subsection"><h4>${text}</h4></div>`);
+      return;
+    }
+    if (block.kind === "table") {
+      out.push(block.table ? renderBlockTable(block.table, renderVariables) : "");
+      return;
+    }
+    const indent = block.depth ? ` class="indent-${Math.min(block.depth, MAX_PDF_INDENT)}"` : "";
+    out.push(`<p${indent}>${text}</p>`);
+  });
+
+  closeListsTo(0);
+  return out.join("");
 };
 
 const renderSectionInner = (
@@ -361,25 +400,18 @@ const renderSectionInner = (
   const title = renderVariables(
     stripAutoNumberPrefix(section.title) || section.title,
   );
-  const sub = (section.subSections || [])
-    .map(
-      (s) =>
-        `<div class="subsection"><h4>${escapeHtml(renderVariables(s.title))}</h4>${renderRichText(renderVariables(s.body))}</div>`,
-    )
-    .join("");
   return `${title ? `<h3>${escapeHtml(title)}</h3>` : ""}
-    ${renderSectionItems(section, renderVariables)}
-    ${sub}`;
+    ${renderBlocks(section.blocks || [], renderVariables)}`;
 };
 
-/** Rendu d'une partie : 'table' = cellules encadrées, 'text' = blocs fluides. */
+/** Rendu d'une partie : 'framed' = cellules encadrées, 'flow' = blocs fluides. */
 const renderPartSections = (
   part: QuotePart,
   renderVariables: (value: string) => string,
 ): string =>
   (part.sections || [])
     .map((section) =>
-      part.displayStyle === "table"
+      part.displayStyle === "framed"
         ? `<section class="scope-cell">${renderSectionInner(section, renderVariables)}</section>`
         : `<div class="text-block">${renderSectionInner(section, renderVariables)}</div>`,
     )
@@ -1094,6 +1126,32 @@ export const renderQuoteDocumentHtml = (
   .text-block li ol,
   .scope-cell li ul,
   .scope-cell li ol { margin-top: 3px; padding-left: 16px; }
+  .text-block p.indent-1,
+  .scope-cell p.indent-1 { padding-left: 20px; }
+  .text-block p.indent-2,
+  .scope-cell p.indent-2 { padding-left: 36px; }
+  .text-block p.indent-3,
+  .scope-cell p.indent-3 { padding-left: 52px; }
+
+  .content-table {
+    width: 100%; border-collapse: collapse;
+    margin: 8px 0 10px;
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+    text-align: left;
+  }
+  .content-table th,
+  .content-table td {
+    padding: 7px 10px; border-bottom: 1px solid var(--line);
+    vertical-align: top; text-align: left;
+  }
+  .content-table th:not(:last-child),
+  .content-table td:not(:last-child) { border-right: 1px solid var(--line); }
+  .content-table thead th {
+    background: var(--soft); font-family: ${bodyFontStack};
+    font-size: 8.5pt; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted);
+  }
+  .content-table tbody tr:last-child td { border-bottom: 0; }
 
   .quote-part > h2 { display: flex; align-items: center; gap: 10px; }
   .part-badge {

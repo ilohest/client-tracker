@@ -40,17 +40,28 @@ const toIsoDate = (value: unknown): string => {
 };
 
 const defaultMilestones = (): Project['milestones'] => [
-  { id: crypto.randomUUID(), label: 'Devis accepté', status: 'done', date: '', kind: 'quote_accepted' },
-  { id: crypto.randomUUID(), label: "Facture d'acompte envoyée", status: 'todo', date: '', kind: 'invoice_sent', paymentScheduleIndex: 0 },
-  { id: crypto.randomUUID(), label: 'Paiement reçu', status: 'todo', date: '', kind: 'payment_received', paymentScheduleIndex: 0 },
+  { id: crypto.randomUUID(), label: 'Cadrage initial validé', status: 'done', date: '', kind: 'custom' },
   { id: crypto.randomUUID(), label: 'Travail en cours', status: 'todo', date: '', kind: 'work' },
   { id: crypto.randomUUID(), label: 'Validation client', status: 'todo', date: '', kind: 'approval' },
-  { id: crypto.randomUUID(), label: 'Facture finale envoyée', status: 'todo', date: '', kind: 'invoice_sent', paymentScheduleIndex: 1 },
-  { id: crypto.randomUUID(), label: 'Paiement reçu', status: 'todo', date: '', kind: 'payment_received', paymentScheduleIndex: 1 },
+  { id: crypto.randomUUID(), label: 'Implémentation des retours', status: 'todo', date: '', kind: 'work' },
+  { id: crypto.randomUUID(), label: 'Livraison', status: 'todo', date: '', kind: 'delivery' },
+  { id: crypto.randomUUID(), label: "Facture d'acompte envoyée", status: 'todo', date: '', kind: 'invoice_sent', paymentScheduleIndex: 0 },
+  { id: crypto.randomUUID(), label: 'Acompte reçu', status: 'todo', date: '', kind: 'payment_received', paymentScheduleIndex: 0 },
+  { id: crypto.randomUUID(), label: 'Facture finale envoyée', status: 'todo', date: '', kind: 'invoice_sent', paymentScheduleIndex: -1 },
+  { id: crypto.randomUUID(), label: 'Paiement final reçu', status: 'todo', date: '', kind: 'payment_received', paymentScheduleIndex: -1 },
 ];
 
 const normalizeMilestone = (milestone: Project['milestones'][number]): Project['milestones'][number] => {
-  const label = milestone.label === 'Facture finale payée' ? 'Paiement final reçu' : milestone.label;
+  const label =
+    milestone.label === 'Projet créé'
+      ? 'Cadrage initial validé'
+      : milestone.label === 'Facture finale payée'
+        ? 'Paiement final reçu'
+        : milestone.label === 'Paiement reçu' &&
+            !milestone.quoteId &&
+            (milestone.paymentScheduleIndex ?? -1) === -1
+          ? 'Paiement final reçu'
+        : milestone.label;
   const kind =
     milestone.kind ||
     (label === 'Devis accepté'
@@ -63,7 +74,9 @@ const normalizeMilestone = (milestone: Project['milestones'][number]): Project['
             ? 'work'
             : label === 'Validation client'
               ? 'approval'
-              : 'custom');
+              : label === 'Livraison'
+                ? 'delivery'
+                : 'custom');
   const paymentScheduleIndex =
     typeof milestone.paymentScheduleIndex === 'number'
       ? milestone.paymentScheduleIndex
@@ -78,7 +91,30 @@ const normalizeMilestone = (milestone: Project['milestones'][number]): Project['
     paymentScheduleStepId: milestone.paymentScheduleStepId || '',
     paymentScheduleIndex,
     quoteId: milestone.quoteId || '',
+    addOnId: milestone.addOnId || '',
   };
+};
+
+const ensureDeliveryMilestone = (milestones: Project['milestones']): Project['milestones'] => {
+  if (milestones.some((milestone) => milestone.kind === 'delivery')) return milestones;
+  const firstFinalInvoiceIndex = milestones.findIndex(
+    (milestone) =>
+      milestone.kind === 'invoice_sent' &&
+      !milestone.label.toLowerCase().includes('acompte'),
+  );
+  const delivery = {
+    id: crypto.randomUUID(),
+    label: 'Livraison',
+    status: 'todo' as const,
+    date: '',
+    kind: 'delivery' as const,
+  };
+  if (firstFinalInvoiceIndex < 0) return [...milestones, delivery];
+  return [
+    ...milestones.slice(0, firstFinalInvoiceIndex),
+    delivery,
+    ...milestones.slice(firstFinalInvoiceIndex),
+  ];
 };
 
 const ensureFinalInvoiceSentMilestone = (milestones: Project['milestones']): Project['milestones'] => {
@@ -105,6 +141,79 @@ const ensureFinalInvoiceSentMilestone = (milestones: Project['milestones']): Pro
   ];
 };
 
+const ensureCoreWorkflowMilestones = (
+  milestones: Project['milestones'],
+): Project['milestones'] => {
+  if (milestones.some((milestone) => milestone.label === 'Implémentation des retours')) {
+    return milestones;
+  }
+  const approvalIndex = milestones.findIndex(
+    (milestone) => milestone.kind === 'approval' || milestone.label === 'Validation client',
+  );
+  const implementation = {
+    id: crypto.randomUUID(),
+    label: 'Implémentation des retours',
+    status: 'todo' as const,
+    date: '',
+    kind: 'work' as const,
+  };
+  if (approvalIndex < 0) return [...milestones, implementation];
+  return [
+    ...milestones.slice(0, approvalIndex + 1),
+    implementation,
+    ...milestones.slice(approvalIndex + 1),
+  ];
+};
+
+const ensureMinimumFinancialMilestones = (
+  milestones: Project['milestones'],
+): Project['milestones'] => {
+  const hasDepositInvoice = milestones.some(
+    (milestone) =>
+      milestone.kind === 'invoice_sent' &&
+      milestone.label.toLowerCase().includes('acompte'),
+  );
+  const hasDepositPayment = milestones.some(
+    (milestone) =>
+      milestone.kind === 'payment_received' &&
+      milestone.label.toLowerCase().includes('acompte'),
+  );
+  if (hasDepositInvoice && hasDepositPayment) return milestones;
+
+  const firstFinancialIndex = milestones.findIndex((milestone) =>
+    ['invoice_sent', 'payment_received'].includes(milestone.kind || ''),
+  );
+  const depositMilestones: Project['milestones'] = [];
+  if (!hasDepositInvoice) {
+    depositMilestones.push({
+      id: crypto.randomUUID(),
+      label: "Facture d'acompte envoyée",
+      status: 'todo',
+      date: '',
+      kind: 'invoice_sent',
+      paymentScheduleStepId: '',
+      paymentScheduleIndex: 0,
+    });
+  }
+  if (!hasDepositPayment) {
+    depositMilestones.push({
+      id: crypto.randomUUID(),
+      label: 'Acompte reçu',
+      status: 'todo',
+      date: '',
+      kind: 'payment_received',
+      paymentScheduleStepId: '',
+      paymentScheduleIndex: 0,
+    });
+  }
+  if (firstFinancialIndex < 0) return [...milestones, ...depositMilestones];
+  return [
+    ...milestones.slice(0, firstFinancialIndex),
+    ...depositMilestones,
+    ...milestones.slice(firstFinancialIndex),
+  ];
+};
+
 const normalizeProjectNotes = (item: Project): Project['projectNotes'] => {
   if (item.projectNotes?.length) return item.projectNotes;
   if (!item.notes?.trim()) return [];
@@ -125,6 +234,7 @@ const normalizeProjectSupplements = (item: Project): Project['projectSupplements
     title: supplement.title || 'Supplément',
     amountExVat: Number(supplement.amountExVat || 0),
     createdAt: supplement.createdAt || toIsoDate(item.createdAt) || new Date().toISOString().slice(0, 10),
+    description: supplement.description || '',
   }));
 
 const normalizeProject = (item: Project): Project => ({
@@ -143,13 +253,22 @@ const normalizeProject = (item: Project): Project => ({
   budgetExVat: Number(item.budgetExVat || 0),
   invoicedExVat: Number(item.invoicedExVat || 0),
   paidExVat: Number(item.paidExVat || 0),
+  billingWaivedExVat: Number(item.billingWaivedExVat || 0),
   hourlyRate: Number(item.hourlyRate || 0),
   startedAt: item.startedAt || toIsoDate(item.createdAt),
   dueDate: item.dueDate || '',
   closedAt: item.closedAt || '',
   blockedReason: item.blockedReason || '',
   nextAction: item.nextAction || '',
-  milestones: ensureFinalInvoiceSentMilestone(item.milestones?.length ? item.milestones : defaultMilestones()),
+  milestones: ensureMinimumFinancialMilestones(
+    ensureCoreWorkflowMilestones(
+      ensureDeliveryMilestone(
+        ensureFinalInvoiceSentMilestone(
+          item.milestones?.length ? item.milestones : defaultMilestones(),
+        ),
+      ),
+    ),
+  ),
 });
 
 export const projectsService = {

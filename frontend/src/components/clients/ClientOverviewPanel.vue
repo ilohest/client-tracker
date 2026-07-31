@@ -8,8 +8,12 @@ import Textarea from 'primevue/textarea';
 import { useConfirm } from 'primevue/useconfirm';
 import { getCountryFlag, getCountryLabel } from '@/lib/countries';
 import { quoteStatusMeta } from '@/lib/clientPresets';
-import { formatClientAddress, formatClientFullName } from '@/utils/address';
+import { formatClientAddress } from '@/utils/address';
 import { formatQuoteDate } from '@/utils/quote';
+import {
+  clientActivitySignals,
+  clientActivityToneClass,
+} from '@/utils/clientFilters';
 
 const props = defineProps<{
   client: Client | null;
@@ -33,6 +37,11 @@ const newClientNote = ref('');
 const clientNoteDrafts = reactive<Record<string, string>>({});
 
 const clientNotes = computed(() => props.client?.clientNotes || []);
+const activitySignals = computed(() =>
+  props.client
+    ? clientActivitySignals(props.client, props.quotes, props.projects)
+    : [],
+);
 
 watch(
   () => [props.client?.id, props.client?.clientNotes] as const,
@@ -93,11 +102,6 @@ const projectQuoteRefsLabel = (project: Project): string => {
 };
 const quoteStatusTagClass = (status: QuoteStatus): string => quoteStatusMeta[status].tagClass;
 
-const shouldShowPlatformTag = computed(() => {
-  const platform = props.client?.platform?.trim().toLowerCase();
-  return Boolean(platform && platform !== 'other');
-});
-
 const projectStatusLabel: Record<Project['status'], string> = {
   proposal_accepted: 'Devis accepté',
   deposit_pending: 'Acompte à envoyer',
@@ -117,6 +121,10 @@ const projectStatusClass = (project: Project) => {
   if (['ready_to_invoice', 'deposit_pending'].includes(project.status)) return '!bg-amber-500/12 !text-amber-700';
   return '!bg-primary/10 !text-primary';
 };
+
+const projectNextAction = (project: Project): string =>
+  project.milestones?.find((milestone) => milestone.status !== 'done')?.label ||
+  'Toutes les étapes sont terminées';
 
 const formatMoney = (value: number) =>
   new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(Number(value || 0));
@@ -173,11 +181,7 @@ const confirmDeleteClientNote = (noteId: string) => {
     <div v-if="client" class="flex flex-col gap-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div class="flex flex-wrap items-center gap-2 mb-2">
-            <h2 class="text-2xl font-heading font-bold text-surface-dark">{{ formatClientFullName(client) }}</h2>
-            <Tag v-if="shouldShowPlatformTag" :value="client.platform" rounded class="!bg-primary/10 !text-primary" />
-          </div>
-          <p v-if="client.companyName" class="text-sm font-medium text-surface-dark/70 mb-1">{{ client.companyName }}</p>
+          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Contact</p>
           <a
             v-if="client.contactEmail"
             :href="normalizeMailto(client.contactEmail)"
@@ -205,14 +209,27 @@ const confirmDeleteClientNote = (noteId: string) => {
           </a>
           <p v-else class="text-sm text-surface-dark/60">Site non renseigné</p>
         </div>
+      </div>
 
-        <div class="flex gap-2">
-          <Button text rounded severity="secondary" aria-label="Modifier" title="Modifier" @click="emit('edit')">
-            <template #icon><span class="material-symbols-outlined text-lg">edit</span></template>
-          </Button>
-          <Button text rounded severity="danger" aria-label="Supprimer" title="Supprimer" @click="emit('delete')">
-            <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
-          </Button>
+      <div class="client-bento-card rounded-2xl p-4">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-surface-dark/45">Activité actuelle</p>
+            <p class="mt-1 text-sm text-surface-dark/60">
+              Calculée automatiquement depuis les devis, projets et paiements.
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-2 md:justify-end">
+            <span
+              v-for="signal in activitySignals"
+              :key="signal.key"
+              class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold"
+              :class="clientActivityToneClass[signal.tone]"
+            >
+              <span class="material-symbols-outlined text-sm">{{ signal.icon }}</span>
+              {{ signal.label }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -389,7 +406,7 @@ const confirmDeleteClientNote = (noteId: string) => {
               <Tag :value="projectStatusLabel[project.status]" :class="projectStatusClass(project)" rounded />
             </div>
             <div class="mt-3 flex items-center justify-between gap-3 text-sm text-surface-dark/65">
-              <span>{{ project.nextAction || 'Aucune prochaine action' }}</span>
+              <span>{{ projectNextAction(project) }}</span>
               <span class="font-semibold text-surface-dark">{{ formatMoney(project.budgetExVat) }}</span>
             </div>
           </button>

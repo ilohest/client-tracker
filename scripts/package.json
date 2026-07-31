@@ -6,7 +6,8 @@
   "description": "Utility scripts for client-tracker",
   "scripts": {
     "create-admin": "tsx createAdmin.ts",
-    "migrate-project-quotes": "tsx migrateProjectQuotes.ts"
+    "migrate-project-quotes": "tsx migrateProjectQuotes.ts",
+    "migrate-quote-blocks": "tsx migrateQuoteBlocks.ts"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0"

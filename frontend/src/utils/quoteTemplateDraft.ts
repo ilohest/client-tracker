@@ -6,6 +6,7 @@ import type {
   QuoteTemplateLocalizedContent,
 } from "@client-tracker/contracts";
 import { createEntityId } from "@/utils/quote";
+import { comparableBlocks } from "@/utils/quoteBlocks";
 
 const quoteTemplateLanguages: QuoteLanguage[] = ["fr", "en", "es"];
 
@@ -91,14 +92,7 @@ const comparableLocalizedSlice = (slice: QuoteTemplateLocalizedContent) => ({
     priceNote: part.priceNote || "",
     sections: (part.sections || []).map((section) => ({
       title: section.title || "",
-      description: section.description || "",
-      displayMode: section.displayMode || "bullets",
-      price: Number(section.price || 0),
-      items: comparableItems(section.items || []),
-      subSections: (section.subSections || []).map((subSection) => ({
-        title: subSection.title || "",
-        body: subSection.body || "",
-      })),
+      blocks: comparableBlocks(section.blocks || []),
     })),
   })),
   conditions: (slice.conditions || []).map(comparableCondition),

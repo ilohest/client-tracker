@@ -1,9 +1,9 @@
 import type { Quote, QuoteAddon, QuoteConditionItem, QuoteDiscountType, QuoteInput, QuoteInvestmentLine, QuotePart, QuotePaymentScheduleStep, QuoteSection, VatRate } from '@client-tracker/contracts';
 
-export const createEntityId = (): string =>
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+import { createEntityId } from './id';
+import { cloneBlocks } from './quoteBlocks';
+
+export { createEntityId };
 
 export const getClientInitials = (name: string): string =>
   name
@@ -59,7 +59,7 @@ export const getQuoteValidityDate = (quoteDate: string): string => {
 export const createEmptyQuotePart = (): QuotePart => ({
   id: createEntityId(),
   title: '',
-  displayStyle: 'text',
+  displayStyle: 'flow',
   price: 0,
   optional: false,
   includeInInvestment: true,
@@ -261,9 +261,19 @@ export const investmentLinesFromParts = (
       note: part.optional && part.priceNote?.trim() ? part.priceNote.trim() : '',
     }));
 
+const platformLabels: Record<Quote['platform'], string> = {
+  '': '',
+  shopify: 'Shopify',
+  wordpress: 'WordPress',
+  webflow: 'Webflow',
+  squarespace: 'Squarespace',
+  custom: 'Sur mesure',
+  other: 'Autre',
+};
+
 export const getQuotePlatformLabel = (platform: Quote['platform'], customPlatformLabel: string = ''): string => {
   if (platform === 'other' && customPlatformLabel.trim()) return customPlatformLabel.trim();
-  return platform;
+  return platformLabels[platform] ?? platform;
 };
 
 const cloneConditionItems = (items: QuoteConditionItem[] = []): QuoteConditionItem[] =>
@@ -280,11 +290,7 @@ const cloneSections = (sections: QuoteSection[] = []): QuoteSection[] =>
   sections.map((section) => ({
     ...section,
     id: createEntityId(),
-    items: cloneConditionItems(section.items || []),
-    subSections: (section.subSections || []).map((subSection) => ({
-      ...subSection,
-      id: createEntityId(),
-    })),
+    blocks: cloneBlocks(section.blocks || []),
   }));
 
 export const cloneQuoteParts = (parts: QuotePart[] = []): QuotePart[] =>

@@ -26,8 +26,8 @@ const emit = defineEmits<{
 }>();
 
 const styleOptions: Array<{ label: string; value: QuotePartDisplayStyle }> = [
-  { label: "Texte", value: "text" },
-  { label: "Tableau", value: "table" },
+  { label: "Fluide", value: "flow" },
+  { label: "Encadré", value: "framed" },
 ];
 
 const STORAGE_KEY = "devisio:quote-parts:collapsed";
@@ -94,7 +94,7 @@ const addPart = () => {
   const part: QuotePart = {
     id: createEntityId(),
     title: "",
-    displayStyle: "text",
+    displayStyle: "flow",
     price: 0,
     optional: false,
     includeInInvestment: true,
@@ -215,7 +215,11 @@ const reorder = (targetId: string) => {
           <!-- Options de partie -->
           <div class="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-surface-dark/6 px-3 py-2.5">
             <div class="flex items-center gap-2">
-              <span class="text-xs font-medium uppercase tracking-wide text-surface-dark/50">Affichage</span>
+              <span
+                class="text-xs font-medium uppercase tracking-wide text-surface-dark/50"
+                title="Fluide : les lignes s'enchaînent. Encadré : chaque ligne devient une cellule bordée dans le PDF."
+                >Affichage</span
+              >
               <SelectButton
                 :model-value="part.displayStyle"
                 :options="styleOptions"

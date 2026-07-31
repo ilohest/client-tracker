@@ -29,6 +29,7 @@ import {
 import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
 import { formatDateTime } from "@/utils/date";
 import { cloneQuoteParts, createEntityId } from "@/utils/quote";
+import { cloneBlocks, serializeBlocks } from "@/utils/quoteBlocks";
 import {
   comparableQuoteTemplate,
   resolveCommonConditionReferences,
@@ -61,11 +62,7 @@ const cloneSections = (sections: QuoteSection[] = []) =>
   sections.map((section) => ({
     ...section,
     id: section.id || createEntityId(),
-    items: cloneItems(section.items),
-    subSections: (section.subSections || []).map((subSection) => ({
-      ...subSection,
-      id: subSection.id || createEntityId(),
-    })),
+    blocks: cloneBlocks(section.blocks || []),
   }));
 
 const cloneParts = (parts: QuoteTemplateLocalizedContent["parts"] = []) =>
@@ -211,22 +208,7 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
     sections: (part.sections || []).map((section) => ({
       id: section.id,
       title: section.title,
-      description: section.description,
-      displayMode: section.displayMode || "bullets",
-      items: normalizeItems(section.items).map((item) => ({
-        id: item.id,
-        text: item.text,
-        subItems: item.subItems.map((subItem) => ({
-          id: subItem.id,
-          text: subItem.text,
-        })),
-      })),
-      price: section.price,
-      subSections: (section.subSections || []).map((subSection) => ({
-        id: subSection.id,
-        title: subSection.title,
-        body: subSection.body,
-      })),
+      blocks: serializeBlocks(section.blocks || [], { withIds: true }),
     })),
   })),
   conditions: draft.conditions.map((condition) => ({

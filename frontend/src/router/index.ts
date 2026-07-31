@@ -36,20 +36,44 @@ const router = createRouter({
         {
            path: 'clients',
            name: 'clients',
-           component: () => import('../views/ClientsWorkspace.vue'),
+           component: () => import('../views/ClientsIndex.vue'),
            meta: { title: 'Clients' }
+        },
+        {
+           path: 'clients/:id',
+           name: 'client-detail',
+           component: () => import('../views/ClientDetail.vue'),
+           meta: { title: 'Client' }
         },
         {
            path: 'quotes',
            name: 'quotes',
-           component: () => import('../views/QuotesWorkspace.vue'),
+           component: () => import('../views/QuotesIndex.vue'),
+           meta: { title: 'Devis' }
+        },
+        {
+           path: 'quotes/new',
+           name: 'quote-new',
+           component: () => import('../views/QuoteDetail.vue'),
+           meta: { title: 'Nouveau devis' }
+        },
+        {
+           path: 'quotes/:id',
+           name: 'quote-detail',
+           component: () => import('../views/QuoteDetail.vue'),
            meta: { title: 'Devis' }
         },
         {
            path: 'projects',
            name: 'projects',
-           component: () => import('../views/ProjectsWorkspace.vue'),
+           component: () => import('../views/ProjectsIndex.vue'),
            meta: { title: 'Projets' }
+        },
+        {
+           path: 'projects/:id',
+           name: 'project-detail',
+           component: () => import('../views/ProjectDetail.vue'),
+           meta: { title: 'Projet' }
         },
         {
            path: 'stats',

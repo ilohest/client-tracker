@@ -113,14 +113,12 @@ export const createDefaultPaymentSchedule = (language: QuoteLanguage = 'fr'): Qu
 };
 
 export const clientStageOptions: Array<{ label: string; value: ClientStage }> = [
-  { label: 'Lead', value: 'lead' },
-  { label: 'Devis envoyé', value: 'quote_sent' },
-  { label: 'Devis signé', value: 'quote_signed' },
-  { label: 'Contenus en attente', value: 'content_pending' },
-  { label: 'Production', value: 'build_in_progress' },
-  { label: 'Relecture', value: 'review' },
-  { label: 'Mise en ligne', value: 'launch' },
-  { label: 'Terminé', value: 'done' },
+  { label: 'Prospect', value: 'prospect' },
+  { label: 'Opportunité', value: 'opportunity' },
+  { label: 'Client actif', value: 'active' },
+  { label: 'Client récurrent', value: 'recurring' },
+  { label: 'En pause', value: 'paused' },
+  { label: 'Ancien client', value: 'former' },
 ];
 
 export const euCountryCodes = new Set([

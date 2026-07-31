@@ -340,7 +340,7 @@ const openLinkedProject = () => {
   const project = selectedLinkedProject.value;
   if (!project) return;
   projectsStore.selectProject(project.id);
-  router.push({ name: "projects" });
+  router.push({ name: "project-detail", params: { id: project.id } });
 };
 
 const showTimesheetError = (error: unknown) => {

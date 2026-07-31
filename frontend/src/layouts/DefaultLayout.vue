@@ -20,8 +20,11 @@ const timesheetsStore = useTimesheetsStore();
 const projectsStore = useProjectsStore();
 const route = useRoute();
 const router = useRouter();
+// L'aperçu du devis récupère de la largeur en réduisant le menu aux icônes.
 const isQuotePreviewMode = computed(
-  () => route.path === "/quotes" && route.query.preview === "live",
+  () =>
+    (route.name === "quote-detail" || route.name === "quote-new") &&
+    route.query.preview === "live",
 );
 
 // --- ETAT COMMUN ---

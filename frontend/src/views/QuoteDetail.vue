@@ -28,15 +28,13 @@ import Button from "primevue/button";
 import Checkbox from "primevue/checkbox";
 import ConfirmDialog from "primevue/confirmdialog";
 import Dialog from "primevue/dialog";
+import Menu from "primevue/menu";
 import Select from "primevue/select";
 import { useConfirm } from "primevue/useconfirm";
 import { useToast } from "primevue/usetoast";
 import ClientFormDialog from "@/components/clients/ClientFormDialog.vue";
-import QuoteActionBar from "@/components/quotes/QuoteActionBar.vue";
 import QuoteBuilderForm from "@/components/quotes/QuoteBuilderForm.vue";
-import QuoteListPanel from "@/components/quotes/QuoteListPanel.vue";
 import QuoteOutputPanel from "@/components/quotes/QuoteOutputPanel.vue";
-import QuoteTablePanel from "@/components/quotes/QuoteTablePanel.vue";
 import {
   createBlankAddon,
   createDefaultPaymentSchedule,
@@ -44,6 +42,7 @@ import {
   createDefaultQuotePrinciples,
   getEstimatedTimelineTitle,
   quoteEmailPresets,
+  quoteStatusMeta,
 } from "@/lib/clientPresets";
 import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
@@ -53,6 +52,7 @@ import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
 import { formatClientAddress, formatClientFullName } from "@/utils/address";
 import { copyToClipboard } from "@/utils/clipboard";
 import { formatDateTime } from "@/utils/date";
+import { hydrateBlocks, serializeBlocks } from "@/utils/quoteBlocks";
 import { renderQuoteDocumentHtml } from "@/utils/quotePdf";
 import {
   calculateAddonTotal,
@@ -64,6 +64,7 @@ import {
   createEntityId,
   createQuoteVersionInput,
   duplicateQuoteInput,
+  formatCurrency,
   formatQuoteDate,
   generateQuoteReference,
   getQuotePlatformLabel,
@@ -71,9 +72,10 @@ import {
   getTodayQuoteDate,
   parseQuoteDate,
 } from "@/utils/quote";
+import { buildQuoteList, readQuoteListQuery } from "@/utils/quoteFilters";
 import { resolveCommonConditionReferences as resolveSharedCommonConditionReferences } from "@/utils/quoteTemplateDraft";
 import { computeVatRateForClient, getVatExplanation } from "@/utils/vat";
-import { useRoute, useRouter } from "vue-router";
+import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
 type QuoteDraft = QuoteInput;
 
@@ -91,12 +93,6 @@ const previewDialogVisible = ref(false);
 const previewFrame = ref<HTMLIFrameElement | null>(null);
 const previewScrollPosition = ref({ left: 0, top: 0 });
 const shouldRestorePreviewScroll = ref(false);
-const mobileEditorVisible = ref(false);
-const isCompactQuotesView = ref(false);
-const quoteSearch = ref("");
-const quoteFilterClientId = ref("");
-const quoteFilterDateRange = ref<Date[] | null>(null);
-const quoteFilterStatus = ref<QuoteStatus | "">("");
 const selectedTemplateId = ref<string | null>("");
 const lastAutoEmailDraft = ref("");
 const lastAutoEmailSubject = ref("");
@@ -108,15 +104,12 @@ let hydratingQuote = false;
 
 let unsavedAttentionTimeout: ReturnType<typeof setTimeout> | null = null;
 
-const syncCompactMode = () => {
-  isCompactQuotesView.value = window.innerWidth < 1024;
-};
-
 // Brouillon vierge : le contenu de stack (conditions, roadmap, add-ons…) vient
 // d'un template ; le mail, la validation et les principes viennent de la base commune.
 // Les conditions communes sont référencées par les templates pour rester ordonnables.
 const createDraft = (): QuoteDraft => ({
   clientId: "",
+  projectId: "",
   templateId: "",
   title: "",
   projectName: "",
@@ -165,18 +158,7 @@ const cloneTemplateLocalizedSlice = (
     sections: (part.sections || []).map((section) => ({
       ...section,
       id: section.id || createEntityId(),
-      items: (section.items || []).map((item) => ({
-        id: item.id || createEntityId(),
-        text: item.text || "",
-        subItems: (item.subItems || []).map((subItem) => ({
-          id: subItem.id || createEntityId(),
-          text: subItem.text || "",
-        })),
-      })),
-      subSections: (section.subSections || []).map((subSection) => ({
-        ...subSection,
-        id: subSection.id || createEntityId(),
-      })),
+      blocks: hydrateBlocks(section.blocks || []),
     })),
   })),
   conditions: (slice?.conditions || []).map((condition) => ({
@@ -623,6 +605,7 @@ const normalizeAddonItems = (addon: QuoteAddon): QuoteConditionItem[] => {
 
 const normalizeDraft = (draft: QuoteDraft) => ({
   clientId: draft.clientId,
+  projectId: draft.projectId || "",
   templateId: draft.templateId || "",
   title: draft.title,
   projectName: draft.projectName || "",
@@ -659,19 +642,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
     priceNote: part.priceNote,
     sections: (part.sections || []).map((section) => ({
       title: section.title,
-      description: section.description,
-      displayMode: section.displayMode || "bullets",
-      items: (section.items || []).map((item) => ({
-        text: item.text,
-        subItems: (item.subItems || []).map((subItem) => ({
-          text: subItem.text,
-        })),
-      })),
-      price: section.price,
-      subSections: (section.subSections || []).map((subSection) => ({
-        title: subSection.title,
-        body: subSection.body,
-      })),
+      blocks: serializeBlocks(section.blocks || [], { withIds: false }),
     })),
   })),
   conditions: draft.conditions.map((condition) => ({
@@ -892,6 +863,7 @@ const baselineDraft = computed<QuoteDraft>(() => {
 
   return {
     clientId: current.clientId || "",
+    projectId: current.projectId || "",
     templateId: current.templateId || "",
     title: current.title || "",
     projectName: current.projectName || "",
@@ -946,38 +918,51 @@ const hasUnsavedChanges = computed(
     JSON.stringify(normalizeDraft(form)) !==
     JSON.stringify(normalizeDraft(baselineDraft.value)),
 );
-const filteredQuotes = computed(() => {
-  const query = quoteSearch.value.trim().toLowerCase();
-  const clientId = quoteFilterClientId.value;
-  const formatDate = (date: Date) =>
-    `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}-${`${date.getDate()}`.padStart(2, "0")}`;
-  const [filterStart, filterEnd] = quoteFilterDateRange.value || [];
-  const startDate = filterStart ? formatDate(filterStart) : "";
-  const endDate = filterEnd ? formatDate(filterEnd) : startDate;
+// L'index transmet son état de liste dans l'URL : le pas-à-pas suit donc le
+// même ordre filtré que le tableau qu'on vient de quitter, et pas la collection
+// entière — sinon le compteur « 2 / 32 » mentirait.
+const listQuery = computed(() => {
+  const { preview: _preview, ...listParams } = route.query;
+  return listParams;
+});
+const siblingQuotes = computed(() =>
+  buildQuoteList(quotesStore.quotes, readQuoteListQuery(listQuery.value)),
+);
+const siblingIndex = computed(() => {
+  const selected = quotesStore.selectedQuote;
+  if (!selected) return -1;
+  const selectedGroupId = selected.versionGroupId || selected.id;
+  return siblingQuotes.value.findIndex(
+    (quote) => (quote.versionGroupId || quote.id) === selectedGroupId,
+  );
+});
+const previousQuote = computed(() =>
+  siblingIndex.value > 0 ? siblingQuotes.value[siblingIndex.value - 1] : null,
+);
+const nextQuote = computed(() =>
+  siblingIndex.value >= 0 && siblingIndex.value < siblingQuotes.value.length - 1
+    ? siblingQuotes.value[siblingIndex.value + 1]
+    : null,
+);
 
-  const status = quoteFilterStatus.value;
+const quoteLanguageLabels: Record<QuoteLanguage, string> = {
+  fr: "Français",
+  en: "Anglais",
+  es: "Espagnol",
+};
 
-  return quotesStore.quotes.filter((quote) => {
-    if (clientId && quote.clientId !== clientId) return false;
-    if (startDate && (!quote.quoteDate || quote.quoteDate < startDate || quote.quoteDate > endDate)) return false;
-    if (status && quote.status !== status) return false;
-    if (!query) return true;
-
-    const haystack = [
-      quote.title,
-      quote.quoteRef,
-      quote.clientName,
-      quote.clientAddress,
-      quote.clientWebsite,
-      getQuotePlatformLabel(quote.platform, quote.customPlatformLabel),
-      quote.projectSummary,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    return haystack.includes(query);
-  });
+const headerTitle = computed(
+  () => form.clientName?.trim() || form.title?.trim() || "Nouveau devis",
+);
+const headerPlatform = computed(() =>
+  getQuotePlatformLabel(form.platform, form.customPlatformLabel),
+);
+// Le verrou porte sur le statut **enregistré**, pas sur celui en cours d'édition :
+// passer un brouillon à « Envoyé » reste une sauvegarde ordinaire. La création
+// d'une nouvelle version est toujours une décision explicite.
+const isQuoteLocked = computed(() => {
+  const saved = quotesStore.selectedQuote;
+  return saved ? quoteStatusMeta[saved.status].locked : false;
 });
 
 // Id du devis actuellement chargé (null = nouveau devis non encore enregistré).
@@ -1058,6 +1043,7 @@ const hydrateFromQuote = (quote: Quote | null) => {
 
   Object.assign(form, {
     clientId: quote.clientId || "",
+    projectId: quote.projectId || "",
     templateId: quote.templateId || "",
     title: quote.title || "",
     projectName: quote.projectName || "",
@@ -1230,28 +1216,88 @@ const handleUndoShortcut = (event: KeyboardEvent) => {
   else undoLastChange();
 };
 
+const isNewQuoteRoute = computed(() => route.name === "quote-new");
+const routeQuoteId = computed(() =>
+  typeof route.params.id === "string" ? route.params.id : "",
+);
+/**
+ * La route est la source de vérité : /quotes/new ouvre un brouillon vierge,
+ * /quotes/:id charge le devis correspondant.
+ */
+const loadFromRoute = () => {
+  if (isNewQuoteRoute.value) {
+    selectedTemplateId.value = "";
+    quotesStore.selectQuote(null);
+    hydrateFromQuote(null);
+    const projectId = typeof route.query.project === "string" ? route.query.project : "";
+    const project = projectsStore.projects.find((entry) => entry.id === projectId);
+    if (project) {
+      const client = clientsStore.clients.find((entry) => entry.id === project.clientId) || null;
+      form.projectId = project.id;
+      form.projectName = project.title;
+      form.clientId = project.clientId || "";
+      syncClientFields(client);
+      if (client) applyStandardContent(client.language);
+      form.quoteRef = generateQuoteReference(form.clientName, parseQuoteDate(form.quoteDate));
+      const email = buildCurrentStandardEmail();
+      form.emailSubject = email.subject;
+      form.emailBody = email.body;
+      form.emailDraft = composeLegacyEmailDraft(email.subject, email.body, form.language);
+      newQuoteBaseline.value = cloneDraft(form);
+    }
+    return;
+  }
+
+  const quote = quotesStore.quotes.find((entry) => entry.id === routeQuoteId.value) || null;
+  // Lien périmé ou devis supprimé : mieux vaut renvoyer à la liste qu'afficher
+  // un formulaire vide qui ressemblerait à un nouveau devis.
+  if (!quote) {
+    skipLeaveGuard = true;
+    void router.replace({ name: "quotes", query: listQuery.value });
+    toast.add({
+      severity: "warn",
+      summary: "Devis introuvable",
+      detail: "Ce devis n’existe plus ou n’est pas accessible.",
+      life: 3000,
+    });
+    return;
+  }
+
+  quotesStore.selectQuote(quote.id);
+  hydrateFromQuote(quote);
+};
+
+const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+  if (!hasUnsavedChanges.value) return;
+  event.preventDefault();
+  event.returnValue = "";
+};
+
 onMounted(async () => {
-  syncCompactMode();
-  window.addEventListener("resize", syncCompactMode);
   window.addEventListener("keydown", handleUndoShortcut);
+  window.addEventListener("beforeunload", warnBeforeUnload);
   await Promise.all([
     quotesStore.fetchQuotes(),
     clientsStore.fetchClients(),
     projectsStore.fetchProjects(),
     quoteTemplatesStore.fetchTemplates(),
   ]);
-  hydrateFromQuote(quotesStore.selectedQuote);
+  loadFromRoute();
 });
 
 onUnmounted(() => {
-  window.removeEventListener("resize", syncCompactMode);
   window.removeEventListener("keydown", handleUndoShortcut);
+  window.removeEventListener("beforeunload", warnBeforeUnload);
   if (unsavedAttentionTimeout) clearTimeout(unsavedAttentionTimeout);
   if (historyTimer) clearTimeout(historyTimer);
 });
 
-watch(isCompactQuotesView, (compact) => {
-  if (!compact) mobileEditorVisible.value = false;
+// Le pas-à-pas préc./suiv. réutilise le même composant : on recharge sur
+// changement de paramètre de route.
+watch([() => route.name, routeQuoteId], () => {
+  if (!quotesStore.quotes.length && !isNewQuoteRoute.value) return;
+  if (quotesStore.selectedQuoteId === routeQuoteId.value && !isNewQuoteRoute.value) return;
+  loadFromRoute();
 });
 
 watch(
@@ -2453,7 +2499,7 @@ const createNewVersion = async () => {
   }
 
   hydrateFromQuote(created);
-  if (isCompactQuotesView.value) mobileEditorVisible.value = true;
+  goToQuote(created.id);
   toast.add({
     severity: "success",
     summary: `Version ${nextVersion} créée`,
@@ -2496,12 +2542,12 @@ const duplicateQuote = async (id: string) => {
   const subtotal = quoteTotals.subtotal;
   const totalWithVat = quoteTotals.totalWithVat;
 
-  await quotesStore.saveQuote(null, {
+  const duplicated = await quotesStore.saveQuote(null, {
     ...payload,
     subtotal,
     totalWithVat,
   });
-  if (isCompactQuotesView.value) mobileEditorVisible.value = true;
+  goToQuote(duplicated.id);
   toast.add({
     severity: "success",
     summary: "Devis dupliqué",
@@ -2762,7 +2808,15 @@ const saveQuote = async () => {
     totalWithVat: totals.value.totalWithVat,
   };
 
-  await quotesStore.saveQuote(quoteId.value, payload);
+  const wasNew = !quoteId.value;
+  const saved = await quotesStore.saveQuote(quoteId.value, payload);
+  if (saved.status === "accepted" && saved.projectId) {
+    const project = projectsStore.projects.find((entry) => entry.id === saved.projectId);
+    if (project) await projectsStore.attachQuotesToProject(project, [saved]);
+  }
+  // Un nouveau devis a désormais une URL propre : on la substitue sans empiler
+  // /quotes/new dans l'historique.
+  if (wasNew) goToQuote(saved.id);
   toast.add({
     severity: "success",
     summary: "Devis sauvegardé",
@@ -2840,8 +2894,8 @@ const deleteQuote = () => {
     },
     accept: async () => {
       await quotesStore.deleteQuote(quoteId.value as string);
-      hydrateFromQuote(quotesStore.selectedQuote);
-      if (isCompactQuotesView.value) mobileEditorVisible.value = false;
+      skipLeaveGuard = true;
+      await router.push({ name: "quotes", query: listQuery.value });
       toast.add({
         severity: "secondary",
         summary: "Devis supprimé",
@@ -2956,55 +3010,106 @@ const notifyUnsavedBlockedAction = () => {
   });
 };
 
-const guardUnsavedViewChange = (action: () => void) => {
-  if (hasUnsavedChanges.value) {
-    notifyUnsavedBlockedAction();
+const openLinkedProject = () => {
+  const project = selectedLinkedProject.value;
+  if (!project) return;
+  projectsStore.selectProject(project.id);
+  void router.push({ name: "project-detail", params: { id: project.id } });
+};
+
+const backToList = () => {
+  const returnProjectId =
+    typeof route.query.retourProjet === "string" ? route.query.retourProjet : "";
+  if (returnProjectId) {
+    void router.push({ name: "project-detail", params: { id: returnProjectId } });
     return;
   }
-  action();
+  void router.push({ name: "quotes", query: listQuery.value });
 };
 
-const openLinkedProject = () => {
-  guardUnsavedViewChange(() => {
-    const project = selectedLinkedProject.value;
-    if (!project) return;
-    projectsStore.selectProject(project.id);
-    router.push({ name: "projects" });
-  });
+const goToQuote = (id: string) => {
+  void router.replace({ name: "quote-detail", params: { id }, query: route.query });
 };
 
-const openCreateQuote = () => {
-  guardUnsavedViewChange(() => {
-    selectedTemplateId.value = "";
-    quotesStore.selectQuote(null);
-    hydrateFromQuote(null);
-    if (isCompactQuotesView.value) mobileEditorVisible.value = true;
-  });
+const goToSibling = (quote: Quote | null) => {
+  if (!quote) return;
+  void router.push({ name: "quote-detail", params: { id: quote.id }, query: route.query });
 };
 
-watch(
-  () => route.query.new,
-  (value) => {
-    if (value !== "1") return;
-    openCreateQuote();
-    const query = { ...route.query };
-    delete query.new;
-    void router.replace({ query });
-  },
-  { immediate: true },
-);
+/**
+ * Garde de navigation à trois issues. On sort du devis par un vrai changement
+ * de route : bloquer silencieusement (l'ancien comportement) laisserait
+ * l'utilisateur coincé sans comprendre pourquoi le clic ne fait rien.
+ */
+const leaveDialogVisible = ref(false);
+const leaveSaving = ref(false);
+let pendingLeave: (() => void) | null = null;
+let skipLeaveGuard = false;
 
-const openQuote = (id: string) => {
-  guardUnsavedViewChange(() => {
-    quotesStore.selectQuote(id);
-    if (isCompactQuotesView.value) mobileEditorVisible.value = true;
-  });
+onBeforeRouteLeave((to, _from, next) => {
+  if (skipLeaveGuard || !hasUnsavedChanges.value) {
+    skipLeaveGuard = false;
+    next();
+    return;
+  }
+  // Le pas-à-pas et l'enregistrement d'un nouveau devis restent sur le même
+  // écran : seule une sortie réelle déclenche la garde.
+  if (to.name === "quote-detail" && to.params.id === routeQuoteId.value) {
+    next();
+    return;
+  }
+
+  pendingLeave = () => next();
+  leaveDialogVisible.value = true;
+});
+
+const quoteMenu = ref<InstanceType<typeof Menu> | null>(null);
+
+const quoteMenuItems = computed(() => [
+  ...(selectedLinkedProject.value
+    ? [
+        {
+          label: "Ouvrir le projet lié",
+          icon: "pi pi-briefcase",
+          command: openLinkedProject,
+        },
+      ]
+    : []),
+  ...(quoteId.value
+    ? [
+        { label: "Dupliquer", icon: "pi pi-copy", command: duplicateCurrentQuote },
+        { separator: true },
+        { label: "Supprimer", icon: "pi pi-trash", command: deleteQuote },
+      ]
+    : []),
+  ...(quoteId.value ? [] : [{ label: "Réinitialiser", icon: "pi pi-undo", command: discardChanges }]),
+]);
+
+const toggleQuoteMenu = (event: Event) => {
+  quoteMenu.value?.toggle(event);
 };
 
-const closeMobileEditor = () => {
-  guardUnsavedViewChange(() => {
-    mobileEditorVisible.value = false;
-  });
+const stayOnQuote = () => {
+  leaveDialogVisible.value = false;
+  pendingLeave = null;
+};
+
+const leaveWithoutSaving = () => {
+  leaveDialogVisible.value = false;
+  const proceed = pendingLeave;
+  pendingLeave = null;
+  skipLeaveGuard = true;
+  proceed?.();
+};
+
+const saveThenLeave = async () => {
+  leaveSaving.value = true;
+  try {
+    await saveQuote();
+    leaveWithoutSaving();
+  } finally {
+    leaveSaving.value = false;
+  }
 };
 </script>
 
@@ -3012,81 +3117,146 @@ const closeMobileEditor = () => {
   <div class="flex flex-col gap-6">
     <ConfirmDialog />
 
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-      <div class="flex items-start gap-3">
-        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
-          <span class="material-symbols-outlined text-2xl text-primary">receipt_long</span>
-        </span>
-        <div>
-          <h1 class="text-3xl font-heading font-bold text-surface-dark">Devis</h1>
-          <p class="mt-1 text-sm text-surface-dark/55">
-            {{ filteredQuotes.length }} devis · Suivi des propositions et de leur statut.
+    <div
+      class="sticky top-4 z-20 flex flex-wrap items-center gap-3 rounded-3xl border border-surface-dark/8 bg-surface-card/95 p-2.5 shadow-sm backdrop-blur"
+      :class="{ 'quotes-unsaved-nudge': unsavedAttention }"
+    >
+      <div class="flex min-w-0 flex-1 basis-[340px] items-center gap-3">
+        <Button
+          text
+          severity="secondary"
+          class="!h-9 !w-9 !shrink-0 !rounded-xl !p-0"
+          aria-label="Retour à la liste des devis"
+          title="Retour à la liste des devis"
+          @click="backToList"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">arrow_back</span></template>
+        </Button>
+
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <h1 class="truncate font-heading text-lg font-bold text-surface-dark">
+              {{ headerTitle }}
+            </h1>
+            <span
+              v-if="form.version > 1"
+              class="shrink-0 rounded-md bg-surface-dark/8 px-1.5 py-px text-[11px] font-semibold text-surface-dark/70"
+            >
+              v{{ form.version }}
+            </span>
+            <span
+              class="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+              :class="quoteStatusMeta[form.status].tagClass"
+            >
+              {{ quoteStatusMeta[form.status].label }}
+            </span>
+          </div>
+          <p class="truncate text-xs text-surface-dark/55">
+            <span class="font-mono">{{ form.quoteRef }}</span>
+            <template v-if="headerPlatform"> · {{ headerPlatform }}</template>
+            · {{ quoteLanguageLabels[form.language] }}
+            <template v-if="form.quoteDate"> · {{ formatQuoteDate(form.quoteDate) }}</template>
           </p>
         </div>
-      </div>
-      <Button class="hidden lg:inline-flex" label="Nouveau devis" @click="openCreateQuote">
-        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
-      </Button>
-    </div>
 
-    <div class="lg:hidden">
-      <QuoteTablePanel
-        :quotes="filteredQuotes"
-        :clients="clientsStore.clients"
-        :search="quoteSearch"
-        :filter-client-id="quoteFilterClientId"
-        :filter-date-range="quoteFilterDateRange"
-        :filter-status="quoteFilterStatus"
-        @create="openCreateQuote"
-        @select="openQuote"
-        @update:search="quoteSearch = $event"
-        @update:filter-client-id="quoteFilterClientId = $event"
-        @update:filter-date-range="quoteFilterDateRange = $event"
-        @update:filter-status="quoteFilterStatus = $event"
-      />
+        <div
+          v-if="siblingIndex >= 0 && siblingQuotes.length > 1"
+          class="ml-1 flex shrink-0 items-center gap-0.5 border-l border-surface-dark/8 pl-2"
+        >
+          <Button
+            text
+            severity="secondary"
+            class="!h-8 !w-8 !rounded-lg !p-0"
+            aria-label="Devis précédent"
+            :disabled="!previousQuote"
+            @click="goToSibling(previousQuote)"
+          >
+            <template #icon><span class="material-symbols-outlined text-lg">chevron_left</span></template>
+          </Button>
+          <span class="whitespace-nowrap px-1 text-[11px] tabular-nums text-surface-dark/40">
+            {{ siblingIndex + 1 }} / {{ siblingQuotes.length }}
+          </span>
+          <Button
+            text
+            severity="secondary"
+            class="!h-8 !w-8 !rounded-lg !p-0"
+            aria-label="Devis suivant"
+            :disabled="!nextQuote"
+            @click="goToSibling(nextQuote)"
+          >
+            <template #icon><span class="material-symbols-outlined text-lg">chevron_right</span></template>
+          </Button>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span
+          v-if="hasUnsavedChanges"
+          class="flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-amber-700"
+        >
+          <span class="h-[7px] w-[7px] rounded-full bg-current"></span>
+          Non sauvegardé
+        </span>
+        <Button
+          v-if="hasUnsavedChanges"
+          text
+          severity="secondary"
+          class="!rounded-xl"
+          label="Annuler"
+          @click="discardChanges"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">undo</span></template>
+        </Button>
+        <Button
+          severity="secondary"
+          outlined
+          class="!rounded-xl"
+          label="Prévisualiser"
+          @click="previewPdf"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">visibility</span></template>
+        </Button>
+        <Button
+          v-if="isQuoteLocked && quoteId"
+          severity="secondary"
+          outlined
+          class="!rounded-xl"
+          :label="`Créer la v${form.version + 1}`"
+          title="Figer ce devis et repartir sur une nouvelle version"
+          @click="createNewVersion"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">difference</span></template>
+        </Button>
+        <Button
+          class="!rounded-xl !px-5 font-semibold"
+          label="Sauvegarder"
+          :disabled="!hasUnsavedChanges"
+          @click="saveQuote"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
+        </Button>
+        <Button
+          text
+          severity="secondary"
+          class="!h-9 !w-9 !rounded-xl !p-0"
+          aria-label="Autres actions"
+          @click="toggleQuoteMenu"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">more_vert</span></template>
+        </Button>
+        <Menu ref="quoteMenu" :model="quoteMenuItems" popup />
+      </div>
     </div>
 
     <div
-      class="hidden lg:grid grid-cols-1 gap-6"
+      class="grid grid-cols-1 gap-6"
       :class="
         previewDialogVisible
           ? 'xl:grid-cols-[minmax(540px,1fr)_minmax(460px,0.9fr)]'
-          : 'xl:grid-cols-[330px_minmax(0,1fr)]'
+          : 'xl:grid-cols-[minmax(0,1fr)_300px]'
       "
     >
-      <QuoteListPanel
-        v-if="!previewDialogVisible"
-        :quotes="filteredQuotes"
-        :selected-quote-id="quoteId"
-        :clients="clientsStore.clients"
-        :search="quoteSearch"
-        :filter-client-id="quoteFilterClientId"
-        :filter-date-range="quoteFilterDateRange"
-        :filter-status="quoteFilterStatus"
-        @create="openCreateQuote"
-        @select="openQuote"
-        @update:search="quoteSearch = $event"
-        @update:filter-client-id="quoteFilterClientId = $event"
-        @update:filter-date-range="quoteFilterDateRange = $event"
-        @update:filter-status="quoteFilterStatus = $event"
-      />
-
-      <div class="flex flex-col gap-6">
-        <QuoteActionBar
-          :can-duplicate="Boolean(quoteId)"
-          :can-delete="Boolean(quoteId)"
-          :can-open-project="Boolean(selectedLinkedProject)"
-          show-pdf
-          :has-unsaved-changes="hasUnsavedChanges"
-          :attention="unsavedAttention"
-          @save="saveQuote"
-          @discard="discardChanges"
-          @download-pdf="previewPdf"
-          @open-project="openLinkedProject"
-          @duplicate="duplicateCurrentQuote"
-          @delete="deleteQuote"
-        />
-
+      <div class="flex min-w-0 flex-col gap-6">
         <div class="rounded-3xl border border-surface-dark/5 bg-surface-card p-4">
           <div
             class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
@@ -3605,14 +3775,102 @@ const closeMobileEditor = () => {
           @copy-email-body="copyEmailBody"
           @open-email-client="openEmailClient"
         />
-        <p
-          v-if="selectedQuoteMetadata"
-          class="rounded-2xl border border-surface-dark/6 bg-white px-4 py-3 text-xs text-surface-dark/45"
-        >
-          Créé : {{ selectedQuoteMetadata.createdAt }} · Dernière modification :
-          {{ selectedQuoteMetadata.updatedAt }}
-        </p>
       </div>
+
+      <aside
+        v-if="!previewDialogVisible"
+        class="flex flex-col gap-4 xl:sticky xl:top-24 xl:self-start"
+      >
+        <div class="rounded-2xl border border-surface-dark/6 bg-surface-card p-4 shadow-sm">
+          <p class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-surface-dark/35">
+            Totaux
+          </p>
+          <div class="flex flex-col gap-2 tabular-nums">
+            <div class="flex items-baseline justify-between gap-3 text-sm text-surface-dark/70">
+              Sous-total
+              <span class="font-semibold text-surface-dark">
+                {{ formatCurrency(totals.partsSubtotal, currencyLocale) }}
+              </span>
+            </div>
+            <div
+              v-if="totals.discountAmount > 0"
+              class="flex items-baseline justify-between gap-3 text-sm text-amber-700"
+            >
+              Remise
+              <span class="font-semibold">
+                − {{ formatCurrency(totals.discountAmount, currencyLocale) }}
+              </span>
+            </div>
+            <div class="flex items-baseline justify-between gap-3 text-sm text-surface-dark/70">
+              TVA {{ form.vatRate }} %
+              <span class="font-semibold text-surface-dark">
+                {{ formatCurrency(totals.vatAmount, currencyLocale) }}
+              </span>
+            </div>
+            <div
+              v-if="totals.addonsTotal > 0"
+              class="flex items-baseline justify-between gap-3 text-sm text-surface-dark/70"
+            >
+              Options (hors total)
+              <span class="font-semibold text-surface-dark">
+                {{ formatCurrency(totals.addonsTotal, currencyLocale) }}
+              </span>
+            </div>
+            <div
+              class="mt-1 flex items-baseline justify-between gap-3 border-t border-surface-dark/12 pt-3"
+            >
+              <span class="text-xs font-semibold uppercase tracking-wider text-surface-dark/35">
+                Total TTC
+              </span>
+              <span class="font-heading text-xl font-bold text-surface-dark">
+                {{ formatCurrency(totals.totalWithVat, currencyLocale) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          v-if="selectedQuoteMetadata || selectedLinkedProject"
+          class="rounded-2xl border border-surface-dark/6 bg-surface-card p-4 shadow-sm"
+        >
+          <p class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-surface-dark/35">
+            Suivi
+          </p>
+          <div class="flex flex-col gap-2 text-xs">
+            <div
+              v-if="selectedQuoteMetadata"
+              class="flex items-baseline justify-between gap-3 text-surface-dark/50"
+            >
+              Créé le
+              <span class="text-right text-surface-dark/70">
+                {{ selectedQuoteMetadata.createdAt }}
+              </span>
+            </div>
+            <div
+              v-if="selectedQuoteMetadata"
+              class="flex items-baseline justify-between gap-3 text-surface-dark/50"
+            >
+              Modifié le
+              <span class="text-right text-surface-dark/70">
+                {{ selectedQuoteMetadata.updatedAt }}
+              </span>
+            </div>
+            <div
+              v-if="selectedLinkedProject"
+              class="flex items-baseline justify-between gap-3 text-surface-dark/50"
+            >
+              Projet lié
+              <button
+                type="button"
+                class="text-right font-semibold text-primary hover:underline"
+                @click="openLinkedProject"
+              >
+                {{ selectedLinkedProject.title }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
 
       <section
         v-if="previewDialogVisible"
@@ -3735,601 +3993,46 @@ const closeMobileEditor = () => {
       </template>
     </Dialog>
 
+    <!-- Garde de navigation : trois issues, dont celle qu'on veut neuf fois sur dix. -->
     <Dialog
-      v-model:visible="mobileEditorVisible"
+      v-model:visible="leaveDialogVisible"
       modal
       :draggable="false"
-      :dismissable-mask="!hasUnsavedChanges"
-      class="lg:!hidden"
-      :style="{ width: '100vw', maxWidth: '100vw', height: '100vh' }"
-      :pt="{
-        root: { class: '!m-0 !rounded-none' },
-        header: { class: '!hidden' },
-        content: { class: '!h-full !overflow-y-auto !bg-surface-light !p-0' },
-      }"
+      :closable="false"
+      header="Quitter sans sauvegarder ?"
+      :style="{ width: '26rem', maxWidth: '92vw' }"
+      @hide="stayOnQuote"
     >
-      <div class="flex min-h-full flex-col gap-4 p-4">
-        <div
-          class="sticky top-0 z-10 flex flex-col gap-3 border-b border-surface-dark/8 bg-surface-light/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface-light/80"
-        >
-          <div class="flex items-center justify-between gap-3">
-            <Button text severity="secondary" @click="closeMobileEditor" label="Retour à la liste">
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >arrow_back</span
-                ></template
-              ></Button>
-            <p class="min-w-0 truncate text-sm font-semibold text-surface-dark">
-              {{ form.title || form.clientName || "Nouveau devis" }}
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              v-if="selectedLinkedProject"
-              text
-              severity="secondary"
-              size="small"
-              class="!rounded-xl !border !border-amber-500/15 !bg-amber-500/10 !text-surface-dark hover:!border-amber-500/30 hover:!bg-amber-500/15"
-              label="Projet"
-              @click="openLinkedProject"
-            >
-              <template #icon><span class="material-symbols-outlined text-lg text-amber-600">workspaces</span></template>
-            </Button>
-            <Button text severity="secondary" size="small" class="!rounded-xl" @click="duplicateCurrentQuote" label="Dupliquer">
-              <template #icon><span class="material-symbols-outlined text-lg">content_copy</span></template></Button>
-            <Button text severity="danger" size="small" class="!rounded-xl" aria-label="Supprimer" title="Supprimer" @click="deleteQuote">
-              <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
-            </Button>
-            <Button severity="secondary" outlined size="small" class="!rounded-xl" @click="previewPdf" label="Aperçu">
-              <template #icon><span class="material-symbols-outlined text-lg">visibility</span></template></Button>
-            <Button size="small" class="!rounded-xl font-semibold" label="Sauvegarder" @click="saveQuote">
-              <template #icon><span class="material-symbols-outlined text-lg">save</span></template></Button>
-          </div>
-          <div
-            v-if="hasUnsavedChanges"
-            class="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-surface-dark/10 bg-white px-3 py-2 shadow-sm"
-            :class="{ 'quotes-unsaved-nudge': unsavedAttention }"
-          >
-            <div class="flex items-center gap-2 min-w-0">
-              <span
-                class="material-symbols-outlined text-base text-surface-dark/60"
-                >pending_actions</span
-              >
-              <span class="truncate text-sm font-medium text-surface-dark/75"
-                >Modifications non enregistrées</span
-              >
-            </div>
-            <div class="flex items-center gap-2">
-              <Button
-                severity="secondary"
-                size="small"
-                label="Annuler"
-                @click="discardChanges"
-              />
-              <Button size="small" label="Sauvegarder" @click="saveQuote">
-                <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
-              </Button>
-            </div>
-          </div>
+      <p class="text-sm text-surface-dark/60">
+        Le devis {{ form.quoteRef }} a des modifications non sauvegardées. Elles seront perdues si
+        vous quittez maintenant.
+      </p>
+      <template #footer>
+        <div class="flex flex-wrap justify-end gap-2">
+          <Button
+            text
+            severity="secondary"
+            class="!rounded-xl"
+            label="Quitter sans sauvegarder"
+            :disabled="leaveSaving"
+            @click="leaveWithoutSaving"
+          />
+          <Button
+            severity="secondary"
+            outlined
+            class="!rounded-xl"
+            label="Rester"
+            :disabled="leaveSaving"
+            @click="stayOnQuote"
+          />
+          <Button
+            class="!rounded-xl font-semibold"
+            label="Sauvegarder et quitter"
+            :loading="leaveSaving"
+            @click="saveThenLeave"
+          />
         </div>
-
-        <div class="rounded-3xl border border-surface-dark/5 bg-surface-card p-4">
-          <div class="flex flex-col gap-3">
-            <label class="flex flex-col gap-2">
-              <span class="text-sm font-semibold text-surface-dark"
-                >Template de départ</span
-              >
-              <Select
-                v-model="selectedTemplateId"
-                @update:model-value="handleTemplateSelection"
-                :options="templateOptions"
-                option-label="label"
-                option-value="value"
-                placeholder="Choisir un template"
-                show-clear
-              />
-            </label>
-            <div class="flex flex-wrap items-center gap-2">
-              <Button
-                severity="secondary"
-                outlined
-                :disabled="!selectedTemplateId"
-                @click="confirmReapplyTemplate"
-                label="Réappliquer…"
-                title="Choisir les sections du template à réappliquer"
-              >
-                <template #icon
-                  ><span class="material-symbols-outlined text-lg"
-                    >restart_alt</span
-                  ></template
-                ></Button>
-              <Button
-                text
-                severity="secondary"
-                @click="$router.push('/quote-templates')" label="Gérer les templates">
-                <template #icon
-                  ><span class="material-symbols-outlined text-lg"
-                    >library_books</span
-                  ></template
-                ></Button>
-            </div>
-          </div>
-          <p class="mt-3 flex flex-wrap items-center gap-1 text-xs text-surface-dark/55">
-            <template v-if="baseTemplateName">
-              <span class="material-symbols-outlined text-sm text-primary">verified</span>
-              <strong class="text-surface-dark/75">{{ baseTemplateName }}</strong> — mail, validation &amp; principes appliqués à tous les devis. Les conditions communes restent disponibles dans les templates.
-              <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
-                Modifier la base
-              </button>
-              <Button
-                text
-                severity="secondary"
-                size="small"
-                class="!ml-1 !rounded-xl !px-2 !py-1"
-                label="Réappliquer la base"
-                @click="confirmApplyBaseCommonContent"
-              >
-                <template #icon>
-                  <span class="material-symbols-outlined text-base">restart_alt</span>
-                </template>
-              </Button>
-            </template>
-            <template v-else>
-              Les nouveaux devis utilisent un contenu de base intégré.
-              <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
-                Créer la base commune
-              </button>
-            </template>
-          </p>
-        </div>
-
-        <QuoteBuilderForm
-          :quote-ref="form.quoteRef"
-          :title="form.title"
-          :project-name="form.projectName"
-          :quote-date="quoteDateModel"
-          :valid-until="validUntil"
-          :client-id="form.clientId"
-          :client-name="form.clientName"
-          :client-address="form.clientAddress"
-          :client-website="form.clientWebsite"
-          :client-country="selectedClient?.country || ''"
-          :client-vat-label="
-            selectedClient
-              ? selectedClient.isVatRegistered
-                ? selectedClient.vatNumber || 'Client assujetti à la TVA'
-                : 'Client non assujetti à la TVA'
-              : 'Aucun client sélectionné'
-          "
-          :platform="form.platform"
-          :custom-platform-label="form.customPlatformLabel"
-          :language="form.language"
-          :vat-rate="form.vatRate"
-          :discount-type="form.discountType"
-          :discount-value="form.discountValue"
-          :project-summary="form.projectSummary"
-          :investment-summary="form.investmentSummary"
-          :investment-amount="form.investmentAmount"
-          :investment-lines="form.investmentLines"
-          :can-reapply-template="Boolean(selectedTemplateId)"
-          :parts="form.parts"
-          :currency-locale="currencyLocale"
-          :status="form.status"
-          :version="form.version"
-          :conditions="form.conditions"
-          :roadmap="form.roadmap"
-          :acceptance="form.acceptance"
-          :principles="form.principles"
-          :addons="form.addons"
-          :payment-schedule="form.paymentSchedule"
-          :clients="clientsStore.clients"
-          :addons-total="totals.addonsTotal"
-          :discount-amount="totals.discountAmount"
-          :subtotal="totals.subtotal"
-          :vat-amount="totals.vatAmount"
-          :total-with-vat="totals.totalWithVat"
-          :vat-explanation="vatExplanation"
-          @update:title="form.title = $event"
-          @update:project-name="form.projectName = $event"
-          @update:quote-date="updateQuoteDate"
-          @update:client-id="form.clientId = $event"
-          @update:platform="form.platform = $event"
-          @update:custom-platform-label="form.customPlatformLabel = $event"
-          @update:language="form.language = $event"
-          @update:vat-rate="form.vatRate = $event"
-          @update:discount-type="updateDiscountType"
-          @update:discount-value="updateDiscountValue"
-          @update:project-summary="form.projectSummary = $event"
-          @update:investment-summary="form.investmentSummary = $event"
-          @update:investment-amount="form.investmentAmount = $event"
-          @update:investment-lines="form.investmentLines = $event"
-          @reapply-template-section="confirmReapplyTemplateSection"
-          @update:parts="form.parts = $event"
-          @update:payment-schedule="form.paymentSchedule = $event"
-          @update:status="form.status = $event"
-          @new-version="createNewVersion"
-          @create-client="clientDialogVisible = true"
-          @add-condition="addCondition"
-          @move-condition="moveCondition($event.draggedId, $event.targetId)"
-          @update-condition="
-            updateCondition($event.id, $event.field, $event.value)
-          "
-          @remove-condition="
-            form.conditions = form.conditions.filter(
-              (condition) => condition.id !== $event,
-            )
-          "
-          @add-condition-item="addConditionItem"
-          @update-condition-item="
-            updateConditionItem($event.conditionId, $event.itemId, $event.value)
-          "
-          @remove-condition-item="
-            removeConditionItem($event.conditionId, $event.itemId)
-          "
-          @move-condition-item="
-            moveConditionItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @nest-condition-item-under-item="
-            nestConditionItemUnderItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-condition-sub-item="
-            addConditionSubItem($event.conditionId, $event.itemId)
-          "
-          @update-condition-sub-item="
-            updateConditionSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-condition-sub-item="
-            removeConditionSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-            )
-          "
-          @move-condition-sub-item="
-            moveConditionSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-condition-sub-item-to-item="
-            moveConditionSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-condition-sub-item-to-item="
-            promoteConditionSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
-          @add-roadmap-phase="addRoadmapPhase"
-          @move-roadmap-phase="
-            moveRoadmapPhase($event.draggedId, $event.targetId)
-          "
-          @update-roadmap-phase="
-            updateRoadmapPhase($event.id, $event.field, $event.value)
-          "
-          @remove-roadmap-phase="
-            form.roadmap = form.roadmap.filter((phase) => phase.id !== $event)
-          "
-          @add-roadmap-item="addRoadmapItem"
-          @update-roadmap-item="
-            updateRoadmapItem($event.conditionId, $event.itemId, $event.value)
-          "
-          @remove-roadmap-item="
-            removeRoadmapItem($event.conditionId, $event.itemId)
-          "
-          @move-roadmap-item="
-            moveRoadmapItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @nest-roadmap-item-under-item="
-            nestRoadmapItemUnderItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-roadmap-sub-item="
-            addRoadmapSubItem($event.conditionId, $event.itemId)
-          "
-          @update-roadmap-sub-item="
-            updateRoadmapSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-roadmap-sub-item="
-            removeRoadmapSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-            )
-          "
-          @move-roadmap-sub-item="
-            moveRoadmapSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-roadmap-sub-item-to-item="
-            moveRoadmapSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-roadmap-sub-item-to-item="
-            promoteRoadmapSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
-          @add-acceptance="addAcceptance"
-          @move-acceptance="moveAcceptance($event.draggedId, $event.targetId)"
-          @update-acceptance="
-            updateAcceptance($event.id, $event.field, $event.value)
-          "
-          @remove-acceptance="
-            form.acceptance = form.acceptance.filter(
-              (entry) => entry.id !== $event,
-            )
-          "
-          @add-acceptance-item="addAcceptanceItem"
-          @update-acceptance-item="
-            updateAcceptanceItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.value,
-            )
-          "
-          @remove-acceptance-item="
-            removeAcceptanceItem($event.conditionId, $event.itemId)
-          "
-          @move-acceptance-item="
-            moveAcceptanceItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @nest-acceptance-item-under-item="
-            nestAcceptanceItemUnderItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-acceptance-sub-item="
-            addAcceptanceSubItem($event.conditionId, $event.itemId)
-          "
-          @update-acceptance-sub-item="
-            updateAcceptanceSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-acceptance-sub-item="
-            removeAcceptanceSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-            )
-          "
-          @move-acceptance-sub-item="
-            moveAcceptanceSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-acceptance-sub-item-to-item="
-            moveAcceptanceSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-acceptance-sub-item-to-item="
-            promoteAcceptanceSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
-          @add-principle="addPrinciple"
-          @move-principle="movePrinciple($event.draggedId, $event.targetId)"
-          @update-principle="
-            updatePrinciple($event.id, $event.field, $event.value)
-          "
-          @remove-principle="
-            form.principles = form.principles.filter(
-              (principle) => principle.id !== $event,
-            )
-          "
-          @add-principle-item="addPrincipleItem"
-          @update-principle-item="
-            updatePrincipleItem($event.conditionId, $event.itemId, $event.value)
-          "
-          @remove-principle-item="
-            removePrincipleItem($event.conditionId, $event.itemId)
-          "
-          @move-principle-item="
-            movePrincipleItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @nest-principle-item-under-item="
-            nestPrincipleItemUnderItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-principle-sub-item="
-            addPrincipleSubItem($event.conditionId, $event.itemId)
-          "
-          @update-principle-sub-item="
-            updatePrincipleSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-principle-sub-item="
-            removePrincipleSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-            )
-          "
-          @move-principle-sub-item="
-            movePrincipleSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-principle-sub-item-to-item="
-            movePrincipleSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-principle-sub-item-to-item="
-            promotePrincipleSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
-          @add-addon-preset="addAddonPreset"
-          @duplicate-addon="duplicateAddon"
-          @update-addon="updateAddon($event.id, $event.field, $event.value)"
-          @remove-addon="
-            form.addons = form.addons.filter((addon) => addon.id !== $event)
-          "
-          @move-addon="moveAddon($event.draggedId, $event.targetId)"
-          @add-addon-item="addAddonItem"
-          @update-addon-item="
-            updateAddonItem($event.addonId, $event.itemId, $event.value)
-          "
-          @remove-addon-item="removeAddonItem($event.addonId, $event.itemId)"
-          @move-addon-item="
-            moveAddonItem($event.addonId, $event.draggedId, $event.targetId)
-          "
-          @nest-addon-item-under-item="
-            nestAddonItemUnderItem(
-              $event.addonId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-addon-sub-item="addAddonSubItem($event.addonId, $event.itemId)"
-          @update-addon-sub-item="
-            updateAddonSubItem(
-              $event.addonId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-addon-sub-item="
-            removeAddonSubItem($event.addonId, $event.itemId, $event.subItemId)
-          "
-          @move-addon-sub-item="
-            moveAddonSubItem(
-              $event.addonId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-addon-sub-item-to-item="
-            moveAddonSubItemToItem(
-              $event.addonId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-addon-sub-item-to-item="
-            promoteAddonSubItemToItem(
-              $event.addonId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
-        />
-
-        <QuoteOutputPanel
-          :language="form.language"
-          :email-subject="renderedEmail.subject"
-          :email-body="renderedEmail.body"
-          @update:email-subject="
-            form.emailSubject = $event;
-            form.emailDraft = composeLegacyEmailDraft(
-              form.emailSubject,
-              form.emailBody,
-              form.language,
-            );
-          "
-          @update:email-body="
-            form.emailBody = $event;
-            form.emailDraft = composeLegacyEmailDraft(
-              form.emailSubject,
-              form.emailBody,
-              form.language,
-            );
-          "
-          @copy-email-subject="copyEmailSubject"
-          @copy-email-body="copyEmailBody"
-          @open-email-client="openEmailClient"
-        />
-      </div>
+      </template>
     </Dialog>
 
     <ClientFormDialog
