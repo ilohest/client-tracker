@@ -16,6 +16,7 @@ import type {
   QuoteCondition,
   QuoteConditionItem,
   QuoteConditionSubItem,
+  QuoteCustomSection,
   QuoteDiscountType,
   QuoteInput,
   QuoteLanguage,
@@ -52,7 +53,7 @@ import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
 import { formatClientAddress, formatClientFullName } from "@/utils/address";
 import { copyToClipboard } from "@/utils/clipboard";
 import { formatDateTime } from "@/utils/date";
-import { hydrateBlocks, serializeBlocks } from "@/utils/quoteBlocks";
+import { createBlock, hydrateBlocks, serializeBlocks } from "@/utils/quoteBlocks";
 import { renderQuoteDocumentHtml } from "@/utils/quotePdf";
 import {
   calculateAddonTotal,
@@ -78,6 +79,22 @@ import { computeVatRateForClient, getVatExplanation } from "@/utils/vat";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
 type QuoteDraft = QuoteInput;
+
+const normalizeCustomSection = (section: Partial<QuoteCustomSection> & { id?: string }): QuoteCustomSection => ({
+  id: section.id || createEntityId(),
+  title: section.title || "",
+  displayStyle: section.displayStyle || "flow",
+  content: section.content || "",
+  sections: section.sections?.length
+    ? section.sections.map((line) => ({
+        ...line,
+        id: line.id || createEntityId(),
+        blocks: hydrateBlocks(line.blocks || []),
+      }))
+    : section.content
+      ? [{ id: createEntityId(), title: "", blocks: hydrateBlocks([{ id: createEntityId(), kind: "paragraph", depth: 0, text: section.content }]) }]
+      : [{ id: createEntityId(), title: "", blocks: [createBlock()] }],
+});
 
 const route = useRoute();
 const router = useRouter();
@@ -139,6 +156,9 @@ const createDraft = (): QuoteDraft => ({
   acceptance: [],
   principles: [],
   addons: [],
+  customSections: [],
+  documentOrder: ["scope", "investment", "paymentSchedule"],
+  hiddenSections: [],
   paymentSchedule: createDefaultPaymentSchedule("fr"),
   status: "draft",
 });
@@ -383,6 +403,9 @@ const createDraftFromTemplate = (
     acceptance: localizedContent.acceptance,
     principles: localizedContent.principles,
     addons: localizedContent.addons,
+    customSections: [],
+  documentOrder: ["scope", "investment", "paymentSchedule"],
+  hiddenSections: [],
     paymentSchedule: clonePaymentSchedule(localizedContent.paymentSchedule),
     status: "draft",
   };
@@ -682,6 +705,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
     })),
   })),
   addons: draft.addons.map((addon) => ({
+    id: addon.id,
     title: addon.title,
     description: addon.description,
     items: normalizeAddonItems(addon).map((item) => ({
@@ -690,7 +714,11 @@ const normalizeDraft = (draft: QuoteDraft) => ({
     })),
     price: addon.price,
     unitLabel: addon.unitLabel || "",
+    enabled: addon.enabled !== false,
   })),
+  customSections: (draft.customSections || []).map(normalizeCustomSection),
+  documentOrder: [...(draft.documentOrder || ["scope", "investment", "paymentSchedule"])],
+  hiddenSections: [...(draft.hiddenSections || [])],
   paymentSchedule: clonePaymentSchedule(draft.paymentSchedule || []).map((step) => ({
     label: step.label,
     mode: step.mode,
@@ -909,6 +937,9 @@ const baselineDraft = computed<QuoteDraft>(() => {
       unitLabel: addon.unitLabel || "",
       items: normalizeAddonItems(addon),
     })),
+    customSections: (current.customSections || []).map(normalizeCustomSection),
+    documentOrder: [...(current.documentOrder || ["scope", "investment", "paymentSchedule"])],
+    hiddenSections: [...(current.hiddenSections || [])],
     paymentSchedule: resolveQuotePaymentSchedule(current),
     status: current.status,
   };
@@ -1093,6 +1124,11 @@ const hydrateFromQuote = (quote: Quote | null) => {
       unitLabel: addon.unitLabel || "",
       items: normalizeAddonItems(addon),
     })),
+    customSections: (quote.customSections || []).map(normalizeCustomSection),
+    documentOrder: [
+      ...(quote.documentOrder || ["scope", "investment", "paymentSchedule"]),
+    ],
+    hiddenSections: [...(quote.hiddenSections || [])],
     paymentSchedule: resolveQuotePaymentSchedule(quote),
     status: quote.status,
   });
@@ -3257,76 +3293,65 @@ const saveThenLeave = async () => {
       "
     >
       <div class="flex min-w-0 flex-col gap-6">
-        <div class="rounded-3xl border border-surface-dark/5 bg-surface-card p-4">
-          <div
-            class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
-          >
-            <label class="flex flex-col gap-2">
-              <span class="text-sm font-semibold text-surface-dark"
-                >Template de départ</span
-              >
+        <div class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)]">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-[0.14em] text-surface-dark/45">Préparation</p>
+              <h2 class="mt-1 font-heading text-xl font-bold text-surface-dark">Template de départ</h2>
+            </div>
+            <span class="material-symbols-outlined rounded-xl bg-primary/10 p-2 text-primary">auto_awesome</span>
+          </div>
+          <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+            <label class="flex min-w-0 flex-col gap-2">
+              <span class="text-sm font-semibold text-surface-dark">Choisir un template</span>
               <Select
                 v-model="selectedTemplateId"
                 @update:model-value="handleTemplateSelection"
                 :options="templateOptions"
                 option-label="label"
                 option-value="value"
-                placeholder="Choisir un template"
+                placeholder="Aucun template sélectionné"
                 show-clear
+                class="w-full"
               />
             </label>
-            <div class="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                severity="secondary"
-                outlined
-                :disabled="!selectedTemplateId"
-                @click="confirmReapplyTemplate"
-                label="Réappliquer…"
-                title="Choisir les sections du template à réappliquer"
-              >
-                <template #icon
-                  ><span class="material-symbols-outlined text-lg"
-                    >restart_alt</span
-                  ></template
-                ></Button>
-              <Button
-                text
-                severity="secondary"
-                @click="$router.push('/quote-templates')" label="Gérer les templates">
-                <template #icon
-                  ><span class="material-symbols-outlined text-lg"
-                    >library_books</span
-                  ></template
-                ></Button>
-            </div>
+            <Button
+              severity="secondary"
+              outlined
+              class="!h-[46px] !rounded-xl !px-5 font-semibold"
+              :disabled="!selectedTemplateId"
+              @click="confirmReapplyTemplate"
+              label="Réappliquer"
+              title="Choisir les sections du template à réappliquer"
+            >
+              <template #icon><span class="material-symbols-outlined">restart_alt</span></template>
+            </Button>
+            <Button
+              severity="secondary"
+              text
+              class="!h-[46px] !rounded-xl !px-4 font-semibold"
+              @click="$router.push('/quote-templates')"
+              label="Gérer"
+            >
+              <template #icon><span class="material-symbols-outlined">library_books</span></template>
+            </Button>
           </div>
-          <p class="mt-3 flex flex-wrap items-center gap-1 text-xs text-surface-dark/55">
-            <template v-if="baseTemplateName">
-              <span class="material-symbols-outlined text-sm text-primary">verified</span>
-              <strong class="text-surface-dark/75">{{ baseTemplateName }}</strong> — mail, validation &amp; principes appliqués à tous les devis. Les conditions communes restent disponibles dans les templates.
-              <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
-                Modifier la base
-              </button>
-              <Button
-                text
-                severity="secondary"
-                size="small"
-                class="!ml-1 !rounded-xl !px-2 !py-1"
-                label="Réappliquer la base"
-                @click="confirmApplyBaseCommonContent"
-              >
-                <template #icon>
-                  <span class="material-symbols-outlined text-base">restart_alt</span>
-                </template>
-              </Button>
-            </template>
-            <template v-else>
-              Les nouveaux devis utilisent un contenu de base intégré.
-              <button type="button" class="font-medium text-primary hover:underline" @click="editBaseTemplate">
-                Créer la base commune
-              </button>
-            </template>
-          </p>
+          <div v-if="baseTemplateName" class="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-primary/15 bg-primary/[0.045] px-4 py-3">
+            <span class="material-symbols-outlined text-primary">verified</span>
+            <div class="min-w-0 flex-1">
+              <p class="font-semibold text-surface-dark">{{ baseTemplateName }}</p>
+              <p class="text-xs text-surface-dark/55">Base commune : mail, validation et principes.</p>
+            </div>
+            <Button text severity="secondary" size="small" class="!rounded-xl" label="Modifier" @click="editBaseTemplate" />
+            <Button outlined severity="secondary" size="small" class="!rounded-xl" label="Réappliquer" @click="confirmApplyBaseCommonContent">
+              <template #icon><span class="material-symbols-outlined text-sm">restart_alt</span></template>
+            </Button>
+          </div>
+          <div v-else class="mt-4 flex items-center gap-3 rounded-2xl border border-dashed border-surface-dark/12 px-4 py-3 text-sm text-surface-dark/55">
+            <span class="material-symbols-outlined text-surface-dark/40">info</span>
+            <span class="flex-1">La base commune s’applique automatiquement aux nouveaux devis.</span>
+            <Button text severity="secondary" size="small" class="!rounded-xl" label="Créer la base" @click="editBaseTemplate" />
+          </div>
         </div>
 
         <QuoteBuilderForm
@@ -3367,6 +3392,9 @@ const saveThenLeave = async () => {
           :acceptance="form.acceptance"
           :principles="form.principles"
           :addons="form.addons"
+          :custom-sections="form.customSections"
+          :document-order="form.documentOrder"
+          :hidden-sections="form.hiddenSections"
           :payment-schedule="form.paymentSchedule"
           :clients="clientsStore.clients"
           :addons-total="totals.addonsTotal"
@@ -3391,6 +3419,9 @@ const saveThenLeave = async () => {
           @update:investment-lines="form.investmentLines = $event"
           @reapply-template-section="confirmReapplyTemplateSection"
           @update:parts="form.parts = $event"
+          @update:custom-sections="form.customSections = $event"
+          @update:document-order="form.documentOrder = $event"
+          @update:hidden-sections="form.hiddenSections = $event"
           @update:payment-schedule="form.paymentSchedule = $event"
           @update:status="form.status = $event"
           @new-version="createNewVersion"

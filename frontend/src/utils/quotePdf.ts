@@ -184,6 +184,12 @@ const escapeHtml = (value: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
+/** Texte saisi dans une condition : conserver Entrée comme retour visuel. */
+const renderConditionText = (
+  value: string,
+  renderVariables: (value: string) => string,
+): string => escapeHtml(renderVariables(value || "")).replace(/\r?\n/g, "<br>");
+
 const normalizeWebsiteDisplay = (website: string): string =>
   (website || "")
     .trim()
@@ -227,6 +233,50 @@ const BULLET_RE = /^\s*[•◦▪·\-*]\s+/;
 const renderRichText = (raw: string): string => {
   const text = (raw || "").trim();
   if (!text) return "";
+
+  // Les nouveaux champs riches enregistrent le HTML produit par Quill. On ne
+  // conserve qu'un sous-ensemble sémantique sûr pour le document imprimé.
+  if (/<\/?[a-z][\s\S]*>/i.test(text) && typeof DOMParser !== "undefined") {
+    const allowedTags = new Set(["P", "BR", "STRONG", "B", "EM", "I", "U", "UL", "OL", "LI", "A"]);
+    const parsedDocument = new DOMParser().parseFromString(text, "text/html");
+    const renderNode = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) return escapeHtml(node.textContent || "");
+      if (node.nodeType !== Node.ELEMENT_NODE) return "";
+      const element = node as HTMLElement;
+      const tag = element.tagName.toUpperCase();
+      const children = Array.from(element.childNodes).map(renderNode).join("");
+      if (!allowedTags.has(tag)) return children;
+      if (tag === "BR") return "<br>";
+      if (tag === "A") {
+        const href = element.getAttribute("href") || "";
+        const safeHref = /^(https?:|mailto:)/i.test(href) ? href : "";
+        return safeHref ? `<a href="${escapeHtml(safeHref)}">${children}</a>` : children;
+      }
+      // Quill utilise un <ol> technique pour les deux types de listes, puis
+      // place `data-list="bullet"` ou `data-list="ordered"` sur chaque ligne.
+      // On recrée donc les groupes consécutifs, plutôt que de choisir un type
+      // pour tout le bloc : une liste numérotée reste ainsi bien numérotée.
+      if (tag === "OL") {
+        const quillItems = Array.from(element.children).filter((child) => child.tagName === "LI");
+        const hasQuillListType = quillItems.some((item) =>
+          ["bullet", "ordered"].includes(item.getAttribute("data-list") || ""),
+        );
+        if (hasQuillListType) {
+          const groups: Array<{ kind: "ul" | "ol"; items: string[] }> = [];
+          quillItems.forEach((item) => {
+            const kind = item.getAttribute("data-list") === "bullet" ? "ul" : "ol";
+            const previous = groups.at(-1);
+            if (!previous || previous.kind !== kind) groups.push({ kind, items: [] });
+            groups.at(-1)?.items.push(renderNode(item));
+          });
+          return groups.map((group) => `<${group.kind}>${group.items.join("")}</${group.kind}>`).join("");
+        }
+      }
+      const normalizedTag = ({ B: "strong", I: "em" } as Record<string, string>)[tag] || tag.toLowerCase();
+      return `<${normalizedTag}>${children}</${normalizedTag}>`;
+    };
+    return Array.from(parsedDocument.body.childNodes).map(renderNode).join("");
+  }
 
   const lines = text.split(/\r?\n/);
   const out: string[] = [];
@@ -422,22 +472,13 @@ const renderParts = (
   t: DocLabels,
   renderVariables: (value: string) => string,
 ): string => {
-  const single = parts.length === 1;
-  return parts
-    .map((part, index) => {
-      const heading =
-        single && !part.title?.trim()
-          ? t.scope
-          : part.title?.trim() || `${t.partFallback} ${index + 1}`;
-      const optionalBadge = part.optional
-        ? `<span class="part-badge">${escapeHtml(t.optional)}</span>`
-        : "";
-      return `<section class="doc-section quote-part">
-        <h2>${escapeHtml(renderVariables(heading))}${optionalBadge}</h2>
-        ${renderPartSections(part, renderVariables)}
-      </section>`;
-    })
+  const displayStyle = parts[0]?.displayStyle || "flow";
+  const content = parts
+    .map((part) => renderPartSections({ ...part, displayStyle }, renderVariables))
     .join("");
+  return content
+    ? `<section class="doc-section quote-part"><h2>${escapeHtml(t.scope)}</h2>${content}</section>`
+    : "";
 };
 
 const renderInvestmentTable = (
@@ -453,6 +494,7 @@ const renderInvestmentTable = (
   investmentAmount: number = 0,
   investmentLines: QuoteInvestmentLine[] = [],
   renderVariables: (value: string) => string = (value) => value,
+  paymentScheduleHtml: string = "",
 ): string => {
   const investmentParts = parts.filter(
     (part) => part.includeInInvestment !== false,
@@ -499,7 +541,7 @@ const renderInvestmentTable = (
       .join("");
   }
 
-  return `<section class="doc-section avoid-break">
+  return `<section class="doc-section investment-section investment-payment-group">
     <h2>${escapeHtml(t.investment)}</h2>
     <table class="grid-table invest">
       <thead><tr><th>${escapeHtml(t.deliverable)}</th><th class="amount">${escapeHtml(t.amountExcl)}</th></tr></thead>
@@ -513,6 +555,7 @@ const renderInvestmentTable = (
         <tr class="grand"><td>${escapeHtml(t.totalIncl)}</td><td class="amount">${money(totalIncl)}</td></tr>
       </tbody>
     </table>
+    ${paymentScheduleHtml}
   </section>`;
 };
 
@@ -542,8 +585,7 @@ const renderPaymentScheduleTable = (
     })
     .join("");
 
-  return `<section class="doc-section avoid-break">
-    <h2>${escapeHtml(t.paymentSchedule)}</h2>
+  return `<h2 class="payment-schedule-title">${escapeHtml(t.paymentSchedule)}</h2>
     <table class="grid-table payment-schedule">
       <thead>
         <tr>
@@ -554,8 +596,7 @@ const renderPaymentScheduleTable = (
         </tr>
       </thead>
       <tbody>${rows}</tbody>
-    </table>
-  </section>`;
+    </table>`;
 };
 
 const renderConditionBlocks = (
@@ -606,9 +647,9 @@ const renderConditionBlocks = (
                 const subs = (item.subItems || [])
                   .map((sub) => cleanSignatureText(sub.text))
                   .filter((sub) => sub.trim())
-                  .map((sub) => `<li>${escapeHtml(renderVariables(sub))}</li>`)
+                  .map((sub) => `<li>${renderConditionText(sub, renderVariables)}</li>`)
                   .join("");
-                return `<li>${escapeHtml(renderVariables(item.text))}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
+                return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
               })
               .join("")}</ul>`
           : renderRichText(renderVariables(cleanSignatureText(entry.body)));
@@ -636,9 +677,9 @@ const renderConditionBlocks = (
                 const subs = (item.subItems || [])
                   .map((sub) => cleanSignatureText(sub.text))
                   .filter((sub) => sub.trim())
-                  .map((sub) => `<li>${escapeHtml(renderVariables(sub))}</li>`)
+                  .map((sub) => `<li>${renderConditionText(sub, renderVariables)}</li>`)
                   .join("");
-                return `<li>${escapeHtml(renderVariables(item.text))}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
+                return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
               })
               .join("")}</ul>`
           : renderRichText(renderVariables(cleanSignatureText(entry.body)));
@@ -683,9 +724,9 @@ const renderConditionBlocks = (
               const subs = (item.subItems || [])
                 .map((sub) => cleanSignatureText(sub.text))
                 .filter((sub) => sub.trim())
-                .map((sub) => `<li>${escapeHtml(renderVariables(sub))}</li>`)
+                .map((sub) => `<li>${renderConditionText(sub, renderVariables)}</li>`)
                 .join("");
-              return `<li>${escapeHtml(renderVariables(item.text))}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
+              return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
             })
             .join("")}</ul>`
         : renderRichText(renderVariables(cleanSignatureText(entry.body)));
@@ -753,6 +794,9 @@ const buildSenderAddressHtml = (
           .map((line) => `<span>${escapeHtml(line)}</span>`)
           .join("")}</div>`
       : "",
+    profile.vatNumber?.trim()
+      ? `<div class="address-row address-contact">${escapeHtml(t.vat)} : ${escapeHtml(profile.vatNumber.trim())}</div>`
+      : "",
     profile.contactEmail
       ? `<div class="address-row address-contact">${linkify(profile.contactEmail)}</div>`
       : "",
@@ -786,9 +830,6 @@ const buildClientAddressHtml = (quote: Quote, t: DocLabels): string => {
       ? `<div class="client-address">${displayAddressLines
           .map((line) => `<span>${escapeHtml(line)}</span>`)
           .join("")}</div>`
-      : "",
-    quote.clientWebsite
-      ? `<div class="client-contact">${linkify(quote.clientWebsite)}</div>`
       : "",
   ].filter(Boolean);
   return rows.join("");
@@ -852,23 +893,37 @@ export const renderQuoteDocumentHtml = (
       : "";
 
   // Options / add-ons (affichés hors total)
-  const addons = (quote.addons || []).filter((a) => a.enabled !== false);
+  // Les options affichées dans l’éditeur sont toutes destinées au devis. Les
+  // anciennes données peuvent contenir `enabled: false`, mais ce contrôle
+  // n’est plus proposé dans l’interface : on ne doit donc pas les masquer.
+  const addons = quote.addons || [];
   const optionsTable = addons.length
-    ? `<section class="doc-section avoid-break">
+    ? `<section class="doc-section avoid-break page-break-before options-section">
         <h2>${escapeHtml(t.options)}</h2>
-        <table class="grid-table">
+        <table class="grid-table options-table">
           <thead><tr><th>${escapeHtml(t.deliverable)}</th><th class="amount">${escapeHtml(t.amountExcl)}</th></tr></thead>
           <tbody>
             ${addons
-              .map(
-                (addon) => `<tr>
+              .map((addon) => {
+                const items = (addon.items || [])
+                  .filter((item) => item.text.trim())
+                  .map((item) => {
+                    const subItems = (item.subItems || [])
+                      .filter((subItem) => subItem.text.trim())
+                      .map((subItem) => `<li>${renderConditionText(subItem.text, renderVariables)}</li>`)
+                      .join("");
+                    return `<li>${renderConditionText(item.text, renderVariables)}${subItems ? `<ul class="sub">${subItems}</ul>` : ""}</li>`;
+                  })
+                  .join("");
+                return `<tr>
                   <td>
                     <div class="row-title">${escapeHtml(renderVariables(addon.title))}</div>
-                    ${addon.description ? `<div class="row-desc">${renderRichText(renderVariables(addon.description))}</div>` : ""}
+                    ${addon.description && !(addon.items || []).length ? `<div class="row-desc">${renderRichText(renderVariables(addon.description))}</div>` : ""}
+                    ${items ? `<div class="row-desc"><ul>${items}</ul></div>` : ""}
                   </td>
                   <td class="amount">${money(addon.price)}${addon.unitLabel ? `<span class="unit"> / ${escapeHtml(renderVariables(addon.unitLabel))}</span>` : ""}</td>
-                </tr>`,
-              )
+                </tr>`;
+              })
               .join("")}
           </tbody>
         </table>
@@ -882,10 +937,17 @@ export const renderQuoteDocumentHtml = (
   const proposal = quote.projectSummary?.trim()
     ? `<section class="doc-section avoid-break">
         <h2>${escapeHtml(t.proposal)}</h2>
-        ${renderRichText(renderVariables(quote.projectSummary))}
+        <div class="project-description">${renderRichText(renderVariables(quote.projectSummary))}</div>
       </section>`
     : "";
 
+  const paymentScheduleTable = renderPaymentScheduleTable(
+    quote.paymentSchedule || [],
+    t,
+    money,
+    subtotal,
+    totalIncl,
+  );
   const totalsTable = renderInvestmentTable(
     parts,
     t,
@@ -899,23 +961,15 @@ export const renderQuoteDocumentHtml = (
     quote.investmentAmount || 0,
     quote.investmentLines || [],
     renderVariables,
+    paymentScheduleTable,
   );
-  const paymentScheduleTable = renderPaymentScheduleTable(
-    quote.paymentSchedule || [],
-    t,
-    money,
-    subtotal,
-    totalIncl,
-  );
-
   const roadmapEntries = (quote.roadmap || []).map((entry, index, list) =>
     index === list.length - 1
       ? { ...entry, title: getEstimatedTimelineTitle(lang) }
       : entry,
   );
 
-  const conditions = [
-    renderConditionBlocks(
+  const roadmapContent = renderConditionBlocks(
       t.roadmap,
       roadmapEntries,
       {
@@ -924,8 +978,8 @@ export const renderQuoteDocumentHtml = (
         spacedEntries: true,
       },
       renderVariables,
-    ),
-    renderConditionBlocks(
+    );
+  const acceptanceContent = renderConditionBlocks(
       t.acceptance,
       quote.acceptance || [],
       {
@@ -933,8 +987,8 @@ export const renderQuoteDocumentHtml = (
         signatureLabels: { date: t.clientDate, signature: t.clientSignature },
       },
       renderVariables,
-    ),
-    renderConditionBlocks(
+    );
+  const conditionsContent = renderConditionBlocks(
       t.conditions,
       quote.conditions || [],
       {
@@ -943,8 +997,8 @@ export const renderQuoteDocumentHtml = (
         pageBreakBefore: true,
       },
       renderVariables,
-    ),
-    renderConditionBlocks(
+    );
+  const principlesContent = renderConditionBlocks(
       t.principles,
       quote.principles || [],
       {
@@ -954,8 +1008,51 @@ export const renderQuoteDocumentHtml = (
         pageBreakBefore: true,
       },
       renderVariables,
-    ),
-  ].join("");
+    );
+  const conditions = [roadmapContent, acceptanceContent, conditionsContent, principlesContent].join("");
+
+  const customDocumentSections = new Map(
+    (quote.customSections || []).map((section) => [
+      section.id,
+      `<section class="doc-section avoid-break"><h2>${escapeHtml(renderVariables(section.title || "Nouvelle section"))}</h2>${section.sections?.length
+        ? renderPartSections({
+            id: section.id,
+            title: section.title || "",
+            displayStyle: section.displayStyle || "flow",
+            price: 0,
+            optional: false,
+            includeInInvestment: false,
+            priceNote: "",
+            sections: section.sections,
+          }, renderVariables)
+        : `<div class="project-description">${renderRichText(renderVariables(section.content || ""))}</div>`}</section>`,
+    ]),
+  );
+  const documentBlocks = new Map<string, string>([
+    ["proposal", proposal],
+    ["scope", partsContent],
+    ["investment", totalsTable],
+    ["addons", optionsTable],
+    ["paymentSchedule", ""],
+    ["roadmap", roadmapContent],
+    ["acceptance", acceptanceContent],
+    ["conditions", conditionsContent],
+    ["principles", principlesContent],
+    ...customDocumentSections,
+  ]);
+  const configuredOrder = quote.documentOrder || [];
+  const canonicalOrder = ["proposal", "scope", "addons", "investment", "paymentSchedule", "roadmap", "conditions", "acceptance", "principles"];
+  const effectiveConfiguredOrder = configuredOrder.length <= 3 ? [] : configuredOrder;
+  const documentOrder = [
+    ...effectiveConfiguredOrder,
+    ...canonicalOrder.filter((id) => !effectiveConfiguredOrder.includes(id)),
+    ...[...customDocumentSections.keys()].filter((id) => !effectiveConfiguredOrder.includes(id)),
+  ];
+  const documentContent = documentOrder
+    .filter((id, index) => documentOrder.indexOf(id) === index)
+    .filter((id) => !(quote.hiddenSections || []).includes(id))
+    .map((id) => documentBlocks.get(id) || "")
+    .join("");
 
   const footerWebsite = escapeHtml(
     normalizeWebsiteDisplay(profile?.website || ""),
@@ -984,6 +1081,7 @@ export const renderQuoteDocumentHtml = (
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
+    position: relative;
     font-family: ${bodyFontStack};
     font-style: ${bodyFontStyle.style};
     font-weight: ${bodyFontStyle.weight};
@@ -1005,6 +1103,15 @@ export const renderQuoteDocumentHtml = (
   ul { margin: 6px 0 8px; padding-left: 18px; }
   ul.sub { margin: 4px 0 4px; }
   li { margin: 2px 0; }
+  /* Dans la description projet, Entrée crée un <p> (avec respiration) et
+     Maj + Entrée un <br> (simple retour à la ligne). */
+  .project-description p { margin: 0 0 11px; }
+  .project-description p:last-child { margin-bottom: 0; }
+  .project-description ul,
+  .project-description ol { margin: 5px 0 11px; padding-left: 20px; }
+  .project-description ul { list-style-type: disc; }
+  .project-description ol { list-style-type: decimal; }
+  .project-description li { margin: 3px 0; }
 
   .page {
     position: relative;
@@ -1038,7 +1145,16 @@ export const renderQuoteDocumentHtml = (
     border-top: 1px solid var(--line);
     padding-top: 3mm;
   }
-  .print-page-footers { display: none; }
+  .print-page-footers {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    min-height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
   .print-page-footer {
     position: absolute;
     left: 16mm;
@@ -1089,6 +1205,13 @@ export const renderQuoteDocumentHtml = (
 
   /* ---- Sections ---- */
   .doc-section { margin-bottom: 9mm; }
+  .investment-payment-group {
+    break-inside: avoid-page !important;
+    page-break-inside: avoid !important;
+  }
+  .investment-payment-group > .payment-schedule-title {
+    margin-top: 7mm;
+  }
   .doc-section > h2 {
     font-size: 16pt; margin: 0 0 10px; padding-bottom: 7px;
     color: var(--title); border-bottom: 1px solid var(--title);
@@ -1315,6 +1438,7 @@ export const renderQuoteDocumentHtml = (
   /* ---- Tableaux ---- */
   table { width: 100%; border-collapse: collapse; }
   .grid-table.invest,
+  .grid-table.options-table,
   .grid-table.payment-schedule,
   .totals {
     border-collapse: separate;
@@ -1322,6 +1446,7 @@ export const renderQuoteDocumentHtml = (
     overflow: hidden;
   }
   .grid-table.invest,
+  .grid-table.options-table,
   .grid-table.payment-schedule {
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -1450,7 +1575,6 @@ export const renderQuoteDocumentHtml = (
 
   <main class="page">
     <div class="first-page-header-mask" aria-hidden="true"></div>
-    <div class="print-page-footers" data-website="${footerWebsite}" aria-hidden="true"></div>
     <header class="letterhead">
       <div class="sender">
         ${logo}
@@ -1471,13 +1595,9 @@ export const renderQuoteDocumentHtml = (
       </div>
     </header>
 
-    ${proposal}
-    ${partsContent}
-    ${totalsTable}
-    ${paymentScheduleTable}
-    ${optionsTable}
-    ${conditions}
+    ${documentContent}
   </main>
+  <div class="print-page-footers" data-website="${footerWebsite}" aria-hidden="true"></div>
 
   <script>
     const renderPrintPageFooters = () => {
@@ -1497,9 +1617,31 @@ export const renderQuoteDocumentHtml = (
       const pageHeightPx = measure.getBoundingClientRect().height || 1122;
       measure.remove();
 
-      const pageCount = Math.max(1, Math.ceil(page.scrollHeight / pageHeightPx));
+      // Mesurer uniquement le contenu métier. Le body contient aussi les pieds
+      // de page générés et provoquerait une croissance à chaque recalcul.
+      const contentHeight = page.scrollHeight;
+      // Reproduire l’espace réellement ajouté par chaque saut forcé. Compter
+      // simplement les classes surestime le total lorsqu’un bloc tombe déjà
+      // naturellement au début d’une page.
+      const pageTop = page.getBoundingClientRect().top;
+      const forcedBreakOffsets = Array.from(
+        page.querySelectorAll('.page-break-before'),
+      )
+        .map((element) => element.getBoundingClientRect().top - pageTop)
+        .sort((a, b) => a - b);
+      let insertedBreakSpace = 0;
+      forcedBreakOffsets.forEach((rawOffset) => {
+        const adjustedOffset = rawOffset + insertedBreakSpace;
+        const remainder = adjustedOffset % pageHeightPx;
+        if (remainder > 1 && pageHeightPx - remainder > 1) {
+          insertedBreakSpace += pageHeightPx - remainder;
+        }
+      });
+      const pageCount = Math.max(
+        1,
+        Math.ceil((contentHeight + insertedBreakSpace + 1) / pageHeightPx),
+      );
       const website = footers.getAttribute('data-website') || '';
-
       for (let index = 0; index < pageCount; index += 1) {
         const footer = document.createElement('div');
         footer.className = 'print-page-footer';
@@ -1517,7 +1659,7 @@ export const renderQuoteDocumentHtml = (
 
     window.addEventListener('load', async () => {
       try { if (document.fonts && document.fonts.ready) { await document.fonts.ready; } } catch (e) {}
-      renderPrintPageFooters();
+      requestAnimationFrame(() => requestAnimationFrame(renderPrintPageFooters));
     });
     window.addEventListener('beforeprint', renderPrintPageFooters);
   </script>

@@ -315,6 +315,17 @@ export const quoteAddonSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+/** Section rédactionnelle libre, placée où l'on veut dans le document. */
+export const quoteCustomSectionSchema = z.object({
+  id: z.string(),
+  title: z.string().default(''),
+  /** Lignes structurées, comme dans la portée du projet. */
+  sections: z.array(quoteSectionSchema).default([]),
+  displayStyle: quotePartDisplayStyleSchema.default('flow'),
+  /** Ancien format conservé pour compatibilité avec les devis existants. */
+  content: z.string().default(''),
+});
+
 export const quoteInvestmentLineModeSchema = z.enum(['percent', 'fixed']);
 
 /**
@@ -403,6 +414,9 @@ export const quoteSchema = z.object({
   principles: z.array(quoteConditionSchema).default([]),
   addons: z.array(quoteAddonSchema).default([]),
   paymentSchedule: z.array(quotePaymentScheduleStepSchema).default([]),
+  customSections: z.array(quoteCustomSectionSchema).default([]),
+  documentOrder: z.array(z.string()).default(['scope', 'investment', 'paymentSchedule']),
+  hiddenSections: z.array(z.string()).default([]),
   subtotal: z.number(),
   totalWithVat: z.number(),
   status: quoteStatusSchema.default('draft'),
@@ -616,6 +630,7 @@ export type QuoteConditionSubItem = z.infer<typeof quoteConditionSubItemSchema>;
 export type QuoteConditionItem = z.infer<typeof quoteConditionItemSchema>;
 export type QuoteCondition = z.infer<typeof quoteConditionSchema>;
 export type QuoteAddon = z.infer<typeof quoteAddonSchema>;
+export type QuoteCustomSection = z.infer<typeof quoteCustomSectionSchema>;
 export type QuoteTemplateLocalizedContent = z.infer<
   typeof quoteTemplateLocalizedContentSchema
 >;

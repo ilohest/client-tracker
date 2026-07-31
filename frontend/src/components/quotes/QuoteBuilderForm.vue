@@ -4,11 +4,14 @@ import type {
   ClientPlatform,
   QuoteAddon,
   QuoteCondition,
+  QuoteCustomSection,
   QuoteDiscountType,
   QuoteInvestmentLine,
   QuoteLanguage,
   QuotePart,
+  QuotePartDisplayStyle,
   QuotePaymentScheduleStep,
+  QuoteSection,
   QuoteStatus,
   VatRate,
 } from "@client-tracker/contracts";
@@ -16,13 +19,15 @@ import Button from "primevue/button";
 import DatePicker from "primevue/datepicker";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
+import Menu from "primevue/menu";
 import Select from "primevue/select";
-import Textarea from "primevue/textarea";
+import SelectButton from "primevue/selectbutton";
 import QuoteAddonsEditor from "@/components/quotes/QuoteAddonsEditor.vue";
 import QuoteConditionsEditor from "@/components/quotes/QuoteConditionsEditor.vue";
 import QuoteInvestmentLinesEditor from "@/components/quotes/QuoteInvestmentLinesEditor.vue";
 import QuotePaymentScheduleEditor from "@/components/quotes/QuotePaymentScheduleEditor.vue";
-import QuotePartsEditor from "@/components/quotes/QuotePartsEditor.vue";
+import QuoteSectionsEditor from "@/components/quotes/QuoteSectionsEditor.vue";
+import RichTextEditor from "@/components/quotes/RichTextEditor.vue";
 import { getCountryFlag, getCountryLabel } from "@/lib/countries";
 import {
   discountTypeOptions,
@@ -33,7 +38,9 @@ import {
   quoteStatusOptions,
   vatOptions,
 } from "@/lib/clientPresets";
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import { createEmptyQuotePart, createEntityId } from "@/utils/quote";
+import { createBlock } from "@/utils/quoteBlocks";
 
 const props = defineProps<{
   /**
@@ -74,6 +81,9 @@ const props = defineProps<{
   acceptance: QuoteCondition[];
   principles: QuoteCondition[];
   addons: QuoteAddon[];
+  customSections?: QuoteCustomSection[];
+  documentOrder?: string[];
+  hiddenSections?: string[];
   paymentSchedule: QuotePaymentScheduleStep[];
   clients: Client[];
   addonsTotal: number;
@@ -103,6 +113,9 @@ const emit = defineEmits<{
     section: "projectSummary" | "parts" | "conditions" | "roadmap" | "addons",
   ];
   "update:parts": [value: QuotePart[]];
+  "update:customSections": [value: QuoteCustomSection[]];
+  "update:documentOrder": [value: string[]];
+  "update:hiddenSections": [value: string[]];
   "update:paymentSchedule": [value: QuotePaymentScheduleStep[]];
   "update:status": [value: QuoteStatus];
   newVersion: [];
@@ -382,8 +395,172 @@ const emit = defineEmits<{
 const isTemplate = computed(() => props.mode === "template");
 const isBase = computed(() => props.mode === "base");
 const isQuote = computed(() => !isTemplate.value && !isBase.value);
-const canEditCustomPlatformLabel = computed(() =>
-  props.platform === "custom" || props.platform === "other",
+// La portée est désormais un seul niveau : les anciennes « parties » sont
+// aplaties dans une unique collection de lignes, sans perdre leur contenu.
+const scopeSections = computed<QuoteSection[]>({
+  get: () => props.parts.flatMap((part) => part.sections || []),
+  set: (sections) => {
+    const first = props.parts[0] || createEmptyQuotePart();
+    const legacyTotal = props.parts.reduce(
+      (sum, part) => sum + Number(part.price || 0),
+      0,
+    );
+    emit("update:parts", [
+      {
+        ...first,
+        title: "",
+        displayStyle: first.displayStyle || "flow",
+        price: legacyTotal,
+        optional: false,
+        includeInInvestment: true,
+        sections,
+      },
+    ]);
+  },
+});
+const scopeDisplayOptions: Array<{
+  label: string;
+  value: QuotePartDisplayStyle;
+}> = [
+  { label: "Fluide", value: "flow" },
+  { label: "Encadré", value: "framed" },
+];
+const scopeDisplayStyle = computed<QuotePartDisplayStyle>({
+  get: () => props.parts[0]?.displayStyle || "flow",
+  set: (displayStyle) => {
+    const first = props.parts[0] || createEmptyQuotePart();
+    const legacyTotal = props.parts.reduce(
+      (sum, part) => sum + Number(part.price || 0),
+      0,
+    );
+    emit("update:parts", [
+      {
+        ...first,
+        title: "",
+        displayStyle,
+        price: legacyTotal,
+        optional: false,
+        includeInInvestment: true,
+        sections: scopeSections.value,
+      },
+    ]);
+  },
+});
+const documentItems = computed(() => {
+  const fixed = [
+    { id: "quoteInfo", label: "Informations du devis", fixed: true },
+    { id: "proposal", label: "Proposition de projet", fixed: true },
+    { id: "scope", label: "Portée du projet", fixed: true },
+    { id: "customSections", label: "Sections personnalisées", fixed: true },
+    { id: "addons", label: "Options complémentaires", fixed: true },
+    { id: "investment", label: "Investissement", fixed: true },
+    { id: "paymentSchedule", label: "Échéancier de paiement", fixed: true },
+    { id: "roadmap", label: "Feuille de route", fixed: true },
+    { id: "conditions", label: "Conditions", fixed: true },
+    { id: "acceptance", label: "Acceptation", fixed: true },
+    { id: "principles", label: "Principes", fixed: true },
+  ];
+  const custom = (props.customSections || []).map((section) => ({
+    id: section.id,
+    label: section.title || "Nouvelle section",
+    fixed: false,
+  }));
+  const known = new Map([...fixed, ...custom].map((item) => [item.id, item]));
+  const configuredOrder = props.documentOrder || [];
+  const canonicalOrder = fixed.map((item) => item.id);
+  const effectiveOrder = configuredOrder.length <= 3
+    ? [...canonicalOrder, ...custom.map((item) => item.id)]
+    : configuredOrder;
+  const order = [
+    ...effectiveOrder.filter((id) => known.has(id)),
+    ...[...known.keys()].filter((id) => !effectiveOrder.includes(id)),
+  ];
+  return order.map((id) => known.get(id)!).filter(Boolean);
+});
+const documentSectionOrder = (id: string) => documentItems.value.findIndex((item) => item.id === id);
+const updateCustomSection = (
+  id: string,
+  field: "title" | "content" | "sections" | "displayStyle",
+  value: string | QuoteSection[] | QuotePartDisplayStyle,
+) =>
+  emit(
+    "update:customSections",
+    (props.customSections || []).map((section) =>
+      section.id === id ? { ...section, [field]: value } : section,
+    ),
+  );
+const addCustomSection = () => {
+  const section = {
+    id: createEntityId(),
+    title: "Nouvelle section",
+    content: "",
+    displayStyle: "flow" as QuotePartDisplayStyle,
+    sections: [{ id: createEntityId(), title: "", blocks: [createBlock()] }],
+  };
+  emit("update:customSections", [...(props.customSections || []), section]);
+  emit("update:documentOrder", [
+    ...documentItems.value.map((item) => item.id),
+    section.id,
+  ]);
+};
+const removeCustomSection = (id: string) => {
+  emit(
+    "update:customSections",
+    (props.customSections || []).filter((section) => section.id !== id),
+  );
+  emit(
+    "update:documentOrder",
+    documentItems.value
+      .map((item) => item.id)
+      .filter((itemId) => itemId !== id),
+  );
+};
+const moveDocumentItem = (id: string, direction: -1 | 1) => {
+  const order = documentItems.value.map((item) => item.id);
+  const index = order.indexOf(id);
+  const target = index + direction;
+  if (target < 0 || target >= order.length) return;
+  [order[index], order[target]] = [order[target], order[index]];
+  emit("update:documentOrder", order);
+};
+const isSectionHidden = (id: string) => (props.hiddenSections || []).includes(id);
+const toggleSectionHidden = (id: string) => {
+  const hidden = new Set(props.hiddenSections || []);
+  if (hidden.has(id)) hidden.delete(id);
+  else hidden.add(id);
+  emit("update:hiddenSections", [...hidden]);
+};
+const customSectionMenus = ref<Record<string, { toggle: (event: Event) => void }>>({});
+const sectionMenus = ref<Record<string, { toggle: (event: Event) => void }>>({});
+const setCustomSectionMenu = (id: string, instance: unknown) => {
+  if (instance && typeof instance === "object" && "toggle" in instance) {
+    customSectionMenus.value[id] = instance as { toggle: (event: Event) => void };
+  }
+};
+const setSectionMenu = (id: string, instance: unknown) => {
+  if (instance && typeof instance === "object" && "toggle" in instance) {
+    sectionMenus.value[id] = instance as { toggle: (event: Event) => void };
+  }
+};
+const sectionMenuItems = (id: string) => [
+  ...(id === "proposal" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer le contenu du template", command: () => emit("reapplyTemplateSection", "projectSummary") }] : []),
+  ...(id === "scope" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer la portée du template", command: () => emit("reapplyTemplateSection", "parts") }] : []),
+  ...(id === "addons" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer les options du template", command: () => emit("reapplyTemplateSection", "addons") }] : []),
+  ...(id === "roadmap" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer la feuille de route", command: () => emit("reapplyTemplateSection", "roadmap") }] : []),
+  ...(id === "conditions" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer les conditions", command: () => emit("reapplyTemplateSection", "conditions") }] : []),
+  { separator: true },
+  { label: isSectionHidden(id) ? "◉  Afficher la section" : "◌  Masquer la section", command: () => toggleSectionHidden(id) },
+];
+const customSectionMenuItems = (id: string) => [
+  { label: isSectionHidden(id) ? "◉  Afficher la section" : "◌  Masquer la section", command: () => toggleSectionHidden(id) },
+  { separator: true },
+  {
+    label: "▣  Supprimer la section",
+    command: () => removeCustomSection(id),
+  },
+];
+const canEditCustomPlatformLabel = computed(
+  () => props.platform === "custom" || props.platform === "other",
 );
 
 const statusLocked = computed(() =>
@@ -442,12 +619,14 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
 </script>
 
 <template>
-  <section class="bg-surface-card border border-surface-dark/5 rounded-3xl p-6">
+  <section class="flex flex-col gap-6">
     <div
       v-if="isQuote"
-      class="mb-6 flex flex-wrap items-center justify-between gap-4"
+      class="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-surface-dark/5 bg-surface-card p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)]"
     >
-      <div class="flex items-center gap-3 rounded-2xl bg-white border border-surface-dark/5 px-4 py-3">
+      <div
+        class="flex items-center gap-3 rounded-2xl bg-white border border-surface-dark/5 px-4 py-3"
+      >
         <div>
           <p class="text-xs uppercase tracking-wide text-surface-dark/45">
             Référence
@@ -463,7 +642,8 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
 
       <div class="flex items-center gap-2">
         <div class="flex flex-col gap-1">
-          <span class="text-[11px] font-medium uppercase tracking-wide text-surface-dark/45"
+          <span
+            class="text-[11px] font-medium uppercase tracking-wide text-surface-dark/45"
             >Statut</span
           >
           <Select
@@ -521,8 +701,14 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       </p>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <label class="flex flex-col gap-2" :class="isQuote ? '' : 'lg:col-span-2'">
+    <div :style="{ order: documentSectionOrder('quoteInfo') }" class="grid grid-cols-1 gap-4 rounded-3xl border border-surface-dark/5 bg-white p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)] lg:grid-cols-2">
+      <div class="flex items-center justify-between gap-3 lg:col-span-2">
+        <h3 class="font-heading font-bold text-surface-dark">Informations du devis</h3>
+      </div>
+      <label
+        class="flex flex-col gap-2"
+        :class="isQuote ? '' : 'lg:col-span-2'"
+      >
         <span class="text-sm font-semibold text-surface-dark">{{
           isQuote ? "Titre du devis" : "Nom du template"
         }}</span>
@@ -533,7 +719,9 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
         />
       </label>
       <label v-if="isQuote" class="flex flex-col gap-2">
-        <span class="text-sm font-semibold text-surface-dark">Nom du projet</span>
+        <span class="text-sm font-semibold text-surface-dark"
+          >Nom du projet</span
+        >
         <InputText
           :model-value="projectName"
           placeholder="Ex: AutoVOPro"
@@ -578,12 +766,17 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
             placeholder="Sélectionner un client existant"
             @update:model-value="handleClientId"
           />
-          <Button severity="secondary" @click="emit('createClient')" label="Nouveau client">
+          <Button
+            severity="secondary"
+            @click="emit('createClient')"
+            label="Nouveau client"
+          >
             <template #icon
               ><span class="material-symbols-outlined text-lg"
                 >add</span
               ></template
-            ></Button>
+            ></Button
+          >
         </div>
       </div>
       <div
@@ -669,28 +862,49 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           @update:model-value="handleVatRate"
         />
       </label>
-      <div
-        v-if="isQuote"
-        class="rounded-2xl bg-white border border-surface-dark/5 p-4 lg:col-span-2"
-      >
+    </div>
+    <div
+      v-if="isQuote"
+      :style="{ order: documentSectionOrder('investment') }"
+      class="rounded-3xl border border-surface-dark/5 bg-white p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)]"
+    >
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <h3 class="font-heading font-bold text-surface-dark">Investissement</h3>
+          <div class="flex items-center gap-0.5">
+            <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('investment') ? 'Afficher l’investissement' : 'Masquer l’investissement'" :title="isSectionHidden('investment') ? 'Afficher l’investissement' : 'Masquer l’investissement'" @click="toggleSectionHidden('investment')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('investment') ? 'visibility_off' : 'visibility' }}</span></template></Button>
+            <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter l’investissement" title="Déplacer vers le haut" @click="moveDocumentItem('investment', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+            <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre l’investissement" title="Déplacer vers le bas" @click="moveDocumentItem('investment', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+            <Button type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.investment?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+            <Menu :ref="(instance) => setSectionMenu('investment', instance)" :model="sectionMenuItems('investment')" popup />
+          </div>
+        </div>
         <div class="grid grid-cols-1 gap-3">
           <div class="flex flex-col gap-1.5">
             <span class="text-sm font-semibold text-surface-dark"
-              >Investissement</span
+              >Synthèse</span
             >
             <div
               class="flex items-center justify-between rounded-xl border border-surface-dark/8 bg-surface-light px-3 py-2.5"
             >
               <span class="font-heading text-lg font-bold text-surface-dark">
-                {{ formatAmount(getAmountBeforeDiscount(subtotal, discountAmount)) }} €
+                {{
+                  formatAmount(
+                    getAmountBeforeDiscount(subtotal, discountAmount),
+                  )
+                }}
+                €
               </span>
-              <span class="text-xs text-surface-dark/45"
-                >{{ investmentAmount > 0 ? "prix global de la prestation" : "somme des parties non optionnelles" }}</span
-              >
+              <span class="text-xs text-surface-dark/45">{{
+                investmentAmount > 0
+                  ? "prix global de la prestation"
+                  : "somme des parties non optionnelles"
+              }}</span>
             </div>
           </div>
         </div>
-        <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+        <div
+          class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_220px]"
+        >
           <label class="flex flex-col gap-2">
             <span class="text-sm font-semibold text-surface-dark"
               >Résumé du service</span
@@ -814,81 +1028,110 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           </div>
         </div>
       </div>
-    </div>
 
     <div
       v-if="!isBase"
-      class="mt-6 rounded-3xl bg-white border border-surface-dark/5 p-5"
+      :style="{ order: documentSectionOrder('proposal') }"
+      class="mt-6 rounded-3xl border border-surface-dark/5 bg-white p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)]"
     >
       <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 class="font-heading font-bold text-surface-dark">
-            Description projet
+            Proposition de projet
           </h3>
         </div>
-        <Button
-          v-if="isQuote && canReapplyTemplate"
-          type="button"
-          text
-          severity="secondary"
-          size="small"
-          class="!rounded-xl"
-          label="Réappliquer"
-          title="Remplacer cette section par la version du template"
-          @click="emit('reapplyTemplateSection', 'projectSummary')"
-        >
-          <template #icon>
-            <span class="material-symbols-outlined text-base">restart_alt</span>
-          </template>
-        </Button>
+        <div class="flex items-center gap-0.5">
+          <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('proposal') ? 'Afficher la proposition' : 'Masquer la proposition'" :title="isSectionHidden('proposal') ? 'Afficher la proposition' : 'Masquer la proposition'" @click="toggleSectionHidden('proposal')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('proposal') ? 'visibility_off' : 'visibility' }}</span></template></Button><Button type="button" text rounded severity="secondary" size="small" aria-label="Monter la proposition" title="Déplacer vers le haut" @click="moveDocumentItem('proposal', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+          <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre la proposition" title="Déplacer vers le bas" @click="moveDocumentItem('proposal', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+        </div>
+        <Button v-if="!isBase" type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.proposal?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+        <Menu v-if="!isBase" :ref="(instance) => setSectionMenu('proposal', instance)" :model="sectionMenuItems('proposal')" popup />
       </div>
-      <Textarea
+
+      <RichTextEditor
         :model-value="projectSummary"
-        rows="6"
-        class="w-full"
+        placeholder="Présente le contexte, les objectifs et le périmètre du projet…"
         @update:model-value="handleProjectSummary"
       />
     </div>
 
     <div
       v-if="!isBase"
-      class="mt-6 rounded-3xl bg-white border border-surface-dark/5 p-5"
+      :style="{ order: documentSectionOrder('scope') }"
+      class="mt-6 rounded-3xl border border-surface-dark/5 bg-white p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)]"
     >
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
           <h3 class="font-heading font-bold text-surface-dark">
-            Contenu du devis
+            Portée du projet
           </h3>
-          <p class="mt-1 text-sm text-surface-dark/55">
-            Structure ton devis en parties. Chaque partie a son propre prix, peut
-            être marquée optionnelle, et s'affiche en texte ou en tableau.
-          </p>
         </div>
-        <Button
-          v-if="isQuote && canReapplyTemplate"
-          type="button"
-          text
-          severity="secondary"
-          size="small"
-          class="!rounded-xl"
-          label="Réappliquer"
-          title="Remplacer les parties par celles du template"
-          @click="emit('reapplyTemplateSection', 'parts')"
-        >
-          <template #icon>
-            <span class="material-symbols-outlined text-base">restart_alt</span>
-          </template>
-        </Button>
+        <div class="ml-auto flex items-center gap-0.5">
+          <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('scope') ? 'Afficher la portée' : 'Masquer la portée'" :title="isSectionHidden('scope') ? 'Afficher la portée' : 'Masquer la portée'" @click="toggleSectionHidden('scope')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('scope') ? 'visibility_off' : 'visibility' }}</span></template></Button><Button type="button" text rounded severity="secondary" size="small" aria-label="Monter la portée" title="Déplacer vers le haut" @click="moveDocumentItem('scope', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+          <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre la portée" title="Déplacer vers le bas" @click="moveDocumentItem('scope', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+        </div>
+        <Button v-if="!isBase" type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.scope?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+        <Menu v-if="!isBase" :ref="(instance) => setSectionMenu('scope', instance)" :model="sectionMenuItems('scope')" popup />
       </div>
-      <QuotePartsEditor
-        :model-value="parts"
-        :currency-locale="currencyLocale"
-        @update:model-value="emit('update:parts', $event)"
+      <div class="mb-4 flex flex-wrap items-center gap-2 border-t border-surface-dark/6 pt-4">
+        <span
+          class="text-xs font-medium uppercase tracking-wide text-surface-dark/50"
+          title="Fluide : les contenus s’enchaînent. Encadré : chaque élément apparaît sur un fond bleu clair dans le PDF."
+        >
+          Affichage
+        </span>
+        <SelectButton
+          v-model="scopeDisplayStyle"
+          :options="scopeDisplayOptions"
+          option-label="label"
+          option-value="value"
+          :allow-empty="false"
+        />
+      </div>
+      <QuoteSectionsEditor
+        storage-key="devisio:quote-scope:collapsed"
+        :model-value="scopeSections"
+        @update:model-value="scopeSections = $event"
       />
     </div>
 
+    <div v-if="!isBase" :style="{ order: 999 }" class="flex justify-end">
+      <Button type="button" outlined severity="secondary" class="rounded-xl" label="Ajouter une section" @click="addCustomSection">
+        <template #icon><span class="material-symbols-outlined">add</span></template>
+      </Button>
+    </div>
+    <article v-for="section in customSections" :key="section.id" :style="{ order: documentSectionOrder(section.id) }" class="mt-6 rounded-3xl border border-surface-dark/6 bg-surface-card p-5 shadow-[0_8px_24px_rgba(33,35,54,0.07)]">
+          <div class="flex items-center gap-2">
+            <InputText :model-value="section.title" class="min-w-0 flex-1 font-heading font-semibold" placeholder="Titre de la section" @update:model-value="updateCustomSection(section.id, 'title', $event || '')" />
+            <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden(section.id) ? 'Afficher la section' : 'Masquer la section'" :title="isSectionHidden(section.id) ? 'Afficher la section' : 'Masquer la section'" @click="toggleSectionHidden(section.id)"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden(section.id) ? 'visibility_off' : 'visibility' }}</span></template></Button>
+            <Button type="button" class="ml-auto" text rounded severity="secondary" size="small" :disabled="documentSectionOrder(section.id) === 0" aria-label="Monter" title="Déplacer vers le haut" @click="moveDocumentItem(section.id, -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+            <Button type="button" text rounded severity="secondary" size="small" :disabled="documentSectionOrder(section.id) === documentItems.length - 1" aria-label="Descendre" title="Déplacer vers le bas" @click="moveDocumentItem(section.id, 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+            <Button type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="customSectionMenus[section.id]?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+            <Menu :ref="(instance) => setCustomSectionMenu(section.id, instance)" :model="customSectionMenuItems(section.id)" popup />
+          </div>
+          <div class="mt-4 border-t border-surface-dark/6 pt-4">
+            <div class="mb-4 flex flex-wrap items-center gap-2">
+              <span class="text-xs font-medium uppercase tracking-wide text-surface-dark/50">Affichage</span>
+              <SelectButton
+                :model-value="section.displayStyle || 'flow'"
+                :options="scopeDisplayOptions"
+                option-label="label"
+                option-value="value"
+                :allow-empty="false"
+                @update:model-value="updateCustomSection(section.id, 'displayStyle', $event)"
+              />
+            </div>
+            <QuoteSectionsEditor
+              :storage-key="`devisio:quote-custom-section:${section.id}:collapsed`"
+              :model-value="section.sections || []"
+              @update:model-value="updateCustomSection(section.id, 'sections', $event)"
+            />
+          </div>
+    </article>
+
     <QuoteAddonsEditor
       v-if="!isBase"
+      :style="{ order: documentSectionOrder('addons') }"
       :addons="addons"
       @add-addon="emit('addAddonPreset')"
       @duplicate-addon="emit('duplicateAddon', $event)"
@@ -909,36 +1152,36 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
         emit('promoteAddonSubItemToItem', $event)
       "
     >
-      <template v-if="isQuote && canReapplyTemplate" #headerActions>
-        <Button
-          type="button"
-          text
-          severity="secondary"
-          size="small"
-          class="!rounded-xl"
-          label="Réappliquer"
-          title="Remplacer les options par celles du template"
-          @click="emit('reapplyTemplateSection', 'addons')"
-        >
-          <template #icon>
-            <span class="material-symbols-outlined text-base">restart_alt</span>
-          </template>
-        </Button>
+      <template #headerActions>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter les options" title="Déplacer vers le haut" @click="moveDocumentItem('addons', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre les options" title="Déplacer vers le bas" @click="moveDocumentItem('addons', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+        <Button v-if="!isBase" type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.addons?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+        <Menu v-if="!isBase" :ref="(instance) => setSectionMenu('addons', instance)" :model="sectionMenuItems('addons')" popup />
       </template>
     </QuoteAddonsEditor>
 
     <QuotePaymentScheduleEditor
       v-if="!isTemplate"
+      :style="{ order: documentSectionOrder('paymentSchedule') }"
       class="mt-6"
       :model-value="paymentSchedule"
       :subtotal="subtotal"
       :total-with-vat="totalWithVat"
       :currency-locale="currencyLocale"
       @update:model-value="emit('update:paymentSchedule', $event)"
-    />
+    >
+      <template #headerActions>
+        <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('paymentSchedule') ? 'Afficher l’échéancier' : 'Masquer l’échéancier'" :title="isSectionHidden('paymentSchedule') ? 'Afficher l’échéancier' : 'Masquer l’échéancier'" @click="toggleSectionHidden('paymentSchedule')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('paymentSchedule') ? 'visibility_off' : 'visibility' }}</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter l’échéancier" title="Déplacer vers le haut" @click="moveDocumentItem('paymentSchedule', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre l’échéancier" title="Déplacer vers le bas" @click="moveDocumentItem('paymentSchedule', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.paymentSchedule?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+        <Menu :ref="(instance) => setSectionMenu('paymentSchedule', instance)" :model="sectionMenuItems('paymentSchedule')" popup />
+      </template>
+    </QuotePaymentScheduleEditor>
 
     <QuoteConditionsEditor
       v-if="!isBase"
+      :style="{ order: documentSectionOrder('roadmap') }"
       :conditions="roadmap"
       section-title="Feuille de route & calendrier estimé"
       add-button-label="Ajouter une phase"
@@ -974,25 +1217,16 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
         emit('promoteRoadmapSubItemToItem', $event)
       "
     >
-      <template v-if="isQuote && canReapplyTemplate" #headerActions>
-        <Button
-          type="button"
-          text
-          severity="secondary"
-          size="small"
-          class="!rounded-xl"
-          label="Réappliquer"
-          title="Remplacer la feuille de route par celle du template"
-          @click="emit('reapplyTemplateSection', 'roadmap')"
-        >
-          <template #icon>
-            <span class="material-symbols-outlined text-base">restart_alt</span>
-          </template>
-        </Button>
+      <template #headerActions>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter la feuille de route" title="Déplacer vers le haut" @click="moveDocumentItem('roadmap', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre la feuille de route" title="Déplacer vers le bas" @click="moveDocumentItem('roadmap', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+        <Button v-if="!isBase" type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.roadmap?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+        <Menu v-if="!isBase" :ref="(instance) => setSectionMenu('roadmap', instance)" :model="sectionMenuItems('roadmap')" popup />
       </template>
     </QuoteConditionsEditor>
 
     <QuoteConditionsEditor
+      :style="{ order: documentSectionOrder('conditions') }"
       :conditions="conditions"
       :section-title="
         isBase
@@ -1041,26 +1275,17 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
         emit('promoteConditionSubItemToItem', $event)
       "
     >
-      <template v-if="isQuote && canReapplyTemplate" #headerActions>
-        <Button
-          type="button"
-          text
-          severity="secondary"
-          size="small"
-          class="!rounded-xl"
-          label="Réappliquer"
-          title="Remplacer les conditions par celles du template"
-          @click="emit('reapplyTemplateSection', 'conditions')"
-        >
-          <template #icon>
-            <span class="material-symbols-outlined text-base">restart_alt</span>
-          </template>
-        </Button>
+      <template #headerActions>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter les conditions" title="Déplacer vers le haut" @click="moveDocumentItem('conditions', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre les conditions" title="Déplacer vers le bas" @click="moveDocumentItem('conditions', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+        <Button v-if="!isBase" type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.conditions?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+        <Menu v-if="!isBase" :ref="(instance) => setSectionMenu('conditions', instance)" :model="sectionMenuItems('conditions')" popup />
       </template>
     </QuoteConditionsEditor>
 
     <QuoteConditionsEditor
       v-if="!isTemplate"
+      :style="{ order: documentSectionOrder('acceptance') }"
       :conditions="acceptance"
       section-title="Acceptation de la proposition"
       add-button-label="Ajouter un élément"
@@ -1095,10 +1320,18 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       @promote-condition-sub-item-to-item="
         emit('promoteAcceptanceSubItemToItem', $event)
       "
-    />
+    >
+      <template #headerActions>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter l’acceptation" title="Déplacer vers le haut" @click="moveDocumentItem('acceptance', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre l’acceptation" title="Déplacer vers le bas" @click="moveDocumentItem('acceptance', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.acceptance?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+        <Menu :ref="(instance) => setSectionMenu('acceptance', instance)" :model="sectionMenuItems('acceptance')" popup />
+      </template>
+    </QuoteConditionsEditor>
 
     <QuoteConditionsEditor
       v-if="!isTemplate"
+      :style="{ order: documentSectionOrder('principles') }"
       :conditions="principles"
       section-title="Nos principes"
       add-button-label="Ajouter un principe"
@@ -1142,7 +1375,14 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       @promote-condition-sub-item-to-item="
         emit('promotePrincipleSubItemToItem', $event)
       "
-    />
+    >
+      <template #headerActions>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter les principes" title="Déplacer vers le haut" @click="moveDocumentItem('principles', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre les principes" title="Déplacer vers le bas" @click="moveDocumentItem('principles', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+        <Button type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.principles?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+        <Menu :ref="(instance) => setSectionMenu('principles', instance)" :model="sectionMenuItems('principles')" popup />
+      </template>
+    </QuoteConditionsEditor>
 
     <div class="flex justify-end mt-6"></div>
   </section>

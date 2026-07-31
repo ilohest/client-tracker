@@ -74,7 +74,9 @@ const totalPercent = () =>
           son équivalent HT et TTC.
         </p>
       </div>
-      <label class="flex min-w-36 flex-col gap-2">
+      <div class="ml-auto flex items-end gap-2">
+        <slot name="headerActions" />
+        <label class="flex min-w-36 flex-col gap-2">
         <span class="text-xs font-medium uppercase tracking-wide text-surface-dark/45">
           Étapes
         </span>
@@ -86,7 +88,8 @@ const totalPercent = () =>
           button-layout="horizontal"
           @update:model-value="updateCount"
         />
-      </label>
+        </label>
+      </div>
     </div>
 
     <div class="space-y-3">

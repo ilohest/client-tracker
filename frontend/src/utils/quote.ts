@@ -354,7 +354,13 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
       id: createEntityId(),
       items: cloneConditionItems(addon.items || []),
     })),
+    customSections: (quote.customSections || []).map((section) => ({
+      ...section,
+      id: createEntityId(),
+    })),
+    documentOrder: [...(quote.documentOrder || ['scope', 'investment', 'paymentSchedule'])],
     paymentSchedule: clonePaymentSchedule(quote.paymentSchedule || []),
+    hiddenSections: [...(quote.hiddenSections || [])],
     status: 'draft',
   };
 };
