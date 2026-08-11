@@ -360,6 +360,8 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     })),
     documentOrder: [...(quote.documentOrder || ['scope', 'investment', 'paymentSchedule'])],
     paymentSchedule: clonePaymentSchedule(quote.paymentSchedule || []),
+    paymentScheduleDisplay: quote.paymentScheduleDisplay || 'table',
+    paymentScheduleText: quote.paymentScheduleText || '',
     hiddenSections: [...(quote.hiddenSections || [])],
     status: 'draft',
   };

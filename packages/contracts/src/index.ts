@@ -348,6 +348,8 @@ export const quotePaymentScheduleStepSchema = z.object({
   value: z.number().default(0),
 });
 
+export const quotePaymentScheduleDisplaySchema = z.enum(['table', 'text']);
+
 export const quoteTemplateLocalizedContentSchema = z.object({
   projectSummary: z.string().default(''),
   // Mail d'envoi standard (base commune) — placeholders : {client} prénom, {titre}, {projet}, {ref}.
@@ -414,6 +416,8 @@ export const quoteSchema = z.object({
   principles: z.array(quoteConditionSchema).default([]),
   addons: z.array(quoteAddonSchema).default([]),
   paymentSchedule: z.array(quotePaymentScheduleStepSchema).default([]),
+  paymentScheduleDisplay: quotePaymentScheduleDisplaySchema.default('table'),
+  paymentScheduleText: z.string().default(''),
   customSections: z.array(quoteCustomSectionSchema).default([]),
   documentOrder: z.array(z.string()).default(['scope', 'investment', 'paymentSchedule']),
   hiddenSections: z.array(z.string()).default([]),
@@ -622,6 +626,7 @@ export type QuoteTable = z.infer<typeof quoteTableSchema>;
 export type QuoteBlock = z.infer<typeof quoteBlockSchema>;
 export type QuoteSection = z.infer<typeof quoteSectionSchema>;
 export type QuotePaymentScheduleStep = z.infer<typeof quotePaymentScheduleStepSchema>;
+export type QuotePaymentScheduleDisplay = z.infer<typeof quotePaymentScheduleDisplaySchema>;
 export type QuoteInvestmentLineMode = z.infer<typeof quoteInvestmentLineModeSchema>;
 export type QuoteInvestmentLine = z.infer<typeof quoteInvestmentLineSchema>;
 export type QuotePartDisplayStyle = z.infer<typeof quotePartDisplayStyleSchema>;

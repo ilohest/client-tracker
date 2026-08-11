@@ -10,6 +10,7 @@ import type {
   QuoteLanguage,
   QuotePart,
   QuotePartDisplayStyle,
+  QuotePaymentScheduleDisplay,
   QuotePaymentScheduleStep,
   QuoteSection,
   QuoteStatus,
@@ -85,6 +86,8 @@ const props = defineProps<{
   documentOrder?: string[];
   hiddenSections?: string[];
   paymentSchedule: QuotePaymentScheduleStep[];
+  paymentScheduleDisplay?: QuotePaymentScheduleDisplay;
+  paymentScheduleText?: string;
   clients: Client[];
   addonsTotal: number;
   discountAmount: number;
@@ -117,6 +120,8 @@ const emit = defineEmits<{
   "update:documentOrder": [value: string[]];
   "update:hiddenSections": [value: string[]];
   "update:paymentSchedule": [value: QuotePaymentScheduleStep[]];
+  "update:paymentScheduleDisplay": [value: QuotePaymentScheduleDisplay];
+  "update:paymentScheduleText": [value: string];
   "update:status": [value: QuoteStatus];
   newVersion: [];
   createClient: [];
@@ -1041,11 +1046,12 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
           </h3>
         </div>
         <div class="flex items-center gap-0.5">
-          <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('proposal') ? 'Afficher la proposition' : 'Masquer la proposition'" :title="isSectionHidden('proposal') ? 'Afficher la proposition' : 'Masquer la proposition'" @click="toggleSectionHidden('proposal')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('proposal') ? 'visibility_off' : 'visibility' }}</span></template></Button><Button type="button" text rounded severity="secondary" size="small" aria-label="Monter la proposition" title="Déplacer vers le haut" @click="moveDocumentItem('proposal', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
+          <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('proposal') ? 'Afficher la proposition' : 'Masquer la proposition'" :title="isSectionHidden('proposal') ? 'Afficher la proposition' : 'Masquer la proposition'" @click="toggleSectionHidden('proposal')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('proposal') ? 'visibility_off' : 'visibility' }}</span></template></Button>
+          <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter la proposition" title="Déplacer vers le haut" @click="moveDocumentItem('proposal', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
           <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre la proposition" title="Déplacer vers le bas" @click="moveDocumentItem('proposal', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
+          <Button v-if="!isBase" type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.proposal?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
+          <Menu v-if="!isBase" :ref="(instance) => setSectionMenu('proposal', instance)" :model="sectionMenuItems('proposal')" popup />
         </div>
-        <Button v-if="!isBase" type="button" text rounded severity="secondary" size="small" aria-label="Autres options" title="Autres options" @click="sectionMenus.proposal?.toggle($event)"><template #icon><span class="material-symbols-outlined text-base">more_vert</span></template></Button>
-        <Menu v-if="!isBase" :ref="(instance) => setSectionMenu('proposal', instance)" :model="sectionMenuItems('proposal')" popup />
       </div>
 
       <RichTextEditor
@@ -1165,10 +1171,14 @@ const getAmountBeforeDiscount = (subtotal: number, discountAmount: number) =>
       :style="{ order: documentSectionOrder('paymentSchedule') }"
       class="mt-6"
       :model-value="paymentSchedule"
+      :display-mode="paymentScheduleDisplay || 'table'"
+      :text="paymentScheduleText || ''"
       :subtotal="subtotal"
       :total-with-vat="totalWithVat"
       :currency-locale="currencyLocale"
       @update:model-value="emit('update:paymentSchedule', $event)"
+      @update:display-mode="emit('update:paymentScheduleDisplay', $event)"
+      @update:text="emit('update:paymentScheduleText', $event)"
     >
       <template #headerActions>
         <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('paymentSchedule') ? 'Afficher l’échéancier' : 'Masquer l’échéancier'" :title="isSectionHidden('paymentSchedule') ? 'Afficher l’échéancier' : 'Masquer l’échéancier'" @click="toggleSectionHidden('paymentSchedule')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('paymentSchedule') ? 'visibility_off' : 'visibility' }}</span></template></Button>

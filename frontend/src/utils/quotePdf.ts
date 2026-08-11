@@ -86,7 +86,8 @@ const LABELS: Record<QuoteLanguage, DocLabels> = {
     deliverable: "Prestation",
     amountExcl: "Montant (HTVA)",
     options: "Options complémentaires",
-    optionsHint: "Ces options ne sont pas incluses dans le forfait de base.",
+    optionsHint:
+      "Ces options ne sont pas incluses dans le forfait de base. Elles pourront être ajoutées à tout moment pendant ou après le projet.",
     subtotalExcl: "Sous-total (HTVA)",
     discount: "Remise",
     vat: "TVA",
@@ -237,10 +238,23 @@ const renderRichText = (raw: string): string => {
   // Les nouveaux champs riches enregistrent le HTML produit par Quill. On ne
   // conserve qu'un sous-ensemble sémantique sûr pour le document imprimé.
   if (/<\/?[a-z][\s\S]*>/i.test(text) && typeof DOMParser !== "undefined") {
-    const allowedTags = new Set(["P", "BR", "STRONG", "B", "EM", "I", "U", "UL", "OL", "LI", "A"]);
+    const allowedTags = new Set([
+      "P",
+      "BR",
+      "STRONG",
+      "B",
+      "EM",
+      "I",
+      "U",
+      "UL",
+      "OL",
+      "LI",
+      "A",
+    ]);
     const parsedDocument = new DOMParser().parseFromString(text, "text/html");
     const renderNode = (node: Node): string => {
-      if (node.nodeType === Node.TEXT_NODE) return escapeHtml(node.textContent || "");
+      if (node.nodeType === Node.TEXT_NODE)
+        return escapeHtml(node.textContent || "");
       if (node.nodeType !== Node.ELEMENT_NODE) return "";
       const element = node as HTMLElement;
       const tag = element.tagName.toUpperCase();
@@ -250,29 +264,42 @@ const renderRichText = (raw: string): string => {
       if (tag === "A") {
         const href = element.getAttribute("href") || "";
         const safeHref = /^(https?:|mailto:)/i.test(href) ? href : "";
-        return safeHref ? `<a href="${escapeHtml(safeHref)}">${children}</a>` : children;
+        return safeHref
+          ? `<a href="${escapeHtml(safeHref)}">${children}</a>`
+          : children;
       }
       // Quill utilise un <ol> technique pour les deux types de listes, puis
       // place `data-list="bullet"` ou `data-list="ordered"` sur chaque ligne.
       // On recrée donc les groupes consécutifs, plutôt que de choisir un type
       // pour tout le bloc : une liste numérotée reste ainsi bien numérotée.
       if (tag === "OL") {
-        const quillItems = Array.from(element.children).filter((child) => child.tagName === "LI");
+        const quillItems = Array.from(element.children).filter(
+          (child) => child.tagName === "LI",
+        );
         const hasQuillListType = quillItems.some((item) =>
           ["bullet", "ordered"].includes(item.getAttribute("data-list") || ""),
         );
         if (hasQuillListType) {
           const groups: Array<{ kind: "ul" | "ol"; items: string[] }> = [];
           quillItems.forEach((item) => {
-            const kind = item.getAttribute("data-list") === "bullet" ? "ul" : "ol";
+            const kind =
+              item.getAttribute("data-list") === "bullet" ? "ul" : "ol";
             const previous = groups.at(-1);
-            if (!previous || previous.kind !== kind) groups.push({ kind, items: [] });
+            if (!previous || previous.kind !== kind)
+              groups.push({ kind, items: [] });
             groups.at(-1)?.items.push(renderNode(item));
           });
-          return groups.map((group) => `<${group.kind}>${group.items.join("")}</${group.kind}>`).join("");
+          return groups
+            .map(
+              (group) =>
+                `<${group.kind}>${group.items.join("")}</${group.kind}>`,
+            )
+            .join("");
         }
       }
-      const normalizedTag = ({ B: "strong", I: "em" } as Record<string, string>)[tag] || tag.toLowerCase();
+      const normalizedTag =
+        ({ B: "strong", I: "em" } as Record<string, string>)[tag] ||
+        tag.toLowerCase();
       return `<${normalizedTag}>${children}</${normalizedTag}>`;
     };
     return Array.from(parsedDocument.body.childNodes).map(renderNode).join("");
@@ -373,7 +400,10 @@ const renderBlockTable = (
     ? `<thead><tr>${table.columns.map((column) => cell(column, "th")).join("")}</tr></thead>`
     : "";
   const body = (table.rows || [])
-    .map((row) => `<tr>${(row.cells || []).map((value) => cell(value, "td")).join("")}</tr>`)
+    .map(
+      (row) =>
+        `<tr>${(row.cells || []).map((value) => cell(value, "td")).join("")}</tr>`,
+    )
     .join("");
   return `<table class="content-table">${head}<tbody>${body}</tbody></table>`;
 };
@@ -414,7 +444,9 @@ const renderBlocks = (
       } else if (openLists[depth] !== tag) {
         // Changement de type au même niveau : on referme et on rouvre.
         closeListsTo(depth);
-        out.push(depth ? `<${tag} class="sub">` : `<${tag} class="section-items">`);
+        out.push(
+          depth ? `<${tag} class="sub">` : `<${tag} class="section-items">`,
+        );
         openLists.push(tag);
       } else {
         out.push("</li>");
@@ -432,10 +464,14 @@ const renderBlocks = (
       return;
     }
     if (block.kind === "table") {
-      out.push(block.table ? renderBlockTable(block.table, renderVariables) : "");
+      out.push(
+        block.table ? renderBlockTable(block.table, renderVariables) : "",
+      );
       return;
     }
-    const indent = block.depth ? ` class="indent-${Math.min(block.depth, MAX_PDF_INDENT)}"` : "";
+    const indent = block.depth
+      ? ` class="indent-${Math.min(block.depth, MAX_PDF_INDENT)}"`
+      : "";
     out.push(`<p${indent}>${text}</p>`);
   });
 
@@ -474,7 +510,9 @@ const renderParts = (
 ): string => {
   const displayStyle = parts[0]?.displayStyle || "flow";
   const content = parts
-    .map((part) => renderPartSections({ ...part, displayStyle }, renderVariables))
+    .map((part) =>
+      renderPartSections({ ...part, displayStyle }, renderVariables),
+    )
     .join("");
   return content
     ? `<section class="doc-section quote-part"><h2>${escapeHtml(t.scope)}</h2>${content}</section>`
@@ -559,13 +597,22 @@ const renderInvestmentTable = (
   </section>`;
 };
 
-const renderPaymentScheduleTable = (
+const renderPaymentScheduleContent = (
   steps: QuotePaymentScheduleStep[] = [],
+  displayMode: "table" | "text" = "table",
+  simpleText: string = "",
   t: DocLabels,
   money: (value: number) => string,
   subtotal: number,
   totalIncl: number,
 ): string => {
+  if (displayMode === "text") {
+    const content = renderRichText(simpleText);
+    if (!content) return "";
+    return `<h2 class="payment-schedule-title">${escapeHtml(t.paymentSchedule)}</h2>
+      <div class="project-description payment-schedule-text">${content}</div>`;
+  }
+
   if (!steps.length) return "";
 
   const rows = steps
@@ -647,7 +694,10 @@ const renderConditionBlocks = (
                 const subs = (item.subItems || [])
                   .map((sub) => cleanSignatureText(sub.text))
                   .filter((sub) => sub.trim())
-                  .map((sub) => `<li>${renderConditionText(sub, renderVariables)}</li>`)
+                  .map(
+                    (sub) =>
+                      `<li>${renderConditionText(sub, renderVariables)}</li>`,
+                  )
                   .join("");
                 return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
               })
@@ -677,7 +727,10 @@ const renderConditionBlocks = (
                 const subs = (item.subItems || [])
                   .map((sub) => cleanSignatureText(sub.text))
                   .filter((sub) => sub.trim())
-                  .map((sub) => `<li>${renderConditionText(sub, renderVariables)}</li>`)
+                  .map(
+                    (sub) =>
+                      `<li>${renderConditionText(sub, renderVariables)}</li>`,
+                  )
                   .join("");
                 return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
               })
@@ -724,7 +777,10 @@ const renderConditionBlocks = (
               const subs = (item.subItems || [])
                 .map((sub) => cleanSignatureText(sub.text))
                 .filter((sub) => sub.trim())
-                .map((sub) => `<li>${renderConditionText(sub, renderVariables)}</li>`)
+                .map(
+                  (sub) =>
+                    `<li>${renderConditionText(sub, renderVariables)}</li>`,
+                )
                 .join("");
               return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
             })
@@ -826,11 +882,7 @@ const buildClientAddressHtml = (quote: Quote, t: DocLabels): string => {
     quote.clientName?.trim()
       ? `<div class="client-name">${escapeHtml(quote.clientName.trim())}</div>`
       : "",
-    displayAddressLines.length
-      ? `<div class="client-address">${displayAddressLines
-          .map((line) => `<span>${escapeHtml(line)}</span>`)
-          .join("")}</div>`
-      : "",
+    displayAddressLines.length ? `` : "",
   ].filter(Boolean);
   return rows.join("");
 };
@@ -910,7 +962,10 @@ export const renderQuoteDocumentHtml = (
                   .map((item) => {
                     const subItems = (item.subItems || [])
                       .filter((subItem) => subItem.text.trim())
-                      .map((subItem) => `<li>${renderConditionText(subItem.text, renderVariables)}</li>`)
+                      .map(
+                        (subItem) =>
+                          `<li>${renderConditionText(subItem.text, renderVariables)}</li>`,
+                      )
                       .join("");
                     return `<li>${renderConditionText(item.text, renderVariables)}${subItems ? `<ul class="sub">${subItems}</ul>` : ""}</li>`;
                   })
@@ -941,13 +996,19 @@ export const renderQuoteDocumentHtml = (
       </section>`
     : "";
 
-  const paymentScheduleTable = renderPaymentScheduleTable(
-    quote.paymentSchedule || [],
-    t,
-    money,
-    subtotal,
-    totalIncl,
-  );
+  const hiddenSections = new Set(quote.hiddenSections || []);
+  const paymentScheduleContent = hiddenSections.has("paymentSchedule")
+    ? ""
+    : renderPaymentScheduleContent(
+        quote.paymentSchedule || [],
+        quote.paymentScheduleDisplay || "table",
+        quote.paymentScheduleText || "",
+        t,
+        money,
+        subtotal,
+        totalIncl,
+      );
+  const embedPaymentSchedule = !hiddenSections.has("investment");
   const totalsTable = renderInvestmentTable(
     parts,
     t,
@@ -961,8 +1022,12 @@ export const renderQuoteDocumentHtml = (
     quote.investmentAmount || 0,
     quote.investmentLines || [],
     renderVariables,
-    paymentScheduleTable,
+    embedPaymentSchedule ? paymentScheduleContent : "",
   );
+  const standalonePaymentSchedule =
+    !embedPaymentSchedule && paymentScheduleContent
+      ? `<section class="doc-section">${paymentScheduleContent}</section>`
+      : "";
   const roadmapEntries = (quote.roadmap || []).map((entry, index, list) =>
     index === list.length - 1
       ? { ...entry, title: getEstimatedTimelineTitle(lang) }
@@ -970,62 +1035,72 @@ export const renderQuoteDocumentHtml = (
   );
 
   const roadmapContent = renderConditionBlocks(
-      t.roadmap,
-      roadmapEntries,
-      {
-        numberedEntries: true,
-        skipLastNumber: true,
-        spacedEntries: true,
-      },
-      renderVariables,
-    );
+    t.roadmap,
+    roadmapEntries,
+    {
+      numberedEntries: true,
+      skipLastNumber: true,
+      spacedEntries: true,
+    },
+    renderVariables,
+  );
   const acceptanceContent = renderConditionBlocks(
-      t.acceptance,
-      quote.acceptance || [],
-      {
-        relaxedTitles: true,
-        signatureLabels: { date: t.clientDate, signature: t.clientSignature },
-      },
-      renderVariables,
-    );
+    t.acceptance,
+    quote.acceptance || [],
+    {
+      relaxedTitles: true,
+      signatureLabels: { date: t.clientDate, signature: t.clientSignature },
+    },
+    renderVariables,
+  );
   const conditionsContent = renderConditionBlocks(
-      t.conditions,
-      quote.conditions || [],
-      {
-        numberedEntries: true,
-        spacedEntries: true,
-        pageBreakBefore: true,
-      },
-      renderVariables,
-    );
+    t.conditions,
+    quote.conditions || [],
+    {
+      numberedEntries: true,
+      spacedEntries: true,
+      pageBreakBefore: true,
+    },
+    renderVariables,
+  );
   const principlesContent = renderConditionBlocks(
-      t.principles,
-      quote.principles || [],
-      {
-        relaxedTitles: true,
-        bulletEntries: true,
-        principleCards: true,
-        pageBreakBefore: true,
-      },
-      renderVariables,
-    );
-  const conditions = [roadmapContent, acceptanceContent, conditionsContent, principlesContent].join("");
+    t.principles,
+    quote.principles || [],
+    {
+      relaxedTitles: true,
+      bulletEntries: true,
+      principleCards: true,
+      pageBreakBefore: true,
+    },
+    renderVariables,
+  );
+  const conditions = [
+    roadmapContent,
+    acceptanceContent,
+    conditionsContent,
+    principlesContent,
+  ].join("");
 
   const customDocumentSections = new Map(
     (quote.customSections || []).map((section) => [
       section.id,
-      `<section class="doc-section avoid-break"><h2>${escapeHtml(renderVariables(section.title || "Nouvelle section"))}</h2>${section.sections?.length
-        ? renderPartSections({
-            id: section.id,
-            title: section.title || "",
-            displayStyle: section.displayStyle || "flow",
-            price: 0,
-            optional: false,
-            includeInInvestment: false,
-            priceNote: "",
-            sections: section.sections,
-          }, renderVariables)
-        : `<div class="project-description">${renderRichText(renderVariables(section.content || ""))}</div>`}</section>`,
+      `<section class="doc-section avoid-break"><h2>${escapeHtml(renderVariables(section.title || "Nouvelle section"))}</h2>${
+        section.sections?.length
+          ? renderPartSections(
+              {
+                id: section.id,
+                title: section.title || "",
+                displayStyle: section.displayStyle || "flow",
+                price: 0,
+                optional: false,
+                includeInInvestment: false,
+                priceNote: "",
+                sections: section.sections,
+              },
+              renderVariables,
+            )
+          : `<div class="project-description">${renderRichText(renderVariables(section.content || ""))}</div>`
+      }</section>`,
     ]),
   );
   const documentBlocks = new Map<string, string>([
@@ -1033,7 +1108,7 @@ export const renderQuoteDocumentHtml = (
     ["scope", partsContent],
     ["investment", totalsTable],
     ["addons", optionsTable],
-    ["paymentSchedule", ""],
+    ["paymentSchedule", standalonePaymentSchedule],
     ["roadmap", roadmapContent],
     ["acceptance", acceptanceContent],
     ["conditions", conditionsContent],
@@ -1041,12 +1116,25 @@ export const renderQuoteDocumentHtml = (
     ...customDocumentSections,
   ]);
   const configuredOrder = quote.documentOrder || [];
-  const canonicalOrder = ["proposal", "scope", "addons", "investment", "paymentSchedule", "roadmap", "conditions", "acceptance", "principles"];
-  const effectiveConfiguredOrder = configuredOrder.length <= 3 ? [] : configuredOrder;
+  const canonicalOrder = [
+    "proposal",
+    "scope",
+    "addons",
+    "investment",
+    "paymentSchedule",
+    "roadmap",
+    "conditions",
+    "acceptance",
+    "principles",
+  ];
+  const effectiveConfiguredOrder =
+    configuredOrder.length <= 3 ? [] : configuredOrder;
   const documentOrder = [
     ...effectiveConfiguredOrder,
     ...canonicalOrder.filter((id) => !effectiveConfiguredOrder.includes(id)),
-    ...[...customDocumentSections.keys()].filter((id) => !effectiveConfiguredOrder.includes(id)),
+    ...[...customDocumentSections.keys()].filter(
+      (id) => !effectiveConfiguredOrder.includes(id),
+    ),
   ];
   const documentContent = documentOrder
     .filter((id, index) => documentOrder.indexOf(id) === index)
@@ -1211,6 +1299,9 @@ export const renderQuoteDocumentHtml = (
   }
   .investment-payment-group > .payment-schedule-title {
     margin-top: 7mm;
+  }
+  .payment-schedule-text {
+    line-height: 1.55;
   }
   .doc-section > h2 {
     font-size: 16pt; margin: 0 0 10px; padding-bottom: 7px;

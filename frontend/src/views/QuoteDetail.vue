@@ -20,6 +20,7 @@ import type {
   QuoteDiscountType,
   QuoteInput,
   QuoteLanguage,
+  QuotePaymentScheduleDisplay,
   QuotePaymentScheduleStep,
   QuoteStatus,
   QuoteTemplate,
@@ -160,6 +161,8 @@ const createDraft = (): QuoteDraft => ({
   documentOrder: ["scope", "investment", "paymentSchedule"],
   hiddenSections: [],
   paymentSchedule: createDefaultPaymentSchedule("fr"),
+  paymentScheduleDisplay: "table",
+  paymentScheduleText: "",
   status: "draft",
 });
 
@@ -407,6 +410,8 @@ const createDraftFromTemplate = (
   documentOrder: ["scope", "investment", "paymentSchedule"],
   hiddenSections: [],
     paymentSchedule: clonePaymentSchedule(localizedContent.paymentSchedule),
+    paymentScheduleDisplay: "table",
+    paymentScheduleText: "",
     status: "draft",
   };
 };
@@ -724,6 +729,8 @@ const normalizeDraft = (draft: QuoteDraft) => ({
     mode: step.mode,
     value: step.value,
   })),
+  paymentScheduleDisplay: (draft.paymentScheduleDisplay || "table") as QuotePaymentScheduleDisplay,
+  paymentScheduleText: draft.paymentScheduleText || "",
 });
 
 const totals = computed(() => ({
@@ -941,6 +948,8 @@ const baselineDraft = computed<QuoteDraft>(() => {
     documentOrder: [...(current.documentOrder || ["scope", "investment", "paymentSchedule"])],
     hiddenSections: [...(current.hiddenSections || [])],
     paymentSchedule: resolveQuotePaymentSchedule(current),
+    paymentScheduleDisplay: current.paymentScheduleDisplay || "table",
+    paymentScheduleText: current.paymentScheduleText || "",
     status: current.status,
   };
 });
@@ -1130,6 +1139,8 @@ const hydrateFromQuote = (quote: Quote | null) => {
     ],
     hiddenSections: [...(quote.hiddenSections || [])],
     paymentSchedule: resolveQuotePaymentSchedule(quote),
+    paymentScheduleDisplay: quote.paymentScheduleDisplay || "table",
+    paymentScheduleText: quote.paymentScheduleText || "",
     status: quote.status,
   });
   rememberAutoEmail(emailSubject, emailBody, form.language);
@@ -3396,6 +3407,8 @@ const saveThenLeave = async () => {
           :document-order="form.documentOrder"
           :hidden-sections="form.hiddenSections"
           :payment-schedule="form.paymentSchedule"
+          :payment-schedule-display="form.paymentScheduleDisplay"
+          :payment-schedule-text="form.paymentScheduleText"
           :clients="clientsStore.clients"
           :addons-total="totals.addonsTotal"
           :discount-amount="totals.discountAmount"
@@ -3423,6 +3436,8 @@ const saveThenLeave = async () => {
           @update:document-order="form.documentOrder = $event"
           @update:hidden-sections="form.hiddenSections = $event"
           @update:payment-schedule="form.paymentSchedule = $event"
+          @update:payment-schedule-display="form.paymentScheduleDisplay = $event"
+          @update:payment-schedule-text="form.paymentScheduleText = $event"
           @update:status="form.status = $event"
           @new-version="createNewVersion"
           @create-client="clientDialogVisible = true"
