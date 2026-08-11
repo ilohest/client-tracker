@@ -954,9 +954,8 @@ export const renderQuoteDocumentHtml = (
         <h2>${escapeHtml(t.options)}</h2>
         <table class="grid-table options-table">
           <thead><tr><th>${escapeHtml(t.deliverable)}</th><th class="amount">${escapeHtml(t.amountExcl)}</th></tr></thead>
-          <tbody>
-            ${addons
-              .map((addon) => {
+          ${addons
+            .map((addon) => {
                 const items = (addon.items || [])
                   .filter((item) => item.text.trim())
                   .map((item) => {
@@ -970,17 +969,24 @@ export const renderQuoteDocumentHtml = (
                     return `<li>${renderConditionText(item.text, renderVariables)}${subItems ? `<ul class="sub">${subItems}</ul>` : ""}</li>`;
                   })
                   .join("");
-                return `<tr>
-                  <td>
-                    <div class="row-title">${escapeHtml(renderVariables(addon.title))}</div>
-                    ${addon.description && !(addon.items || []).length ? `<div class="row-desc">${renderRichText(renderVariables(addon.description))}</div>` : ""}
-                    ${items ? `<div class="row-desc"><ul>${items}</ul></div>` : ""}
-                  </td>
+                const description =
+                  addon.description && !(addon.items || []).length
+                    ? renderRichText(renderVariables(addon.description))
+                    : "";
+                const details = description
+                  ? `<div class="row-desc">${description}</div>`
+                  : items
+                    ? `<div class="row-desc"><ul>${items}</ul></div>`
+                    : "";
+                return `<tbody class="addon-group">
+                <tr class="addon-heading-row${details ? " has-details" : ""}">
+                  <td><div class="row-title">${escapeHtml(renderVariables(addon.title))}</div></td>
                   <td class="amount">${money(addon.price)}${addon.unitLabel ? `<span class="unit"> / ${escapeHtml(renderVariables(addon.unitLabel))}</span>` : ""}</td>
-                </tr>`;
+                </tr>
+                ${details ? `<tr class="addon-details-row"><td colspan="2">${details}</td></tr>` : ""}
+              </tbody>`;
               })
               .join("")}
-          </tbody>
         </table>
         <p class="hint">${escapeHtml(t.optionsHint)}</p>
       </section>`
@@ -1551,6 +1557,11 @@ export const renderQuoteDocumentHtml = (
   .grid-table thead th:last-child { border-radius: 0 10px 0 0; }
   .grid-table.invest tbody tr:last-child td,
   .grid-table.payment-schedule tbody tr:last-child td { border-bottom: 0; }
+  .options-table .addon-group { break-inside: avoid; page-break-inside: avoid; }
+  .options-table .addon-heading-row.has-details td { border-bottom: 0; padding-bottom: 3px; }
+  .options-table .addon-details-row td { padding-top: 0; }
+  .options-table .addon-details-row .row-desc { margin-top: 0; }
+  .options-table .addon-group:last-of-type tr:last-child td { border-bottom: 0; }
   .grid-table .row-title { font-weight: 600; break-after: avoid; page-break-after: avoid; }
   .grid-table .row-desc { font-size: 9pt; color: var(--muted); margin-top: 2px; }
   .grid-table .row-desc ul { margin: 2px 0; }

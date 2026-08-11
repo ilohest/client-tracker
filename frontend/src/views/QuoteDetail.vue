@@ -116,9 +116,13 @@ const lastAutoEmailDraft = ref("");
 const lastAutoEmailSubject = ref("");
 const lastAutoEmailBody = ref("");
 const unsavedAttention = ref(false);
+const autoSaveStatus = ref<"saved" | "pending" | "saving" | "error">("saved");
 // Empêche les watchers de régénérer le contenu par défaut pendant le chargement
 // d'un devis (sinon le formulaire diffère toujours de la référence → faux « modifié »).
 let hydratingQuote = false;
+let suppressQuoteHydration = false;
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveInFlight: Promise<Quote> | null = null;
 
 let unsavedAttentionTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -1024,6 +1028,11 @@ const selectedQuoteMetadata = computed(() => {
 });
 
 const hydrateFromQuote = (quote: Quote | null) => {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+  autoSaveStatus.value = "saved";
   // Bloque les watchers de régénération le temps du chargement, puis relâche
   // après le flush des watchers (nextTick).
   hydratingQuote = true;
@@ -1337,6 +1346,7 @@ onUnmounted(() => {
   window.removeEventListener("beforeunload", warnBeforeUnload);
   if (unsavedAttentionTimeout) clearTimeout(unsavedAttentionTimeout);
   if (historyTimer) clearTimeout(historyTimer);
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
 });
 
 // Le pas-à-pas préc./suiv. réutilise le même composant : on recharge sur
@@ -1367,7 +1377,10 @@ watch(
 
 watch(
   () => quotesStore.selectedQuote,
-  (quote) => hydrateFromQuote(quote),
+  (quote) => {
+    if (suppressQuoteHydration) return;
+    hydrateFromQuote(quote);
+  },
 );
 
 watch(
@@ -2496,6 +2509,20 @@ const moveAddon = (draggedId: string, targetId: string) => {
 };
 
 const createNewVersion = async () => {
+  if (hasUnsavedChanges.value) {
+    try {
+      await saveQuote({ silent: true });
+    } catch {
+      toast.add({
+        severity: "error",
+        summary: "Version non créée",
+        detail: "L’enregistrement automatique doit réussir avant de créer une nouvelle version.",
+        life: 3500,
+      });
+      return;
+    }
+  }
+
   const source = quotesStore.selectedQuote;
   if (!source) {
     toast.add({
@@ -2506,17 +2533,6 @@ const createNewVersion = async () => {
     });
     return;
   }
-  if (hasUnsavedChanges.value) {
-    toast.add({
-      severity: "warn",
-      summary: "Modifications non sauvegardées",
-      detail:
-        "Sauvegarde tes changements avant de créer une nouvelle version.",
-      life: 3500,
-    });
-    return;
-  }
-
   const groupId = source.versionGroupId || source.id;
   const nextVersion =
     Math.max(
@@ -2556,7 +2572,15 @@ const createNewVersion = async () => {
   });
 };
 
-const duplicateCurrentQuote = () => {
+const duplicateCurrentQuote = async () => {
+  if (hasUnsavedChanges.value) {
+    try {
+      await saveQuote({ silent: true });
+    } catch {
+      notifyUnsavedBlockedAction();
+      return;
+    }
+  }
   const id = quoteId.value;
   if (!id) {
     toast.add({
@@ -2567,7 +2591,7 @@ const duplicateCurrentQuote = () => {
     });
     return;
   }
-  void duplicateQuote(id);
+  await duplicateQuote(id);
 };
 
 const duplicateQuote = async (id: string) => {
@@ -2842,7 +2866,24 @@ const confirmApplyBaseCommonContent = () => {
   });
 };
 
-const saveQuote = async () => {
+const saveQuote = async ({
+  silent = false,
+  navigateAfterCreate = true,
+}: {
+  silent?: boolean;
+  navigateAfterCreate?: boolean;
+} = {}) => {
+  if (saveInFlight) {
+    await saveInFlight;
+    if (hasUnsavedChanges.value)
+      return saveQuote({ silent, navigateAfterCreate });
+    return quotesStore.selectedQuote;
+  }
+
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
   normalizeEstimatedTimelineTitle();
   form.emailDraft = composeLegacyEmailDraft(
     form.emailSubject,
@@ -2856,21 +2897,68 @@ const saveQuote = async () => {
   };
 
   const wasNew = !quoteId.value;
-  const saved = await quotesStore.saveQuote(quoteId.value, payload);
-  if (saved.status === "accepted" && saved.projectId) {
-    const project = projectsStore.projects.find((entry) => entry.id === saved.projectId);
-    if (project) await projectsStore.attachQuotesToProject(project, [saved]);
+  autoSaveStatus.value = "saving";
+  suppressQuoteHydration = true;
+  const request = (async () => {
+    const saved = await quotesStore.saveQuote(quoteId.value, payload);
+    if (saved.status === "accepted" && saved.projectId) {
+      const project = projectsStore.projects.find((entry) => entry.id === saved.projectId);
+      if (project) await projectsStore.attachQuotesToProject(project, [saved]);
+    }
+    // Un nouveau devis a désormais une URL propre : on la substitue sans empiler
+    // /quotes/new dans l'historique.
+    if (wasNew && navigateAfterCreate) goToQuote(saved.id);
+    return saved;
+  })();
+  saveInFlight = request;
+
+  try {
+    const saved = await request;
+    autoSaveStatus.value = hasUnsavedChanges.value ? "pending" : "saved";
+    if (!silent) {
+      toast.add({
+        severity: "success",
+        summary: "Devis sauvegardé",
+        detail: "Le devis a été enregistré.",
+        life: 2500,
+      });
+    }
+    return saved;
+  } catch (error) {
+    autoSaveStatus.value = "error";
+    throw error;
+  } finally {
+    if (saveInFlight === request) saveInFlight = null;
+    suppressQuoteHydration = false;
   }
-  // Un nouveau devis a désormais une URL propre : on la substitue sans empiler
-  // /quotes/new dans l'historique.
-  if (wasNew) goToQuote(saved.id);
-  toast.add({
-    severity: "success",
-    summary: "Devis sauvegardé",
-    detail: "Le devis a été enregistré.",
-    life: 2500,
-  });
 };
+
+const runAutoSave = async () => {
+  autoSaveTimer = null;
+  if (hydratingQuote || !hasUnsavedChanges.value) {
+    autoSaveStatus.value = "saved";
+    return;
+  }
+  try {
+    await saveQuote({ silent: true });
+  } catch {
+    toast.add({
+      severity: "error",
+      summary: "Enregistrement impossible",
+      detail: "Les modifications sont conservées dans l’éditeur. Une nouvelle tentative sera faite après la prochaine modification.",
+      life: 4000,
+    });
+  }
+};
+
+const scheduleAutoSave = () => {
+  if (hydratingQuote || !hasUnsavedChanges.value) return;
+  autoSaveStatus.value = "pending";
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => void runAutoSave(), 1000);
+};
+
+watch(form, scheduleAutoSave, { deep: true, flush: "post" });
 
 const previewPdf = () => {
   previewDialogVisible.value = true;
@@ -2886,16 +2974,48 @@ const closeLivePreview = () => {
 
 const printLivePreview = () => {
   const frameWindow = previewFrame.value?.contentWindow;
-  if (!frameWindow) return;
-  const previousDocumentTitle = document.title;
-  const frameDocument = previewFrame.value?.contentDocument;
-  if (frameDocument) frameDocument.title = quotePdfDocumentTitle.value;
-  document.title = quotePdfDocumentTitle.value;
-  frameWindow.focus();
-  frameWindow.print();
-  window.setTimeout(() => {
-    document.title = previousDocumentTitle;
-  }, 500);
+  if (frameWindow) {
+    const previousDocumentTitle = document.title;
+    const frameDocument = previewFrame.value?.contentDocument;
+    if (frameDocument) frameDocument.title = quotePdfDocumentTitle.value;
+    document.title = quotePdfDocumentTitle.value;
+    frameWindow.focus();
+    frameWindow.print();
+    window.setTimeout(() => {
+      document.title = previousDocumentTitle;
+    }, 500);
+    return;
+  }
+
+  // L’impression reste accessible lorsque la preview latérale est fermée.
+  // Une iframe éphémère charge alors exactement le même document imprimable.
+  const printFrame = document.createElement("iframe");
+  printFrame.setAttribute("aria-hidden", "true");
+  printFrame.style.position = "fixed";
+  printFrame.style.width = "1px";
+  printFrame.style.height = "1px";
+  printFrame.style.right = "0";
+  printFrame.style.bottom = "0";
+  printFrame.style.opacity = "0";
+  printFrame.style.pointerEvents = "none";
+
+  const cleanup = () => printFrame.remove();
+  printFrame.onload = () => {
+    const temporaryWindow = printFrame.contentWindow;
+    const temporaryDocument = printFrame.contentDocument;
+    if (!temporaryWindow || !temporaryDocument) {
+      cleanup();
+      return;
+    }
+    temporaryDocument.title = quotePdfDocumentTitle.value;
+    void temporaryDocument.fonts.ready.finally(() => {
+      temporaryWindow.focus();
+      temporaryWindow.print();
+      window.setTimeout(cleanup, 500);
+    });
+  };
+  printFrame.srcdoc = livePreviewStandaloneHtml.value;
+  document.body.appendChild(printFrame);
 };
 
 const openLivePreviewInNewTab = () => {
@@ -3051,8 +3171,8 @@ const notifyUnsavedBlockedAction = () => {
   });
   toast.add({
     severity: "warn",
-    summary: "Sauvegarde requise",
-    detail: "Enregistre ou annule d’abord les modifications en cours.",
+    summary: "Enregistrement en attente",
+    detail: "Attends la fin de l’enregistrement automatique avant de continuer.",
     life: 2200,
   });
 };
@@ -3093,7 +3213,7 @@ const leaveSaving = ref(false);
 let pendingLeave: (() => void) | null = null;
 let skipLeaveGuard = false;
 
-onBeforeRouteLeave((to, _from, next) => {
+onBeforeRouteLeave(async (to, _from, next) => {
   if (skipLeaveGuard || !hasUnsavedChanges.value) {
     skipLeaveGuard = false;
     next();
@@ -3106,8 +3226,13 @@ onBeforeRouteLeave((to, _from, next) => {
     return;
   }
 
-  pendingLeave = () => next();
-  leaveDialogVisible.value = true;
+  try {
+    await saveQuote({ silent: true, navigateAfterCreate: false });
+    next();
+  } catch {
+    pendingLeave = () => next();
+    leaveDialogVisible.value = true;
+  }
 });
 
 const quoteMenu = ref<InstanceType<typeof Menu> | null>(null);
@@ -3152,7 +3277,7 @@ const leaveWithoutSaving = () => {
 const saveThenLeave = async () => {
   leaveSaving.value = true;
   try {
-    await saveQuote();
+    await saveQuote({ navigateAfterCreate: false });
     leaveWithoutSaving();
   } finally {
     leaveSaving.value = false;
@@ -3238,11 +3363,32 @@ const saveThenLeave = async () => {
 
       <div class="flex flex-wrap items-center gap-2">
         <span
-          v-if="hasUnsavedChanges"
-          class="flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-amber-700"
+          class="flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold"
+          :class="{
+            'text-surface-dark/45': autoSaveStatus === 'saved',
+            'text-amber-700': autoSaveStatus === 'pending',
+            'text-primary': autoSaveStatus === 'saving',
+            'text-red-600': autoSaveStatus === 'error',
+          }"
         >
-          <span class="h-[7px] w-[7px] rounded-full bg-current"></span>
-          Non sauvegardé
+          <span class="material-symbols-outlined text-base">
+            {{
+              autoSaveStatus === "saved"
+                ? "cloud_done"
+                : autoSaveStatus === "error"
+                  ? "cloud_off"
+                  : "sync"
+            }}
+          </span>
+          {{
+            autoSaveStatus === "saved"
+              ? "Enregistré"
+              : autoSaveStatus === "pending"
+                ? "Enregistrement automatique…"
+                : autoSaveStatus === "saving"
+                  ? "Enregistrement…"
+                  : "Non enregistré"
+          }}
         </span>
         <Button
           v-if="hasUnsavedChanges"
@@ -3258,10 +3404,38 @@ const saveThenLeave = async () => {
           severity="secondary"
           outlined
           class="!rounded-xl"
-          label="Prévisualiser"
-          @click="previewPdf"
+          :label="previewDialogVisible ? 'Fermer la preview' : 'Prévisualiser'"
+          @click="previewDialogVisible ? closeLivePreview() : previewPdf()"
         >
-          <template #icon><span class="material-symbols-outlined text-lg">visibility</span></template>
+          <template #icon>
+            <span class="material-symbols-outlined text-lg">
+              {{ previewDialogVisible ? "close" : "visibility" }}
+            </span>
+          </template>
+        </Button>
+        <Button
+          severity="secondary"
+          outlined
+          class="!h-10 !w-10 !rounded-xl !p-0"
+          aria-label="Ouvrir la preview dans un nouvel onglet"
+          title="Ouvrir dans un nouvel onglet"
+          @click="openLivePreviewInNewTab"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-lg">open_in_new</span>
+          </template>
+        </Button>
+        <Button
+          severity="secondary"
+          outlined
+          class="!h-10 !w-10 !rounded-xl !p-0"
+          aria-label="Imprimer"
+          title="Imprimer"
+          @click="printLivePreview"
+        >
+          <template #icon>
+            <span class="material-symbols-outlined text-lg">print</span>
+          </template>
         </Button>
         <Button
           v-if="isQuoteLocked && quoteId"
@@ -3273,14 +3447,6 @@ const saveThenLeave = async () => {
           @click="createNewVersion"
         >
           <template #icon><span class="material-symbols-outlined text-lg">difference</span></template>
-        </Button>
-        <Button
-          class="!rounded-xl !px-5 font-semibold"
-          label="Sauvegarder"
-          :disabled="!hasUnsavedChanges"
-          @click="saveQuote"
-        >
-          <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
         </Button>
         <Button
           text
@@ -3922,43 +4088,6 @@ const saveThenLeave = async () => {
         v-if="previewDialogVisible"
         class="sticky top-6 flex h-[calc(100vh-3rem)] min-h-[680px] flex-col overflow-hidden rounded-3xl border border-surface-dark/10 bg-surface-light shadow-[0_8px_28px_rgba(47,43,61,0.12)]"
       >
-        <div
-          class="flex items-center justify-end gap-2 border-b border-surface-dark/8 bg-white px-4 py-3"
-        >
-            <Button
-              text
-              severity="secondary"
-              class="!h-10 !w-10 !rounded-xl !p-0"
-              aria-label="Ouvrir dans un nouvel onglet"
-              title="Ouvrir dans un nouvel onglet"
-              @click="openLivePreviewInNewTab"
-            >
-              <template #icon>
-                <span class="material-symbols-outlined text-lg">open_in_new</span>
-              </template>
-            </Button>
-            <Button
-              severity="secondary"
-              class="!rounded-xl"
-              label="Imprimer / enregistrer"
-              @click="printLivePreview"
-            >
-              <template #icon>
-                <span class="material-symbols-outlined text-lg">print</span>
-              </template>
-            </Button>
-            <Button
-              text
-              severity="secondary"
-              class="!h-10 !w-10 !rounded-xl !p-0"
-              aria-label="Fermer l’aperçu"
-              @click="closeLivePreview"
-            >
-              <template #icon>
-                <span class="material-symbols-outlined text-lg">close</span>
-              </template>
-            </Button>
-        </div>
         <iframe
           ref="previewFrame"
           title="Prévisualisation live du devis"
@@ -4039,19 +4168,19 @@ const saveThenLeave = async () => {
       </template>
     </Dialog>
 
-    <!-- Garde de navigation : trois issues, dont celle qu'on veut neuf fois sur dix. -->
+    <!-- Repli de sécurité uniquement si l’enregistrement automatique échoue. -->
     <Dialog
       v-model:visible="leaveDialogVisible"
       modal
       :draggable="false"
       :closable="false"
-      header="Quitter sans sauvegarder ?"
+      header="Enregistrement incomplet"
       :style="{ width: '26rem', maxWidth: '92vw' }"
       @hide="stayOnQuote"
     >
       <p class="text-sm text-surface-dark/60">
-        Le devis {{ form.quoteRef }} a des modifications non sauvegardées. Elles seront perdues si
-        vous quittez maintenant.
+        L’enregistrement automatique du devis {{ form.quoteRef }} n’a pas abouti.
+        Les dernières modifications seront perdues si vous quittez maintenant.
       </p>
       <template #footer>
         <div class="flex flex-wrap justify-end gap-2">
@@ -4059,7 +4188,7 @@ const saveThenLeave = async () => {
             text
             severity="secondary"
             class="!rounded-xl"
-            label="Quitter sans sauvegarder"
+            label="Quitter sans enregistrer"
             :disabled="leaveSaving"
             @click="leaveWithoutSaving"
           />
@@ -4073,7 +4202,7 @@ const saveThenLeave = async () => {
           />
           <Button
             class="!rounded-xl font-semibold"
-            label="Sauvegarder et quitter"
+            label="Réessayer et quitter"
             :loading="leaveSaving"
             @click="saveThenLeave"
           />
