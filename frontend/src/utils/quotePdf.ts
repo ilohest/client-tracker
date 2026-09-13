@@ -42,7 +42,9 @@ interface DocLabels {
   project: string;
   for: string;
   proposal: string;
+  technologies: string;
   scope: string;
+  deliverables: string;
   investment: string;
   paymentSchedule: string;
   paymentStep: string;
@@ -77,7 +79,9 @@ const LABELS: Record<QuoteLanguage, DocLabels> = {
     project: "Projet",
     for: "Pour",
     proposal: "Proposition de projet",
+    technologies: "Technologies",
     scope: "Portée du projet",
+    deliverables: "Livrables",
     investment: "Investissement",
     paymentSchedule: "Échéancier de paiement",
     paymentStep: "Étape",
@@ -111,7 +115,9 @@ const LABELS: Record<QuoteLanguage, DocLabels> = {
     project: "Project",
     for: "For",
     proposal: "Project proposal",
+    technologies: "Technologies",
     scope: "Project scope",
+    deliverables: "Deliverables",
     investment: "Investment",
     paymentSchedule: "Payment schedule",
     paymentStep: "Step",
@@ -144,7 +150,9 @@ const LABELS: Record<QuoteLanguage, DocLabels> = {
     project: "Proyecto",
     for: "Para",
     proposal: "Propuesta de proyecto",
+    technologies: "Tecnologías",
     scope: "Alcance del proyecto",
+    deliverables: "Entregables",
     investment: "Inversión",
     paymentSchedule: "Calendario de pago",
     paymentStep: "Etapa",
@@ -365,7 +373,8 @@ const stripStandaloneSignatureLabels = (
 const stripAutoNumberPrefix = (title: string): string =>
   (title || "").replace(/^\s*\d+[.)]\s*/, "").trim();
 
-const buildProfileVariableRenderer = (
+const buildDocumentVariableRenderer = (
+  quote: Quote,
   profile: UserProfile | null,
   locale: Locale,
 ): ((value: string) => string) => {
@@ -378,12 +387,13 @@ const buildProfileVariableRenderer = (
     }).format(value);
   const hourlyRate = Number(profile?.hourlyRate || 0);
   const replacements: Record<string, string> = {
+    projet: quote.projectName || "",
     taux_horaire: hourlyRate ? money(hourlyRate) : "",
     taux_journalier: hourlyRate ? money(hourlyRate * 8) : "",
   };
   return (value: string) =>
     (value || "").replace(
-      /\{(taux_horaire|taux_journalier)\}/g,
+      /\{(projet|taux_horaire|taux_journalier)\}/g,
       (_match, key: string) => replacements[key] || "",
     );
 };
@@ -482,11 +492,14 @@ const renderBlocks = (
 const renderSectionInner = (
   section: QuoteSection,
   renderVariables: (value: string) => string,
+  sectionNumber?: number,
 ): string => {
   const title = renderVariables(
     stripAutoNumberPrefix(section.title) || section.title,
   );
-  return `${title ? `<h3>${escapeHtml(title)}</h3>` : ""}
+  const displayedTitle =
+    title && sectionNumber !== undefined ? `${sectionNumber}. ${title}` : title;
+  return `${displayedTitle ? `<h3>${escapeHtml(displayedTitle)}</h3>` : ""}
     ${renderBlocks(section.blocks || [], renderVariables)}`;
 };
 
@@ -494,13 +507,22 @@ const renderSectionInner = (
 const renderPartSections = (
   part: QuotePart,
   renderVariables: (value: string) => string,
+  options: { numbered?: boolean; startIndex?: number } = {},
 ): string =>
   (part.sections || [])
-    .map((section) =>
-      part.displayStyle === "framed"
-        ? `<section class="scope-cell">${renderSectionInner(section, renderVariables)}</section>`
-        : `<div class="text-block">${renderSectionInner(section, renderVariables)}</div>`,
-    )
+    .map((section, index) => {
+      const sectionNumber = options.numbered
+        ? (options.startIndex ?? 0) + index + 1
+        : undefined;
+      const content = renderSectionInner(
+        section,
+        renderVariables,
+        sectionNumber,
+      );
+      return part.displayStyle === "framed"
+        ? `<section class="scope-cell">${content}</section>`
+        : `<div class="text-block">${content}</div>`;
+    })
     .join("");
 
 const renderParts = (
@@ -509,10 +531,16 @@ const renderParts = (
   renderVariables: (value: string) => string,
 ): string => {
   const displayStyle = parts[0]?.displayStyle || "flow";
+  let renderedSectionCount = 0;
   const content = parts
-    .map((part) =>
-      renderPartSections({ ...part, displayStyle }, renderVariables),
-    )
+    .map((part) => {
+      const startIndex = renderedSectionCount;
+      renderedSectionCount += part.sections?.length || 0;
+      return renderPartSections({ ...part, displayStyle }, renderVariables, {
+        numbered: true,
+        startIndex,
+      });
+    })
     .join("");
   return content
     ? `<section class="doc-section quote-part"><h2>${escapeHtml(t.scope)}</h2>${content}</section>`
@@ -686,23 +714,7 @@ const renderConditionBlocks = (
             ? rawTag
             : `#${rawTag}`
           : "";
-        const nestedItems = entry.items?.length
-          ? `<ul>${entry.items
-              .map((item) => ({ ...item, text: cleanSignatureText(item.text) }))
-              .filter((item) => item.text.trim())
-              .map((item) => {
-                const subs = (item.subItems || [])
-                  .map((sub) => cleanSignatureText(sub.text))
-                  .filter((sub) => sub.trim())
-                  .map(
-                    (sub) =>
-                      `<li>${renderConditionText(sub, renderVariables)}</li>`,
-                  )
-                  .join("");
-                return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
-              })
-              .join("")}</ul>`
-          : renderRichText(renderVariables(cleanSignatureText(entry.body)));
+        const nestedItems = renderBlocks(entry.blocks || [], renderVariables);
         return `<article class="principle-card principle-card-${index % 6} ${displayTag ? "has-seal" : "no-seal"}">
           ${displayTag ? `<div class="principle-seal principle-seal-${index % 6}">${escapeHtml(renderVariables(displayTag))}</div>` : ""}
           ${entryTitle ? `<h3>${escapeHtml(renderVariables(entryTitle))}</h3>` : ""}
@@ -719,23 +731,7 @@ const renderConditionBlocks = (
     const body = entries
       .map((entry) => {
         const entryTitle = cleanSignatureText(entry.title);
-        const nestedItems = entry.items?.length
-          ? `<ul>${entry.items
-              .map((item) => ({ ...item, text: cleanSignatureText(item.text) }))
-              .filter((item) => item.text.trim())
-              .map((item) => {
-                const subs = (item.subItems || [])
-                  .map((sub) => cleanSignatureText(sub.text))
-                  .filter((sub) => sub.trim())
-                  .map(
-                    (sub) =>
-                      `<li>${renderConditionText(sub, renderVariables)}</li>`,
-                  )
-                  .join("");
-                return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
-              })
-              .join("")}</ul>`
-          : renderRichText(renderVariables(cleanSignatureText(entry.body)));
+        const nestedItems = renderBlocks(entry.blocks || [], renderVariables);
         return `<li class="cond-block">
           ${entryTitle ? `<h3>${escapeHtml(renderVariables(entryTitle))}</h3>` : ""}
           ${nestedItems}
@@ -769,23 +765,7 @@ const renderConditionBlocks = (
         !(options.skipLastNumber && index === entries.length - 1)
           ? `${index + 1}. ${entryTitle}`
           : entryTitle;
-      const items = entry.items?.length
-        ? `<ul>${entry.items
-            .map((item) => ({ ...item, text: cleanSignatureText(item.text) }))
-            .filter((item) => item.text.trim())
-            .map((item) => {
-              const subs = (item.subItems || [])
-                .map((sub) => cleanSignatureText(sub.text))
-                .filter((sub) => sub.trim())
-                .map(
-                  (sub) =>
-                    `<li>${renderConditionText(sub, renderVariables)}</li>`,
-                )
-                .join("");
-              return `<li>${renderConditionText(item.text, renderVariables)}${subs ? `<ul class="sub">${subs}</ul>` : ""}</li>`;
-            })
-            .join("")}</ul>`
-        : renderRichText(renderVariables(cleanSignatureText(entry.body)));
+      const items = renderBlocks(entry.blocks || [], renderVariables);
       const condClass = [
         "cond-block",
         options.signatureLabels && index === entries.length - 1
@@ -913,7 +893,7 @@ export const renderQuoteDocumentHtml = (
     theme.bodyFontGoogleFamily,
   );
   const showPreviewToolbar = options.showPreviewToolbar ?? true;
-  const renderVariables = buildProfileVariableRenderer(profile, locale);
+  const renderVariables = buildDocumentVariableRenderer(quote, profile, locale);
 
   const senderName = escapeHtml(profile?.displayName || "");
   const senderTitle = escapeHtml(profile?.jobTitle || "");
@@ -923,9 +903,10 @@ export const renderQuoteDocumentHtml = (
     : "";
 
   const bigTitle = escapeHtml(quote.title || t.titleFallback).toUpperCase();
-  const validity = quote.quoteDate
-    ? formatQuoteDate(getQuoteValidityDate(quote.quoteDate), locale)
-    : "";
+  const validityDate =
+    quote.validUntil ||
+    (quote.quoteDate ? getQuoteValidityDate(quote.quoteDate) : "");
+  const validity = validityDate ? formatQuoteDate(validityDate, locale) : "";
   const quoteDate = quote.quoteDate
     ? formatQuoteDate(quote.quoteDate, locale)
     : "";
@@ -956,28 +937,8 @@ export const renderQuoteDocumentHtml = (
           <thead><tr><th>${escapeHtml(t.deliverable)}</th><th class="amount">${escapeHtml(t.amountExcl)}</th></tr></thead>
           ${addons
             .map((addon) => {
-                const items = (addon.items || [])
-                  .filter((item) => item.text.trim())
-                  .map((item) => {
-                    const subItems = (item.subItems || [])
-                      .filter((subItem) => subItem.text.trim())
-                      .map(
-                        (subItem) =>
-                          `<li>${renderConditionText(subItem.text, renderVariables)}</li>`,
-                      )
-                      .join("");
-                    return `<li>${renderConditionText(item.text, renderVariables)}${subItems ? `<ul class="sub">${subItems}</ul>` : ""}</li>`;
-                  })
-                  .join("");
-                const description =
-                  addon.description && !(addon.items || []).length
-                    ? renderRichText(renderVariables(addon.description))
-                    : "";
-                const details = description
-                  ? `<div class="row-desc">${description}</div>`
-                  : items
-                    ? `<div class="row-desc"><ul>${items}</ul></div>`
-                    : "";
+                const content = renderBlocks(addon.blocks || [], renderVariables);
+                const details = content ? `<div class="row-desc">${content}</div>` : "";
                 return `<tbody class="addon-group">
                 <tr class="addon-heading-row${details ? " has-details" : ""}">
                   <td><div class="row-title">${escapeHtml(renderVariables(addon.title))}</div></td>
@@ -995,10 +956,20 @@ export const renderQuoteDocumentHtml = (
   const parts = quote.parts;
   const partsContent = renderParts(parts, t, renderVariables);
 
-  const proposal = quote.projectSummary?.trim()
+  const deliverablesInner = (quote.deliverables || [])
+    .map((section) => `<div class="text-block">${renderSectionInner(section, renderVariables)}</div>`)
+    .join("");
+  const deliverablesContent = deliverablesInner
+    ? `<section class="doc-section quote-part"><h2>${escapeHtml(t.deliverables)}</h2>${deliverablesInner}</section>`
+    : "";
+
+  const projectSummary = quote.projectSummary?.trim() || "";
+  const technologies = quote.customPlatformLabel?.trim() || "";
+  const proposal = projectSummary || technologies
     ? `<section class="doc-section avoid-break">
         <h2>${escapeHtml(t.proposal)}</h2>
-        <div class="project-description">${renderRichText(renderVariables(quote.projectSummary))}</div>
+        ${projectSummary ? `<div class="project-description">${renderRichText(renderVariables(projectSummary))}</div>` : ""}
+        ${technologies ? `<div class="technology-line"><span class="technology-label">${escapeHtml(t.technologies)}</span><span>${escapeHtml(renderVariables(technologies))}</span></div>` : ""}
       </section>`
     : "";
 
@@ -1112,6 +1083,7 @@ export const renderQuoteDocumentHtml = (
   const documentBlocks = new Map<string, string>([
     ["proposal", proposal],
     ["scope", partsContent],
+    ["deliverables", deliverablesContent],
     ["investment", totalsTable],
     ["addons", optionsTable],
     ["paymentSchedule", standalonePaymentSchedule],
@@ -1125,6 +1097,7 @@ export const renderQuoteDocumentHtml = (
   const canonicalOrder = [
     "proposal",
     "scope",
+    "deliverables",
     "addons",
     "investment",
     "paymentSchedule",
@@ -1206,6 +1179,14 @@ export const renderQuoteDocumentHtml = (
   .project-description ul { list-style-type: disc; }
   .project-description ol { list-style-type: decimal; }
   .project-description li { margin: 3px 0; }
+  .technology-line {
+    display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+    margin-top: 12px; color: var(--muted); font-size: 9.5pt;
+  }
+  .technology-label {
+    color: var(--accent); font-size: 7.5pt; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em;
+  }
 
   .page {
     position: relative;

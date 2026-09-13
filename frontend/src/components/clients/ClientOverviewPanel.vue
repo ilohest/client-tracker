@@ -6,6 +6,7 @@ import InputText from 'primevue/inputtext';
 import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
 import { useConfirm } from 'primevue/useconfirm';
+import ClientBentoTitle from '@/components/clients/ClientBentoTitle.vue';
 import { getCountryFlag, getCountryLabel } from '@/lib/countries';
 import { quoteStatusMeta } from '@/lib/clientPresets';
 import { formatClientAddress } from '@/utils/address';
@@ -14,6 +15,17 @@ import {
   clientActivitySignals,
   clientActivityToneClass,
 } from '@/utils/clientFilters';
+import {
+  isProjectOverdue,
+  projectDoneMilestones,
+  projectMacroStatus,
+  projectMacroStatusMeta,
+  projectProgress,
+} from '@/utils/projectFilters';
+import {
+  projectActiveQuotes,
+  projectTotalBudget,
+} from '@/utils/projectFinance';
 
 const props = defineProps<{
   client: Client | null;
@@ -26,13 +38,12 @@ const emit = defineEmits<{
   delete: [];
   viewQuote: [quoteId: string];
   viewProject: [projectId: string];
+  viewQuotes: [];
+  viewProjects: [];
   saveNotes: [notes: Client['clientNotes']];
-  uploadDocument: [file: File];
-  removeDocument: [documentId: string];
 }>();
 
 const confirm = useConfirm();
-const fileInput = ref<HTMLInputElement | null>(null);
 const newClientNote = ref('');
 const clientNoteDrafts = reactive<Record<string, string>>({});
 
@@ -57,24 +68,6 @@ watch(
   },
   { immediate: true },
 );
-
-const openFilePicker = () => {
-  fileInput.value?.click();
-};
-
-const handleFileChange = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  const file = target.files?.[0];
-  if (!file) return;
-  emit('uploadDocument', file);
-  target.value = '';
-};
-
-const formatFileSize = (size: number): string => {
-  if (size < 1024) return `${size} o`;
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} Ko`;
-  return `${(size / (1024 * 1024)).toFixed(1)} Mo`;
-};
 
 const normalizeWebsiteUrl = (website: string): string => {
   if (!website) return '';
@@ -102,32 +95,38 @@ const projectQuoteRefsLabel = (project: Project): string => {
 };
 const quoteStatusTagClass = (status: QuoteStatus): string => quoteStatusMeta[status].tagClass;
 
-const projectStatusLabel: Record<Project['status'], string> = {
-  proposal_accepted: 'Devis accepté',
-  deposit_pending: 'Acompte à envoyer',
-  deposit_paid: 'Acompte reçu',
-  in_progress: 'En cours',
-  blocked: 'Bloqué',
-  client_review: 'Validation client',
-  ready_to_invoice: 'À facturer',
-  invoiced: 'Facturé',
-  paid: 'Payé',
-  closed: 'Clôturé',
-};
-
-const projectStatusClass = (project: Project) => {
-  if (project.status === 'blocked' || project.health === 'blocked') return '!bg-red-500/12 !text-red-700';
-  if (['paid', 'closed'].includes(project.status)) return '!bg-emerald-500/12 !text-emerald-700';
-  if (['ready_to_invoice', 'deposit_pending'].includes(project.status)) return '!bg-amber-500/12 !text-amber-700';
-  return '!bg-primary/10 !text-primary';
-};
-
-const projectNextAction = (project: Project): string =>
-  project.milestones?.find((milestone) => milestone.status !== 'done')?.label ||
-  'Toutes les étapes sont terminées';
-
 const formatMoney = (value: number) =>
   new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR' }).format(Number(value || 0));
+
+const clientDisplayName = computed(() =>
+  props.client?.name ||
+  [props.client?.firstName, props.client?.lastName].filter(Boolean).join(' ') ||
+  props.client?.companyName ||
+  'Client à définir',
+);
+
+const formatRelativeDays = (value: unknown): string => {
+  const date = value ? new Date(value as string) : null;
+  if (!date || Number.isNaN(date.getTime())) return '—';
+  const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
+  if (days <= 0) return "aujourd'hui";
+  if (days === 1) return 'hier';
+  if (days < 31) return `il y a ${days} j`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? 'il y a 1 mois' : `il y a ${months} mois`;
+};
+
+const formatProjectDate = (value?: string): string => {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('fr-BE', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${value}T00:00:00`));
+};
+
+const displayedProjectBudget = (project: Project): number =>
+  projectTotalBudget(project, projectActiveQuotes(project, props.quotes));
 
 const addClientNote = () => {
   if (!newClientNote.value.trim()) return;
@@ -177,11 +176,12 @@ const confirmDeleteClientNote = (noteId: string) => {
 </script>
 
 <template>
-  <section class="bg-surface-card border border-surface-dark/5 rounded-3xl p-6 h-full">
+  <section class="h-full">
     <div v-if="client" class="flex flex-col gap-6">
-      <div class="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Contact</p>
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section class="client-bento-card rounded-3xl p-5">
+          <ClientBentoTitle title="Contact" icon="contact_mail" />
+          <div class="mt-4">
           <a
             v-if="client.contactEmail"
             :href="normalizeMailto(client.contactEmail)"
@@ -208,18 +208,12 @@ const confirmDeleteClientNote = (noteId: string) => {
             <span>{{ client.website }}</span>
           </a>
           <p v-else class="text-sm text-surface-dark/60">Site non renseigné</p>
-        </div>
-      </div>
-
-      <div class="client-bento-card rounded-2xl p-4">
-        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p class="text-xs uppercase tracking-wide text-surface-dark/45">Activité actuelle</p>
-            <p class="mt-1 text-sm text-surface-dark/60">
-              Calculée automatiquement depuis les devis, projets et paiements.
-            </p>
           </div>
-          <div class="flex flex-wrap gap-2 md:justify-end">
+        </section>
+
+        <section class="client-bento-card rounded-3xl p-5">
+          <ClientBentoTitle title="Activité actuelle" icon="monitoring" />
+          <div class="mt-4 flex flex-wrap gap-2">
             <span
               v-for="signal in activitySignals"
               :key="signal.key"
@@ -230,24 +224,24 @@ const confirmDeleteClientNote = (noteId: string) => {
               {{ signal.label }}
             </span>
           </div>
-        </div>
+        </section>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div class="client-bento-card rounded-2xl p-4">
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Facturation</p>
-          <p class="text-sm font-semibold text-surface-dark">{{ getCountryFlag(client.country) }} {{ getCountryLabel(client.country) }}</p>
+        <section class="client-bento-card rounded-3xl p-5">
+          <ClientBentoTitle title="Facturation" icon="receipt" />
+          <p class="mt-4 text-sm font-semibold text-surface-dark">{{ getCountryFlag(client.country) }} {{ getCountryLabel(client.country) }}</p>
           <p class="text-sm text-surface-dark/60 mt-1">
             {{ client.isVatRegistered ? client.vatNumber || 'Client assujetti à la TVA' : 'Client non assujetti à la TVA' }}
           </p>
-        </div>
-        <div class="client-bento-card rounded-2xl p-4">
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Adresse de facturation</p>
-          <p class="text-sm text-surface-dark/70 whitespace-pre-line">{{ formatClientAddress(client) || 'Adresse non renseignée' }}</p>
-        </div>
-        <div class="client-bento-card rounded-2xl p-4">
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Profil client</p>
-          <div class="mt-3 grid gap-2 text-sm">
+        </section>
+        <section class="client-bento-card rounded-3xl p-5">
+          <ClientBentoTitle title="Adresse de facturation" icon="location_on" />
+          <p class="mt-4 text-sm text-surface-dark/70 whitespace-pre-line">{{ formatClientAddress(client) || 'Adresse non renseignée' }}</p>
+        </section>
+        <section class="client-bento-card rounded-3xl p-5">
+          <ClientBentoTitle title="Profil client" icon="badge" />
+          <div class="mt-4 grid gap-2 text-sm">
             <div class="flex items-center justify-between gap-4">
               <span class="font-medium text-surface-dark/45">Langue</span>
               <span class="text-right font-semibold text-surface-dark">{{ languageLabel[client.language] }}</span>
@@ -265,19 +259,12 @@ const confirmDeleteClientNote = (noteId: string) => {
               <span class="text-right font-semibold text-surface-dark">{{ client.companyName || 'Non renseignée' }}</span>
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-4">
-        <div class="client-bento-card rounded-2xl p-4">
-          <div class="mb-4 flex items-center justify-between gap-3">
-            <h3 class="flex items-center gap-2 font-heading text-lg font-bold text-surface-dark">
-              <span class="material-symbols-outlined text-primary">sticky_note_2</span>
-              Notes
-            </h3>
-            <span class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">{{ clientNotes.length }}</span>
-          </div>
-          <div class="mb-4 flex gap-2">
+      <section class="client-bento-card rounded-3xl p-5">
+          <ClientBentoTitle title="Notes" icon="sticky_note_2" :count="clientNotes.length" />
+          <div class="mb-4 mt-4 flex gap-2">
             <InputText
               v-model="newClientNote"
               placeholder="Ajouter une note client..."
@@ -332,140 +319,151 @@ const confirmDeleteClientNote = (noteId: string) => {
               Aucune note pour l'instant.
             </div>
           </div>
-        </div>
-        <div class="client-bento-card rounded-2xl p-4">
-          <p class="text-xs uppercase tracking-wide text-surface-dark/45 mb-2">Résumé projets</p>
-          <p class="text-3xl font-heading font-bold text-surface-dark">{{ projects.length }}</p>
-          <p class="text-sm text-surface-dark/60 mt-1">
-            {{ projects.length > 1 ? 'projets liés à ce client' : projects.length === 1 ? 'projet lié à ce client' : 'Aucun projet lié pour l’instant' }}
-          </p>
-          <p class="mt-3 text-sm font-semibold text-primary">
-            {{ formatMoney(projects.reduce((total, project) => total + Number(project.budgetExVat || 0), 0)) }} HT prévus
-          </p>
-        </div>
-      </div>
+      </section>
 
-      <div class="client-bento-card rounded-3xl p-5">
-        <div class="mb-4">
-          <h3 class="text-lg font-heading font-bold text-surface-dark">Devis liés</h3>
-          <p class="text-sm text-surface-dark/60">Retrouve ici les devis associés à ce client et leur statut.</p>
-        </div>
+      <section class="client-bento-card rounded-3xl p-5">
+        <ClientBentoTitle
+          title="Devis"
+          icon="receipt_long"
+          :count="quotes.length"
+          clickable
+          @click="emit('viewQuotes')"
+        />
 
-        <div v-if="!quotes.length" class="rounded-2xl border border-dashed border-surface-dark/10 p-4 text-sm text-surface-dark/55">
+        <div v-if="!quotes.length" class="mt-4 rounded-2xl border border-dashed border-surface-dark/10 p-4 text-sm text-surface-dark/55">
           Aucun devis lié à ce client pour l’instant.
         </div>
 
-        <div v-else class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <button
-            v-for="quote in quotes"
-            :key="quote.id"
-            type="button"
-            class="client-bento-item rounded-2xl p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            @click="emit('viewQuote', quote.id)"
-          >
-            <div class="flex items-start justify-between gap-4">
-              <div class="min-w-0">
-                <p class="font-semibold text-surface-dark truncate">{{ quote.title || quote.quoteRef }}</p>
-                <p class="text-sm text-surface-dark/55 mt-1">{{ quote.quoteRef }}</p>
-              </div>
-              <Tag :value="quoteStatusLabel(quote.status)" :class="quoteStatusTagClass(quote.status)" rounded />
-            </div>
-            <div class="mt-3 flex items-center justify-between gap-3 text-sm text-surface-dark/65">
-              <span>{{ quote.quoteDate ? formatQuoteDate(quote.quoteDate) : 'Date non renseignée' }}</span>
-              <span class="font-semibold text-surface-dark">{{ quote.totalWithVat.toFixed(2) }} €</span>
-            </div>
-          </button>
+        <div v-else class="mt-4 overflow-x-auto rounded-2xl border border-surface-dark/8">
+          <table class="w-full min-w-[900px] border-collapse tabular-nums">
+            <thead>
+              <tr class="border-b border-surface-dark/10">
+                <th class="client-list-heading">Client</th>
+                <th class="client-list-heading">Projet</th>
+                <th class="client-list-heading">Statut</th>
+                <th class="client-list-heading client-list-heading-right">Montant TTC</th>
+                <th class="client-list-heading">Date du devis</th>
+                <th class="client-list-heading">Modifié</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="quote in quotes"
+                :key="quote.id"
+                class="cursor-pointer border-b border-surface-dark/6 transition last:border-b-0 hover:bg-surface-dark/3"
+                tabindex="0"
+                @click="emit('viewQuote', quote.id)"
+                @keydown.enter="emit('viewQuote', quote.id)"
+              >
+                <td class="client-list-cell">
+                  <div class="font-semibold text-surface-dark">{{ clientDisplayName }}</div>
+                  <div class="mt-px font-mono text-[11.5px] text-surface-dark/55">{{ quote.quoteRef }}</div>
+                </td>
+                <td class="client-list-cell">
+                  <div class="max-w-[240px] truncate text-[13.5px] text-surface-dark">
+                    {{ quote.projectName || quote.title || 'Projet sans titre' }}
+                  </div>
+                  <div v-if="quote.customPlatformLabel?.trim()" class="mt-px max-w-[240px] truncate text-xs text-surface-dark/55">
+                    {{ quote.customPlatformLabel.trim() }}
+                  </div>
+                </td>
+                <td class="client-list-cell">
+                  <Tag :value="quoteStatusLabel(quote.status)" :class="quoteStatusTagClass(quote.status)" rounded />
+                </td>
+                <td class="client-list-cell whitespace-nowrap text-right font-semibold text-surface-dark">
+                  {{ formatMoney(quote.totalWithVat) }}
+                </td>
+                <td class="client-list-cell whitespace-nowrap text-surface-dark/70">
+                  {{ quote.quoteDate ? formatQuoteDate(quote.quoteDate) : '—' }}
+                </td>
+                <td class="client-list-cell whitespace-nowrap text-surface-dark/70">
+                  {{ formatRelativeDays(quote.updatedAt || quote.createdAt) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
+      </section>
 
-      <div class="client-bento-card rounded-3xl p-5">
-        <div class="mb-4">
-          <h3 class="text-lg font-heading font-bold text-surface-dark">Projets du client</h3>
-          <p class="text-sm text-surface-dark/60">Tous les projets et prestations reliés à cette fiche client.</p>
-        </div>
+      <section class="client-bento-card rounded-3xl p-5">
+        <ClientBentoTitle
+          title="Projets"
+          icon="workspaces"
+          :count="projects.length"
+          clickable
+          @click="emit('viewProjects')"
+        />
 
-        <div v-if="!projects.length" class="rounded-2xl border border-dashed border-surface-dark/10 p-4 text-sm text-surface-dark/55">
+        <div v-if="!projects.length" class="mt-4 rounded-2xl border border-dashed border-surface-dark/10 p-4 text-sm text-surface-dark/55">
           Aucun projet lié à ce client pour l’instant.
         </div>
 
-        <div v-else class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <button
-            v-for="project in projects"
-            :key="project.id"
-            type="button"
-            class="client-bento-item rounded-2xl p-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            @click="emit('viewProject', project.id)"
-          >
-            <div class="flex items-start justify-between gap-4">
-              <div class="min-w-0">
-                <p class="truncate font-semibold text-surface-dark">{{ project.title }}</p>
-                <p class="mt-1 text-sm text-surface-dark/55">
-                  {{ projectQuoteRefsLabel(project) }}
-                </p>
-              </div>
-              <Tag :value="projectStatusLabel[project.status]" :class="projectStatusClass(project)" rounded />
-            </div>
-            <div class="mt-3 flex items-center justify-between gap-3 text-sm text-surface-dark/65">
-              <span>{{ projectNextAction(project) }}</span>
-              <span class="font-semibold text-surface-dark">{{ formatMoney(project.budgetExVat) }}</span>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      <div class="client-bento-card rounded-3xl p-5">
-        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
-          <div>
-            <h3 class="text-lg font-heading font-bold text-surface-dark">Documents client</h3>
-            <p class="text-sm text-surface-dark/60">Ajoute ici des PDF externes liés à ce client.</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <input
-              ref="fileInput"
-              type="file"
-              accept="application/pdf"
-              class="hidden"
-              @change="handleFileChange"
-            />
-            <Button severity="secondary" @click="openFilePicker" label="Uploader un PDF">
-              <template #icon><span class="material-symbols-outlined text-lg">upload_file</span></template></Button>
-          </div>
-        </div>
-
-        <div v-if="!client.documents || client.documents.length === 0" class="rounded-2xl border border-dashed border-surface-dark/10 p-4 text-sm text-surface-dark/55">
-          Aucun PDF ajouté pour l’instant.
-        </div>
-
-        <div v-else class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <div
-            v-for="document in client.documents"
-            :key="document.id"
-            class="client-bento-item rounded-2xl p-4"
-          >
-            <div class="flex items-start justify-between gap-4">
-              <div class="min-w-0">
-                <p class="font-semibold text-surface-dark truncate">{{ document.name }}</p>
-                <p class="text-sm text-surface-dark/55 mt-1">
-                  {{ formatFileSize(document.size) }} · {{ new Date(document.uploadedAt).toLocaleDateString('fr-FR') }}
-                </p>
-              </div>
-              <div class="flex items-center gap-1">
-                <a
-                  :href="document.url"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="inline-flex items-center justify-center h-9 w-9 rounded-full text-surface-dark/60 hover:bg-white hover:text-primary transition-colors"
+        <div v-else class="mt-4 overflow-x-auto rounded-2xl border border-surface-dark/8">
+          <table class="w-full min-w-[900px] border-collapse tabular-nums">
+            <thead>
+              <tr class="border-b border-surface-dark/10">
+                <th class="client-list-heading">Projet</th>
+                <th class="client-list-heading">Statut</th>
+                <th class="client-list-heading">Avancement</th>
+                <th class="client-list-heading client-list-heading-right">Budget HT</th>
+                <th class="client-list-heading">Échéance</th>
+                <th class="client-list-heading">Modifié</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="project in projects"
+                :key="project.id"
+                class="cursor-pointer border-b border-surface-dark/6 transition last:border-b-0 hover:bg-surface-dark/3"
+                tabindex="0"
+                @click="emit('viewProject', project.id)"
+                @keydown.enter="emit('viewProject', project.id)"
+              >
+                <td class="client-list-cell">
+                  <div class="flex items-center gap-2.5">
+                    <span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="{ backgroundColor: project.color }"></span>
+                    <div class="min-w-0">
+                      <div class="max-w-[250px] truncate font-semibold text-surface-dark">{{ project.title }}</div>
+                      <div class="mt-px truncate text-xs text-surface-dark/55">
+                        {{ clientDisplayName }} · <span class="font-mono">{{ projectQuoteRefsLabel(project) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td class="client-list-cell">
+                  <Tag
+                    :value="projectMacroStatusMeta[projectMacroStatus(project)].label"
+                    :class="projectMacroStatusMeta[projectMacroStatus(project)].tagClass"
+                    rounded
+                  />
+                </td>
+                <td class="client-list-cell">
+                  <div class="flex w-[130px] items-center gap-2">
+                    <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-dark/8">
+                      <div class="h-full rounded-full bg-primary" :style="{ width: `${projectProgress(project)}%` }"></div>
+                    </div>
+                    <span class="w-14 shrink-0 text-right text-xs text-surface-dark/55">
+                      {{ projectDoneMilestones(project) }}/{{ (project.milestones || []).length }}
+                    </span>
+                  </div>
+                </td>
+                <td class="client-list-cell whitespace-nowrap text-right font-semibold text-surface-dark">
+                  {{ formatMoney(displayedProjectBudget(project)) }}
+                </td>
+                <td
+                  class="client-list-cell whitespace-nowrap"
+                  :class="isProjectOverdue(project) ? 'font-semibold text-rose-700' : 'text-surface-dark/70'"
                 >
-                  <span class="material-symbols-outlined text-lg">open_in_new</span>
-                </a>
-                <Button text rounded severity="danger" aria-label="Supprimer" title="Supprimer" @click="emit('removeDocument', document.id)">
-                  <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
-                </Button>
-              </div>
-            </div>
-          </div>
+                  {{ formatProjectDate(project.dueDate) }}
+                </td>
+                <td class="client-list-cell whitespace-nowrap text-surface-dark/70">
+                  {{ formatRelativeDays(project.updatedAt || project.createdAt) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
+      </section>
 
     </div>
 
@@ -485,15 +483,24 @@ const confirmDeleteClientNote = (noteId: string) => {
   box-shadow: 0 10px 28px rgba(47, 43, 61, 0.055), 0 1px 0 rgba(47, 43, 61, 0.05);
 }
 
-.client-bento-item {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(47, 43, 61, 0.12);
-  box-shadow: 0 6px 18px rgba(47, 43, 61, 0.045);
+.client-list-heading {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(47, 43, 61, 0.38);
 }
 
-.client-bento-item:hover {
-  background: #ffffff;
-  border-color: rgba(233, 106, 95, 0.34);
-  box-shadow: 0 12px 28px rgba(47, 43, 61, 0.08);
+.client-list-heading-right {
+  text-align: right;
 }
+
+.client-list-cell {
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+}
+
 </style>

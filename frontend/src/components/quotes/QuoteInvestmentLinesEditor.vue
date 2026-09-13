@@ -1,8 +1,5 @@
 <script setup lang="ts">
-import type {
-  QuoteInvestmentLine,
-  QuotePart,
-} from "@client-tracker/contracts";
+import type { QuoteInvestmentLine } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
@@ -13,19 +10,16 @@ import {
   calculateInvestmentLinesTotal,
   createInvestmentLine,
   formatCurrency,
-  investmentLinesFromParts,
 } from "@/utils/quote";
 
 const props = withDefaults(
   defineProps<{
     modelValue: QuoteInvestmentLine[];
     investmentAmount?: number;
-    parts?: QuotePart[];
     currencyLocale?: string;
   }>(),
   {
     investmentAmount: 0,
-    parts: () => [],
     currencyLocale: "fr-FR",
   },
 );
@@ -79,72 +73,28 @@ const removeLine = (id: string) => {
   );
 };
 
-const importParts = () => {
-  emit("update:modelValue", [
-    ...props.modelValue,
-    ...investmentLinesFromParts(props.parts),
-  ]);
-};
-
-const clearLines = () => {
-  emit("update:modelValue", []);
-};
 </script>
 
 <template>
-  <div class="rounded-2xl border border-surface-dark/8 bg-surface-light p-4">
-    <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <span class="text-sm font-semibold text-surface-dark">
-          Lignes du tableau Investissement
-        </span>
-        <p class="mt-0.5 text-xs text-surface-dark/55">
-          Détaille le tableau ligne par ligne. Une ligne en «&nbsp;%&nbsp;» est
-          calculée sur le Prix global HT. Sans ligne, le tableau reprend les
-          parties cochées.
-        </p>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          severity="secondary"
-          text
-          size="small"
-          class="!rounded-xl"
-          label="Importer les parties"
-          :disabled="!parts.length"
-          @click="importParts"
-        >
-          <template #icon>
-            <span class="material-symbols-outlined text-base">download</span>
-          </template>
-        </Button>
-        <Button
-          v-if="modelValue.length"
-          type="button"
-          severity="secondary"
-          text
-          size="small"
-          class="!rounded-xl"
-          label="Tout effacer"
-          @click="clearLines"
-        >
-          <template #icon>
-            <span class="material-symbols-outlined text-base">backspace</span>
-          </template>
-        </Button>
-      </div>
+  <div class="border-t border-surface-dark/6 pt-4">
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <span class="text-sm font-semibold text-surface-dark">Détail du prix</span>
+      <Button
+        type="button"
+        severity="secondary"
+        text
+        size="small"
+        class="!rounded-xl"
+        label="Ajouter une ligne"
+        @click="addLine"
+      >
+        <template #icon>
+          <span class="material-symbols-outlined text-base">add</span>
+        </template>
+      </Button>
     </div>
 
-    <p
-      v-if="!modelValue.length"
-      class="rounded-xl border border-dashed border-surface-dark/15 bg-white px-3 py-4 text-center text-xs text-surface-dark/55"
-    >
-      Aucune ligne personnalisée — le tableau utilise les parties cochées (ou le
-      Prix global HT). Ajoute une ligne pour prendre la main.
-    </p>
-
-    <div v-else class="space-y-2.5">
+    <div v-if="modelValue.length" class="space-y-2.5">
       <div
         v-for="line in modelValue"
         :key="line.id"
@@ -202,22 +152,8 @@ const clearLines = () => {
       </div>
     </div>
 
-    <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
-      <Button
-        type="button"
-        severity="secondary"
-        outlined
-        size="small"
-        class="!rounded-xl"
-        label="Ajouter une ligne"
-        @click="addLine"
-      >
-        <template #icon>
-          <span class="material-symbols-outlined text-base">add</span>
-        </template>
-      </Button>
+    <div v-if="modelValue.length" class="mt-3 flex justify-end">
       <div
-        v-if="modelValue.length"
         class="text-sm"
         :class="totalMismatch ? 'text-amber-600' : 'text-surface-dark/60'"
       >
@@ -231,7 +167,7 @@ const clearLines = () => {
           :title="`Prix global HT : ${formatCurrency(Number(investmentAmount || 0), currencyLocale)}`"
         >
           <span class="material-symbols-outlined text-sm">warning</span>
-          ≠ Prix global HT ({{ formatCurrency(Number(investmentAmount || 0), currencyLocale) }})
+          ≠ Prix HT ({{ formatCurrency(Number(investmentAmount || 0), currencyLocale) }})
         </span>
       </div>
     </div>

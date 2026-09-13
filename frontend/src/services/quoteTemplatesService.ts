@@ -23,6 +23,11 @@ const toMillis = (value: unknown): number => {
   return 0;
 };
 
+const withoutLegacyPlatform = (payload: QuoteTemplateInput) => {
+  const { platform: _legacyPlatform, ...persistedPayload } = payload;
+  return persistedPayload;
+};
+
 export const quoteTemplatesService = {
   async fetchAll(): Promise<QuoteTemplate[]> {
     const userId = ensureUser();
@@ -36,8 +41,9 @@ export const quoteTemplatesService = {
   async create(payload: QuoteTemplateInput): Promise<QuoteTemplate> {
     const userId = ensureUser();
     const now = new Date().toISOString();
+    const persistedPayload = withoutLegacyPlatform(payload);
     const docRef = await addDoc(collection(db, 'quoteTemplates'), {
-      ...payload,
+      ...persistedPayload,
       userId,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -58,8 +64,10 @@ export const quoteTemplatesService = {
     const existingSnapshot = await getDoc(docRef);
     const existing = existingSnapshot.exists() ? (existingSnapshot.data() as Partial<QuoteTemplate>) : {};
     const now = new Date().toISOString();
+    const persistedPayload = withoutLegacyPlatform(payload);
     await updateDoc(docRef, {
-      ...payload,
+      ...persistedPayload,
+      platform: deleteField(),
       updatedAt: serverTimestamp(),
     });
 

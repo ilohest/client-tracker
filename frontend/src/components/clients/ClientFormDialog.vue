@@ -41,7 +41,6 @@ const form = reactive<ClientInput>({
   stage: 'prospect',
   notes: '',
   clientNotes: [],
-  documents: [],
   projects: [createClientProject()],
   onboardingTasks: createOnboardingTasks(),
 });
@@ -75,7 +74,6 @@ watch(
         stage: props.client.stage || 'prospect',
         notes: props.client.notes || '',
         clientNotes: props.client.clientNotes || [],
-        documents: props.client.documents || [],
         projects: props.client.projects?.length ? props.client.projects.map((project) => ({ ...project, onboardingTasks: project.onboardingTasks.map((task) => ({ ...task })) })) : [createClientProject()],
         onboardingTasks: props.client.onboardingTasks.map((task) => ({ ...task })),
       });
@@ -103,7 +101,6 @@ watch(
       stage: 'prospect',
       notes: '',
       clientNotes: [],
-      documents: [],
       projects: [createClientProject()],
       onboardingTasks: createOnboardingTasks(),
     });

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import type {
   QuoteAddon,
+  QuoteBlock,
   QuoteCondition,
-  QuoteConditionItem,
   QuoteDiscountType,
   QuoteLanguage,
   QuotePaymentScheduleStep,
@@ -14,9 +15,7 @@ import type {
 } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import ConfirmDialog from "primevue/confirmdialog";
-import Select from "primevue/select";
 import { useConfirm } from "primevue/useconfirm";
-import QuoteActionBar from "@/components/quotes/QuoteActionBar.vue";
 import QuoteBuilderForm from "@/components/quotes/QuoteBuilderForm.vue";
 import QuoteOutputPanel from "@/components/quotes/QuoteOutputPanel.vue";
 import {
@@ -34,9 +33,15 @@ import {
   comparableQuoteTemplate,
   resolveCommonConditionReferences,
 } from "@/utils/quoteTemplateDraft";
+import {
+  getTemplateLanguageStatus,
+  type TemplateLanguageStatus,
+} from "@/utils/quoteTemplateLanguages";
 import { useToast } from "primevue/usetoast";
 
 const quoteTemplatesStore = useQuoteTemplatesStore();
+const route = useRoute();
+const router = useRouter();
 const toast = useToast();
 const confirm = useConfirm();
 
@@ -48,15 +53,6 @@ const selectedLibraryItem = ref<"base" | "mail" | "template">("base");
 let syncingLocalizedContent = false;
 let hydratingTemplate = false;
 
-const cloneItems = (items: QuoteConditionItem[] = []): QuoteConditionItem[] =>
-  items.map((item) => ({
-    id: item.id || createEntityId(),
-    text: item.text || "",
-    subItems: (item.subItems || []).map((subItem) => ({
-      id: subItem.id || createEntityId(),
-      text: subItem.text || "",
-    })),
-  }));
 
 const cloneSections = (sections: QuoteSection[] = []) =>
   sections.map((section) => ({
@@ -83,7 +79,7 @@ const cloneConditions = (
     ...condition,
     id: condition.id || createEntityId(),
     commonConditionId: condition.commonConditionId || "",
-    items: cloneItems(condition.items),
+    blocks: cloneBlocks(condition.blocks || []),
   }));
 
 const cloneAddons = (addons: QuoteTemplateLocalizedContent["addons"] = []) =>
@@ -91,7 +87,7 @@ const cloneAddons = (addons: QuoteTemplateLocalizedContent["addons"] = []) =>
     ...addon,
     id: addon.id || createEntityId(),
     unitLabel: addon.unitLabel || "",
-    items: cloneItems(addon.items),
+    blocks: cloneBlocks(addon.blocks || []),
   }));
 
 const clonePaymentSchedule = (
@@ -111,6 +107,11 @@ const cloneLocalizedSlice = (
   emailSubject: slice?.emailSubject || "",
   emailBody: slice?.emailBody || "",
   parts: cloneParts(slice?.parts || []),
+  deliverables: (slice?.deliverables || []).map((section) => ({
+    ...section,
+    id: section.id || createEntityId(),
+    blocks: cloneBlocks(section.blocks || []),
+  })),
   conditions: cloneConditions(slice?.conditions || []),
   roadmap: cloneConditions(slice?.roadmap || []),
   acceptance: cloneConditions(slice?.acceptance || []),
@@ -132,6 +133,7 @@ const getLegacyLocalizedContent = (
     | "paymentSchedule"
     | "emailSubject"
     | "emailBody"
+    | "deliverables"
   >,
 ): Record<QuoteLanguage, QuoteTemplateLocalizedContent> => ({
   fr: cloneLocalizedSlice(source),
@@ -154,6 +156,7 @@ const getNormalizedLocalizedContent = (
     return getLegacyLocalizedContent({
       projectSummary: source.projectSummary || "",
       parts: source.parts || [],
+      deliverables: source.deliverables || [],
       conditions: source.conditions || [],
       roadmap: source.roadmap || [],
       acceptance: source.acceptance || [],
@@ -168,17 +171,6 @@ const getNormalizedLocalizedContent = (
   return createDefaultQuoteTemplateLocalizedContent("shopify");
 };
 
-const normalizeItems = (
-  items: QuoteConditionItem[] = [],
-): QuoteConditionItem[] =>
-  items.map((item) => ({
-    id: item.id || createEntityId(),
-    text: item.text || "",
-    subItems: (item.subItems || []).map((subItem) => ({
-      id: subItem.id || createEntityId(),
-      text: subItem.text || "",
-    })),
-  }));
 
 const normalizeTemplate = (draft: QuoteTemplateInput) => ({
   name: draft.name,
@@ -197,6 +189,11 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
     en: cloneLocalizedSlice(draft.localizedContent?.en),
     es: cloneLocalizedSlice(draft.localizedContent?.es),
   },
+  deliverables: (draft.deliverables || []).map((section) => ({
+    id: section.id,
+    title: section.title,
+    blocks: serializeBlocks(section.blocks || [], { withIds: true }),
+  })),
   parts: (draft.parts || []).map((part) => ({
     id: part.id,
     title: part.title,
@@ -216,85 +213,50 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
     commonConditionId: condition.commonConditionId || "",
     title: condition.title,
     tag: condition.tag || "",
-    body: condition.body,
-    items: normalizeItems(condition.items).map((item) => ({
-      id: item.id,
-      text: item.text,
-      subItems: item.subItems.map((subItem) => ({
-        id: subItem.id,
-        text: subItem.text,
-      })),
-    })),
+    blocks: serializeBlocks(condition.blocks || [], { withIds: true }),
   })),
   roadmap: draft.roadmap.map((phase) => ({
     id: phase.id,
+    commonConditionId: phase.commonConditionId || "",
     title: phase.title,
     tag: phase.tag || "",
-    body: phase.body,
-    items: normalizeItems(phase.items).map((item) => ({
-      id: item.id,
-      text: item.text,
-      subItems: item.subItems.map((subItem) => ({
-        id: subItem.id,
-        text: subItem.text,
-      })),
-    })),
+    blocks: serializeBlocks(phase.blocks || [], { withIds: true }),
   })),
   acceptance: draft.acceptance.map((entry) => ({
     id: entry.id,
+    commonConditionId: entry.commonConditionId || "",
     title: entry.title,
     tag: entry.tag || "",
-    body: entry.body,
-    items: normalizeItems(entry.items).map((item) => ({
-      id: item.id,
-      text: item.text,
-      subItems: item.subItems.map((subItem) => ({
-        id: subItem.id,
-        text: subItem.text,
-      })),
-    })),
+    blocks: serializeBlocks(entry.blocks || [], { withIds: true }),
   })),
   principles: draft.principles.map((principle) => ({
     id: principle.id,
+    commonConditionId: principle.commonConditionId || "",
     title: principle.title,
     tag: principle.tag || "",
-    body: principle.body,
-    items: normalizeItems(principle.items).map((item) => ({
-      id: item.id,
-      text: item.text,
-      subItems: item.subItems.map((subItem) => ({
-        id: subItem.id,
-        text: subItem.text,
-      })),
-    })),
+    blocks: serializeBlocks(principle.blocks || [], { withIds: true }),
   })),
   addons: draft.addons.map((addon) => ({
     id: addon.id,
     title: addon.title,
-    description: addon.description,
-    items: normalizeItems(addon.items).map((item) => ({
-      id: item.id,
-      text: item.text,
-      subItems: item.subItems.map((subItem) => ({
-        id: subItem.id,
-        text: subItem.text,
-      })),
-    })),
+    blocks: serializeBlocks(addon.blocks || [], { withIds: true }),
     price: addon.price,
     unitLabel: addon.unitLabel || "",
-    enabled: addon.enabled ?? true,
+    enabled: addon.enabled !== false,
   })),
   paymentSchedule: clonePaymentSchedule(draft.paymentSchedule || []),
 });
 
 const templateId = computed(() => quoteTemplatesStore.selectedTemplateId);
-const baseTemplate = computed(() => quoteTemplatesStore.baseTemplate);
-const customTemplates = computed(() =>
-  quoteTemplatesStore.templates.filter((template) => template.kind !== "base"),
+const routeTemplateId = computed(() =>
+  typeof route.params.id === "string" ? route.params.id : "",
 );
 const currencyLocale = computed(() =>
   form.language === "en" ? "en-GB" : form.language === "es" ? "es-ES" : "fr-FR",
 );
+const templateLanguages = languageOptions.map((option) => option.value);
+const languageLabel = (language: QuoteLanguage) =>
+  languageOptions.find((option) => option.value === language)?.label || language;
 
 const getBaseConditionsForLanguage = (language: QuoteLanguage): QuoteCondition[] => {
   const base = quoteTemplatesStore.baseTemplate;
@@ -337,6 +299,11 @@ const baselineTemplate = computed<QuoteTemplateInput>(() => {
     discountType: current.discountType || "percent",
     discountValue: current.discountValue || 0,
     parts: partsFromContent(activeContent),
+    deliverables: (activeContent.deliverables || []).map((section) => ({
+      ...section,
+      id: section.id || createEntityId(),
+      blocks: cloneBlocks(section.blocks || []),
+    })),
     conditions: resolveTemplateConditionReferencesForEditor(
       activeContent.conditions,
       current.language,
@@ -362,6 +329,7 @@ const withVisibleLanguageContent = (
       emailSubject: draft.emailSubject,
       emailBody: draft.emailBody,
       parts: draft.parts,
+      deliverables: draft.deliverables,
       conditions: draft.conditions,
       roadmap: draft.roadmap,
       acceptance: draft.acceptance,
@@ -371,6 +339,18 @@ const withVisibleLanguageContent = (
     }),
   },
 });
+
+const languageStatus = (language: QuoteLanguage): TemplateLanguageStatus =>
+  getTemplateLanguageStatus(withVisibleLanguageContent(form), language);
+
+const languageStatusLabel = (status: TemplateLanguageStatus) =>
+  status === "complete" ? "Complet" : status === "partial" ? "Incomplet" : "Non renseigné";
+
+const languageStatusClass = (status: TemplateLanguageStatus) => {
+  if (status === "complete") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "partial") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-surface-dark/10 bg-white text-surface-dark/35";
+};
 
 const hasUnsavedChanges = computed(
   () =>
@@ -423,6 +403,11 @@ const hydrateFromTemplate = (template: QuoteTemplate | null) => {
     discountType: template.discountType || "percent",
     discountValue: template.discountValue || 0,
     parts: partsFromContent(activeContent),
+    deliverables: (activeContent.deliverables || []).map((section) => ({
+      ...section,
+      id: section.id || createEntityId(),
+      blocks: cloneBlocks(section.blocks || []),
+    })),
     conditions: resolveTemplateConditionReferencesForEditor(
       activeContent.conditions,
       template.language,
@@ -449,6 +434,7 @@ const persistActiveLanguageContent = (language: QuoteLanguage) => {
       emailSubject: form.emailSubject,
       emailBody: form.emailBody,
       parts: form.parts,
+      deliverables: form.deliverables,
       conditions: form.conditions,
       roadmap: form.roadmap,
       acceptance: form.acceptance,
@@ -466,6 +452,7 @@ const hydrateVisibleContentFromLanguage = (language: QuoteLanguage) => {
   form.emailSubject = activeContent.emailSubject;
   form.emailBody = activeContent.emailBody;
   form.parts = partsFromContent(activeContent);
+  form.deliverables = cloneSections(activeContent.deliverables);
   form.conditions = resolveTemplateConditionReferencesForEditor(
     activeContent.conditions,
     language,
@@ -499,15 +486,6 @@ watch(
 );
 
 watch(
-  () => form.platform,
-  (platform, oldPlatform) => {
-    if (hydratingTemplate) return;
-    if (platform === oldPlatform) return;
-    if (platform !== "other" && platform !== "custom") form.customPlatformLabel = "";
-  },
-);
-
-watch(
   () => form.language,
   (language, oldLanguage) => {
     if (hydratingTemplate) return;
@@ -522,6 +500,7 @@ watch(
     [
       form.projectSummary,
       form.parts,
+      form.deliverables,
       form.conditions,
       form.roadmap,
       form.acceptance,
@@ -538,12 +517,13 @@ watch(
 
 const updateCondition = (
   id: string,
-  field: "title" | "body",
+  field: "title",
   value: string,
 ) => {
   const condition = form.conditions.find((entry) => entry.id === id);
-  if (condition?.commonConditionId) return;
-  if (condition) (condition[field] as string) = value;
+  if (!condition) return;
+  condition.commonConditionId = "";
+  (condition[field] as string) = value;
 };
 
 const moveCondition = (draggedId: string, targetId: string) => {
@@ -561,190 +541,25 @@ const moveCondition = (draggedId: string, targetId: string) => {
   form.conditions = next;
 };
 
-const updateConditionItem = (
+const setConditionBlocks = (
+  collection: "conditions" | "roadmap" | "acceptance" | "principles",
   conditionId: string,
-  itemId: string,
-  value: string,
+  blocks: QuoteBlock[],
 ) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (condition?.commonConditionId) return;
-  const item = condition?.items.find((entry) => entry.id === itemId);
-  if (item) item.text = value;
+  const entry = form[collection].find((item: QuoteCondition) => item.id === conditionId);
+  if (!entry) return;
+  if (collection === "conditions") entry.commonConditionId = "";
+  entry.blocks = blocks;
 };
 
-const removeConditionItem = (conditionId: string, itemId: string) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (!condition) return;
-  if (condition.commonConditionId) return;
-  condition.items = condition.items.filter((entry) => entry.id !== itemId);
-};
-
-const moveConditionItem = (
-  conditionId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (!condition) return;
-  if (condition.commonConditionId) return;
-  const draggedIndex = condition.items.findIndex(
-    (entry) => entry.id === draggedId,
-  );
-  const targetIndex = condition.items.findIndex(
-    (entry) => entry.id === targetId,
-  );
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...condition.items];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  condition.items = next;
-};
-
-const nestConditionItemUnderItem = (
-  conditionId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (!condition) return;
-  if (condition.commonConditionId) return;
-  const draggedIndex = condition.items.findIndex(
-    (entry) => entry.id === draggedId,
-  );
-  const targetItem = condition.items.find((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || !targetItem || draggedId === targetId) return;
-  const [dragged] = condition.items.splice(draggedIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: dragged.text },
-  ];
-};
-
-const addConditionItem = (conditionId: string) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (!condition) return;
-  if (condition.commonConditionId) return;
-  condition.items = [
-    ...(condition.items || []),
-    { id: createEntityId(), text: "", subItems: [] },
-  ];
-};
-
-const addConditionSubItem = (conditionId: string, itemId: string) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (condition?.commonConditionId) return;
-  const item = condition?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  item.subItems = [
-    ...(item.subItems || []),
-    { id: createEntityId(), text: "" },
-  ];
-};
-
-const updateConditionSubItem = (
-  conditionId: string,
-  itemId: string,
-  subItemId: string,
-  value: string,
-) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (condition?.commonConditionId) return;
-  const item = condition?.items.find((entry) => entry.id === itemId);
-  const subItem = item?.subItems.find((entry) => entry.id === subItemId);
-  if (subItem) subItem.text = value;
-};
-
-const removeConditionSubItem = (
-  conditionId: string,
-  itemId: string,
-  subItemId: string,
-) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (condition?.commonConditionId) return;
-  const item = condition?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  item.subItems = item.subItems.filter((entry) => entry.id !== subItemId);
-};
-
-const moveConditionSubItem = (
-  conditionId: string,
-  itemId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (condition?.commonConditionId) return;
-  const item = condition?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  const draggedIndex = item.subItems.findIndex(
-    (entry) => entry.id === draggedId,
-  );
-  const targetIndex = item.subItems.findIndex((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...item.subItems];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  item.subItems = next;
-};
-
-const moveConditionSubItemToItem = (
-  conditionId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetItemId: string,
-) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (!condition) return;
-  if (condition.commonConditionId) return;
-  const sourceItem = condition.items.find((entry) => entry.id === fromItemId);
-  const targetItem = condition.items.find((entry) => entry.id === targetItemId);
-  if (!sourceItem || !targetItem) return;
-  const subItemIndex = sourceItem.subItems.findIndex(
-    (entry) => entry.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = sourceItem.subItems.splice(subItemIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: subItem.text },
-  ];
-};
-
-const promoteConditionSubItemToItem = (
-  conditionId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetId: string,
-) => {
-  const condition = form.conditions.find((entry) => entry.id === conditionId);
-  if (!condition) return;
-  if (condition.commonConditionId) return;
-  const sourceIndex = condition.items.findIndex(
-    (entry) => entry.id === fromItemId,
-  );
-  const targetIndex = condition.items.findIndex(
-    (entry) => entry.id === targetId,
-  );
-  if (sourceIndex === -1 || targetIndex === -1) return;
-  const item = condition.items[sourceIndex];
-  const subItemIndex = item.subItems.findIndex(
-    (entry) => entry.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = item.subItems.splice(subItemIndex, 1);
-  const promoted: QuoteConditionItem = {
-    id: createEntityId(),
-    text: subItem.text,
-    subItems: [],
-  };
-  condition.items.splice(targetIndex, 0, promoted);
+const setAddonBlocks = (addonId: string, blocks: QuoteBlock[]) => {
+  const addon = form.addons.find((entry: QuoteAddon) => entry.id === addonId);
+  if (addon) addon.blocks = blocks;
 };
 
 const updateRoadmapPhase = (
   id: string,
-  field: "title" | "body",
+  field: "title",
   value: string,
 ) => {
   const estimatedIndex = form.roadmap.length - 1;
@@ -773,169 +588,9 @@ const normalizeEstimatedTimelineTitle = () => {
   if (estimatedPhase) estimatedPhase.title = getEstimatedTimelineTitle(form.language);
 };
 
-const addRoadmapItem = (phaseId: string) => {
-  const phase = form.roadmap.find((entry) => entry.id === phaseId);
-  if (!phase) return;
-  phase.items = [
-    ...(phase.items || []),
-    { id: createEntityId(), text: "", subItems: [] },
-  ];
-};
-
-const updateRoadmapItem = (
-  conditionId: string,
-  itemId: string,
-  value: string,
-) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  const item = phase?.items.find((entry) => entry.id === itemId);
-  if (item) item.text = value;
-};
-
-const removeRoadmapItem = (conditionId: string, itemId: string) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  if (!phase) return;
-  phase.items = phase.items.filter((entry) => entry.id !== itemId);
-};
-
-const moveRoadmapItem = (
-  conditionId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  if (!phase) return;
-  const draggedIndex = phase.items.findIndex((entry) => entry.id === draggedId);
-  const targetIndex = phase.items.findIndex((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...phase.items];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  phase.items = next;
-};
-
-const nestRoadmapItemUnderItem = (
-  conditionId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  if (!phase) return;
-  const draggedIndex = phase.items.findIndex((entry) => entry.id === draggedId);
-  const targetItem = phase.items.find((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || !targetItem || draggedId === targetId) return;
-  const [dragged] = phase.items.splice(draggedIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: dragged.text },
-  ];
-};
-
-const addRoadmapSubItem = (conditionId: string, itemId: string) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  const item = phase?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  item.subItems = [
-    ...(item.subItems || []),
-    { id: createEntityId(), text: "" },
-  ];
-};
-
-const updateRoadmapSubItem = (
-  conditionId: string,
-  itemId: string,
-  subItemId: string,
-  value: string,
-) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  const item = phase?.items.find((entry) => entry.id === itemId);
-  const subItem = item?.subItems.find((entry) => entry.id === subItemId);
-  if (subItem) subItem.text = value;
-};
-
-const removeRoadmapSubItem = (
-  conditionId: string,
-  itemId: string,
-  subItemId: string,
-) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  const item = phase?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  item.subItems = item.subItems.filter((entry) => entry.id !== subItemId);
-};
-
-const moveRoadmapSubItem = (
-  conditionId: string,
-  itemId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  const item = phase?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  const draggedIndex = item.subItems.findIndex(
-    (entry) => entry.id === draggedId,
-  );
-  const targetIndex = item.subItems.findIndex((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...item.subItems];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  item.subItems = next;
-};
-
-const moveRoadmapSubItemToItem = (
-  conditionId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetItemId: string,
-) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  if (!phase) return;
-  const sourceItem = phase.items.find((entry) => entry.id === fromItemId);
-  const targetItem = phase.items.find((entry) => entry.id === targetItemId);
-  if (!sourceItem || !targetItem) return;
-  const subItemIndex = sourceItem.subItems.findIndex(
-    (entry) => entry.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = sourceItem.subItems.splice(subItemIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: subItem.text },
-  ];
-};
-
-const promoteRoadmapSubItemToItem = (
-  conditionId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetId: string,
-) => {
-  const phase = form.roadmap.find((entry) => entry.id === conditionId);
-  if (!phase) return;
-  const sourceIndex = phase.items.findIndex((entry) => entry.id === fromItemId);
-  const targetIndex = phase.items.findIndex((entry) => entry.id === targetId);
-  if (sourceIndex === -1 || targetIndex === -1) return;
-  const item = phase.items[sourceIndex];
-  const subItemIndex = item.subItems.findIndex(
-    (entry) => entry.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = item.subItems.splice(subItemIndex, 1);
-  const promoted: QuoteConditionItem = {
-    id: createEntityId(),
-    text: subItem.text,
-    subItems: [],
-  };
-  phase.items.splice(targetIndex, 0, promoted);
-};
-
 const updateAcceptance = (
   id: string,
-  field: "title" | "body",
+  field: "title",
   value: string,
 ) => {
   const entry = form.acceptance.find((item) => item.id === id);
@@ -957,165 +612,9 @@ const moveAcceptance = (draggedId: string, targetId: string) => {
   form.acceptance = next;
 };
 
-const addAcceptanceItem = (acceptanceId: string) => {
-  const entry = form.acceptance.find((item) => item.id === acceptanceId);
-  if (!entry) return;
-  entry.items = [
-    ...(entry.items || []),
-    { id: createEntityId(), text: "", subItems: [] },
-  ];
-};
-
-const updateAcceptanceItem = (
-  conditionId: string,
-  itemId: string,
-  value: string,
-) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  const item = entry?.items.find((row) => row.id === itemId);
-  if (item) item.text = value;
-};
-
-const removeAcceptanceItem = (conditionId: string, itemId: string) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  if (!entry) return;
-  entry.items = entry.items.filter((row) => row.id !== itemId);
-};
-
-const moveAcceptanceItem = (
-  conditionId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  if (!entry) return;
-  const draggedIndex = entry.items.findIndex((row) => row.id === draggedId);
-  const targetIndex = entry.items.findIndex((row) => row.id === targetId);
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...entry.items];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  entry.items = next;
-};
-
-const nestAcceptanceItemUnderItem = (
-  conditionId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  if (!entry) return;
-  const draggedIndex = entry.items.findIndex((row) => row.id === draggedId);
-  const targetItem = entry.items.find((row) => row.id === targetId);
-  if (draggedIndex === -1 || !targetItem || draggedId === targetId) return;
-  const [dragged] = entry.items.splice(draggedIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: dragged.text },
-  ];
-};
-
-const addAcceptanceSubItem = (conditionId: string, itemId: string) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  const item = entry?.items.find((row) => row.id === itemId);
-  if (!item) return;
-  item.subItems = [
-    ...(item.subItems || []),
-    { id: createEntityId(), text: "" },
-  ];
-};
-
-const updateAcceptanceSubItem = (
-  conditionId: string,
-  itemId: string,
-  subItemId: string,
-  value: string,
-) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  const item = entry?.items.find((row) => row.id === itemId);
-  const subItem = item?.subItems.find((row) => row.id === subItemId);
-  if (subItem) subItem.text = value;
-};
-
-const removeAcceptanceSubItem = (
-  conditionId: string,
-  itemId: string,
-  subItemId: string,
-) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  const item = entry?.items.find((row) => row.id === itemId);
-  if (!item) return;
-  item.subItems = item.subItems.filter((row) => row.id !== subItemId);
-};
-
-const moveAcceptanceSubItem = (
-  conditionId: string,
-  itemId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  const item = entry?.items.find((row) => row.id === itemId);
-  if (!item) return;
-  const draggedIndex = item.subItems.findIndex((row) => row.id === draggedId);
-  const targetIndex = item.subItems.findIndex((row) => row.id === targetId);
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...item.subItems];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  item.subItems = next;
-};
-
-const moveAcceptanceSubItemToItem = (
-  conditionId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetItemId: string,
-) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  if (!entry) return;
-  const sourceItem = entry.items.find((row) => row.id === fromItemId);
-  const targetItem = entry.items.find((row) => row.id === targetItemId);
-  if (!sourceItem || !targetItem) return;
-  const subItemIndex = sourceItem.subItems.findIndex(
-    (row) => row.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = sourceItem.subItems.splice(subItemIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: subItem.text },
-  ];
-};
-
-const promoteAcceptanceSubItemToItem = (
-  conditionId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetId: string,
-) => {
-  const entry = form.acceptance.find((item) => item.id === conditionId);
-  if (!entry) return;
-  const sourceIndex = entry.items.findIndex((row) => row.id === fromItemId);
-  const targetIndex = entry.items.findIndex((row) => row.id === targetId);
-  if (sourceIndex === -1 || targetIndex === -1) return;
-  const item = entry.items[sourceIndex];
-  const subItemIndex = item.subItems.findIndex((row) => row.id === subItemId);
-  if (subItemIndex === -1) return;
-  const [subItem] = item.subItems.splice(subItemIndex, 1);
-  const promoted: QuoteConditionItem = {
-    id: createEntityId(),
-    text: subItem.text,
-    subItems: [],
-  };
-  entry.items.splice(targetIndex, 0, promoted);
-};
-
 const updatePrinciple = (
   id: string,
-  field: "title" | "body" | "tag",
+  field: "title" | "tag",
   value: string,
 ) => {
   const principle = form.principles.find((entry) => entry.id === id);
@@ -1137,339 +636,13 @@ const movePrinciple = (draggedId: string, targetId: string) => {
   form.principles = next;
 };
 
-const addPrincipleItem = (principleId: string) => {
-  const principle = form.principles.find((entry) => entry.id === principleId);
-  if (!principle) return;
-  principle.items = [
-    ...(principle.items || []),
-    { id: createEntityId(), text: "", subItems: [] },
-  ];
-};
-
-const updatePrincipleItem = (
-  conditionId: string,
-  itemId: string,
-  value: string,
-) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  const item = principle?.items.find((entry) => entry.id === itemId);
-  if (item) item.text = value;
-};
-
-const removePrincipleItem = (conditionId: string, itemId: string) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  if (!principle) return;
-  principle.items = principle.items.filter((entry) => entry.id !== itemId);
-};
-
-const movePrincipleItem = (
-  conditionId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  if (!principle) return;
-  const draggedIndex = principle.items.findIndex(
-    (entry) => entry.id === draggedId,
-  );
-  const targetIndex = principle.items.findIndex(
-    (entry) => entry.id === targetId,
-  );
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...principle.items];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  principle.items = next;
-};
-
-const nestPrincipleItemUnderItem = (
-  conditionId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  if (!principle) return;
-  const draggedIndex = principle.items.findIndex(
-    (entry) => entry.id === draggedId,
-  );
-  const targetItem = principle.items.find((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || !targetItem || draggedId === targetId) return;
-  const [dragged] = principle.items.splice(draggedIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: dragged.text },
-  ];
-};
-
-const addPrincipleSubItem = (conditionId: string, itemId: string) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  const item = principle?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  item.subItems = [
-    ...(item.subItems || []),
-    { id: createEntityId(), text: "" },
-  ];
-};
-
-const updatePrincipleSubItem = (
-  conditionId: string,
-  itemId: string,
-  subItemId: string,
-  value: string,
-) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  const item = principle?.items.find((entry) => entry.id === itemId);
-  const subItem = item?.subItems.find((entry) => entry.id === subItemId);
-  if (subItem) subItem.text = value;
-};
-
-const removePrincipleSubItem = (
-  conditionId: string,
-  itemId: string,
-  subItemId: string,
-) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  const item = principle?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  item.subItems = item.subItems.filter((entry) => entry.id !== subItemId);
-};
-
-const movePrincipleSubItem = (
-  conditionId: string,
-  itemId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  const item = principle?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  const draggedIndex = item.subItems.findIndex(
-    (entry) => entry.id === draggedId,
-  );
-  const targetIndex = item.subItems.findIndex((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...item.subItems];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  item.subItems = next;
-};
-
-const movePrincipleSubItemToItem = (
-  conditionId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetItemId: string,
-) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  if (!principle) return;
-  const sourceItem = principle.items.find((entry) => entry.id === fromItemId);
-  const targetItem = principle.items.find((entry) => entry.id === targetItemId);
-  if (!sourceItem || !targetItem) return;
-  const subItemIndex = sourceItem.subItems.findIndex(
-    (entry) => entry.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = sourceItem.subItems.splice(subItemIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: subItem.text },
-  ];
-};
-
-const promotePrincipleSubItemToItem = (
-  conditionId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetId: string,
-) => {
-  const principle = form.principles.find((entry) => entry.id === conditionId);
-  if (!principle) return;
-  const sourceIndex = principle.items.findIndex(
-    (entry) => entry.id === fromItemId,
-  );
-  const targetIndex = principle.items.findIndex(
-    (entry) => entry.id === targetId,
-  );
-  if (sourceIndex === -1 || targetIndex === -1) return;
-  const item = principle.items[sourceIndex];
-  const subItemIndex = item.subItems.findIndex(
-    (entry) => entry.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = item.subItems.splice(subItemIndex, 1);
-  const promoted: QuoteConditionItem = {
-    id: createEntityId(),
-    text: subItem.text,
-    subItems: [],
-  };
-  principle.items.splice(targetIndex, 0, promoted);
-};
-
 const updateAddon = (
   id: string,
-  field: "title" | "description" | "price" | "unitLabel",
+  field: "title" | "price" | "unitLabel",
   value: string | number,
 ) => {
   const addon = form.addons.find((entry) => entry.id === id);
   if (addon) (addon[field] as string | number) = value;
-};
-
-const addAddonItem = (addonId: string) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  if (!addon) return;
-  addon.items = [
-    ...(addon.items || []),
-    { id: createEntityId(), text: "", subItems: [] },
-  ];
-};
-
-const updateAddonItem = (addonId: string, itemId: string, value: string) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  const item = addon?.items.find((entry) => entry.id === itemId);
-  if (item) item.text = value;
-};
-
-const removeAddonItem = (addonId: string, itemId: string) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  if (!addon) return;
-  addon.items = addon.items.filter((entry) => entry.id !== itemId);
-};
-
-const moveAddonItem = (
-  addonId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  if (!addon) return;
-  const draggedIndex = addon.items.findIndex((entry) => entry.id === draggedId);
-  const targetIndex = addon.items.findIndex((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...addon.items];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  addon.items = next;
-};
-
-const nestAddonItemUnderItem = (
-  addonId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  if (!addon) return;
-  const draggedIndex = addon.items.findIndex((entry) => entry.id === draggedId);
-  const targetItem = addon.items.find((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || !targetItem || draggedId === targetId) return;
-  const [dragged] = addon.items.splice(draggedIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: dragged.text },
-  ];
-};
-
-const addAddonSubItem = (addonId: string, itemId: string) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  const item = addon?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  item.subItems = [
-    ...(item.subItems || []),
-    { id: createEntityId(), text: "" },
-  ];
-};
-
-const updateAddonSubItem = (
-  addonId: string,
-  itemId: string,
-  subItemId: string,
-  value: string,
-) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  const item = addon?.items.find((entry) => entry.id === itemId);
-  const subItem = item?.subItems.find((entry) => entry.id === subItemId);
-  if (subItem) subItem.text = value;
-};
-
-const removeAddonSubItem = (
-  addonId: string,
-  itemId: string,
-  subItemId: string,
-) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  const item = addon?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  item.subItems = item.subItems.filter((entry) => entry.id !== subItemId);
-};
-
-const moveAddonSubItem = (
-  addonId: string,
-  itemId: string,
-  draggedId: string,
-  targetId: string,
-) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  const item = addon?.items.find((entry) => entry.id === itemId);
-  if (!item) return;
-  const draggedIndex = item.subItems.findIndex(
-    (entry) => entry.id === draggedId,
-  );
-  const targetIndex = item.subItems.findIndex((entry) => entry.id === targetId);
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex)
-    return;
-  const next = [...item.subItems];
-  const [dragged] = next.splice(draggedIndex, 1);
-  next.splice(targetIndex, 0, dragged);
-  item.subItems = next;
-};
-
-const moveAddonSubItemToItem = (
-  addonId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetItemId: string,
-) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  if (!addon) return;
-  const sourceItem = addon.items.find((entry) => entry.id === fromItemId);
-  const targetItem = addon.items.find((entry) => entry.id === targetItemId);
-  if (!sourceItem || !targetItem) return;
-  const subItemIndex = sourceItem.subItems.findIndex(
-    (entry) => entry.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = sourceItem.subItems.splice(subItemIndex, 1);
-  targetItem.subItems = [
-    ...(targetItem.subItems || []),
-    { id: createEntityId(), text: subItem.text },
-  ];
-};
-
-const promoteAddonSubItemToItem = (
-  addonId: string,
-  fromItemId: string,
-  subItemId: string,
-  targetId: string,
-) => {
-  const addon = form.addons.find((entry) => entry.id === addonId);
-  if (!addon) return;
-  const sourceIndex = addon.items.findIndex((entry) => entry.id === fromItemId);
-  const targetIndex = addon.items.findIndex((entry) => entry.id === targetId);
-  if (sourceIndex === -1 || targetIndex === -1) return;
-  const item = addon.items[sourceIndex];
-  const subItemIndex = item.subItems.findIndex(
-    (entry) => entry.id === subItemId,
-  );
-  if (subItemIndex === -1) return;
-  const [subItem] = item.subItems.splice(subItemIndex, 1);
-  const promoted: QuoteConditionItem = {
-    id: createEntityId(),
-    text: subItem.text,
-    subItems: [],
-  };
-  addon.items.splice(targetIndex, 0, promoted);
 };
 
 const addCondition = () => {
@@ -1477,8 +650,7 @@ const addCondition = () => {
     id: createEntityId(),
     commonConditionId: "",
     title: "",
-    body: "",
-    items: [],
+    blocks: [],
   });
 };
 
@@ -1486,8 +658,7 @@ const addRoadmapPhase = () => {
   const phase = {
     id: createEntityId(),
     title: "",
-    body: "",
-    items: [],
+    blocks: [],
   };
   const insertIndex = Math.max(form.roadmap.length - 1, 0);
   form.roadmap.splice(insertIndex, 0, phase);
@@ -1497,8 +668,7 @@ const addAcceptance = () => {
   form.acceptance.push({
     id: createEntityId(),
     title: "",
-    body: "",
-    items: [],
+    blocks: [],
   });
 };
 
@@ -1507,8 +677,7 @@ const addPrinciple = () => {
     id: createEntityId(),
     title: "",
     tag: "",
-    body: "",
-    items: [],
+    blocks: [],
   });
 };
 
@@ -1524,14 +693,7 @@ const duplicateAddon = (addonId: string) => {
     id: createEntityId(),
     title: source.title?.trim() ? `${source.title} - copy` : "Add-on - copy",
     unitLabel: source.unitLabel || "",
-    items: normalizeItems(source.items).map((item) => ({
-      id: createEntityId(),
-      text: item.text || "",
-      subItems: (item.subItems || []).map((subItem) => ({
-        id: createEntityId(),
-        text: subItem.text || "",
-      })),
-    })),
+    blocks: cloneBlocks(source.blocks || []),
   };
   const sourceIndex = form.addons.findIndex((entry) => entry.id === addonId);
   form.addons.splice(sourceIndex + 1, 0, duplicated);
@@ -1548,30 +710,50 @@ const moveAddon = (draggedId: string, targetId: string) => {
   form.addons = next;
 };
 
-const createTemplate = () => {
-  guardUnsaved(() => {
-    selectedLibraryItem.value = "template";
-    quoteTemplatesStore.selectTemplate(null);
-    hydrateFromTemplate(null);
-  });
-};
-
-const selectTemplate = (id: string) => {
-  guardUnsaved(() => {
-    const target = quoteTemplatesStore.templates.find((template) => template.id === id);
-    selectedLibraryItem.value = target?.kind === "base" ? "base" : "template";
-    quoteTemplatesStore.selectTemplate(id);
-  });
-};
-
 const selectMailTemplate = () => {
   const baseTemplate = quoteTemplatesStore.baseTemplate;
   if (!baseTemplate) return;
 
   guardUnsaved(() => {
+    clearEditorSearch();
     selectedLibraryItem.value = "mail";
     quoteTemplatesStore.selectTemplate(baseTemplate.id);
   });
+};
+
+const showTemplateContent = () => {
+  if (!quoteTemplatesStore.baseTemplate) return;
+  guardUnsaved(() => {
+    clearEditorSearch();
+    selectedLibraryItem.value = "base";
+  });
+};
+
+const returnToTemplates = () => {
+  guardUnsaved(() => {
+    void router.push({ name: "quote-templates" });
+  });
+};
+
+const syncSelectionFromRoute = () => {
+  clearEditorSearch();
+  if (route.name === "quote-template-new") {
+    selectedLibraryItem.value = "template";
+    quoteTemplatesStore.selectTemplate(null);
+    hydrateFromTemplate(null);
+    return;
+  }
+
+  const target = quoteTemplatesStore.templates.find(
+    (template) => template.id === routeTemplateId.value,
+  );
+  if (!target) {
+    void router.replace({ name: "quote-templates" });
+    return;
+  }
+
+  selectedLibraryItem.value = target.kind === "base" ? "base" : "template";
+  quoteTemplatesStore.selectTemplate(target.id);
 };
 
 const isBaseSelected = computed(
@@ -1601,7 +783,7 @@ const commonConditionOptions = computed<QuoteCondition[]>(() => {
     (condition) =>
       condition.id &&
       !usedCommonIds.has(condition.id) &&
-      ((condition.title || "").trim() || condition.items.length),
+      ((condition.title || "").trim() || (condition.blocks || []).length),
   );
 });
 
@@ -1610,8 +792,7 @@ const cloneCommonConditionReference = (condition: QuoteCondition): QuoteConditio
   id: createEntityId(),
   commonConditionId: condition.id,
   tag: condition.tag || "",
-  body: condition.body || "",
-  items: cloneItems(condition.items || []),
+  blocks: cloneBlocks(condition.blocks || []),
 });
 
 const addCommonCondition = (conditionId: string) => {
@@ -1631,6 +812,12 @@ const saveTemplate = async () => {
     payload,
   );
   hydrateFromTemplate(template);
+  if (route.name === "quote-template-new") {
+    await router.replace({
+      name: "quote-template-detail",
+      params: { id: template.id },
+    });
+  }
   toast.add({
     severity: "success",
     summary: "Template sauvegardé",
@@ -1679,7 +866,7 @@ const deleteTemplate = async () => {
         detail: "Le template a été retiré.",
         life: 2200,
       });
-      hydrateFromTemplate(quoteTemplatesStore.selectedTemplate);
+      await router.push({ name: "quote-templates" });
     },
   });
 };
@@ -1710,6 +897,7 @@ const duplicateTemplate = async () => {
       emailSubject: form.emailSubject,
       emailBody: form.emailBody,
       parts: form.parts,
+      deliverables: form.deliverables,
       conditions: form.conditions,
       roadmap: form.roadmap,
       acceptance: form.acceptance,
@@ -1733,6 +921,7 @@ const duplicateTemplate = async () => {
     discountType: form.discountType || "percent",
     discountValue: form.discountValue || 0,
     parts: cloneQuoteParts(form.parts),
+    deliverables: cloneSections(form.deliverables),
     conditions: cloneConditions(form.conditions),
     roadmap: cloneConditions(form.roadmap),
     acceptance: cloneConditions(form.acceptance),
@@ -1744,6 +933,10 @@ const duplicateTemplate = async () => {
 
   const template = await quoteTemplatesStore.saveTemplate(null, payload);
   hydrateFromTemplate(template);
+  await router.push({
+    name: "quote-template-detail",
+    params: { id: template.id },
+  });
   toast.add({
     severity: "success",
     summary: "Template dupliqué",
@@ -1756,9 +949,233 @@ const discardChanges = () => {
   hydrateFromTemplate(quoteTemplatesStore.selectedTemplate);
 };
 
+const templateEditorRoot = ref<HTMLElement | null>(null);
+const editorSearchQuery = ref("");
+const editorSearchMatches = ref<HTMLElement[]>([]);
+const editorSearchIndex = ref(-1);
+let editorSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+const normalizeEditorSearchText = (value: string) =>
+  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr").replace(/\s+/g, " ").trim();
+
+const clearEditorSearchHighlight = () => {
+  templateEditorRoot.value
+    ?.querySelectorAll(".template-editor-search-hit")
+    .forEach((element) => element.classList.remove("template-editor-search-hit"));
+};
+
+const searchableElementValue = (element: HTMLElement) =>
+  element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+    ? element.value
+    : element.innerText || element.textContent || "";
+
+const collectEditorSearchMatches = (query: string) => {
+  const root = templateEditorRoot.value;
+  if (!root) return [];
+  const terms = normalizeEditorSearchText(query).split(" ").filter(Boolean);
+  if (!terms.length) return [];
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'input:not([type="hidden"]), textarea, [contenteditable="true"], h2, h3, h4, p, label',
+    ),
+  ).filter((element) => {
+    if (element.offsetParent === null) return false;
+    const value = normalizeEditorSearchText(searchableElementValue(element));
+    return value.length > 0 && terms.every((term) => value.includes(term));
+  });
+};
+
+const templateToolbarOffset = () => {
+  const toolbar = document.querySelector<HTMLElement>("[data-template-toolbar]");
+  if (!toolbar) return 24;
+  const styles = window.getComputedStyle(toolbar);
+  return toolbar.getBoundingClientRect().height + (Number.parseFloat(styles.top) || 0) + 12;
+};
+
+const revealCollapsedEditorContent = async () => {
+  const root = templateEditorRoot.value;
+  if (!root) return;
+  const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>("button")).filter(
+    (button) =>
+      button.offsetParent !== null &&
+      button.querySelector(".material-symbols-outlined")?.textContent?.trim() === "expand_more",
+  );
+  buttons.forEach((button) => button.click());
+  if (buttons.length) await nextTick();
+};
+
+const focusEditorSearchMatch = (index: number) => {
+  clearEditorSearchHighlight();
+  if (!editorSearchMatches.value.length) {
+    editorSearchIndex.value = -1;
+    return;
+  }
+  editorSearchIndex.value =
+    ((index % editorSearchMatches.value.length) + editorSearchMatches.value.length) %
+    editorSearchMatches.value.length;
+  const target = editorSearchMatches.value[editorSearchIndex.value];
+  target.classList.add("template-editor-search-hit");
+  const top = target.getBoundingClientRect().top + window.scrollY - templateToolbarOffset() - 12;
+  window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+};
+
+const runEditorSearch = async () => {
+  clearEditorSearchHighlight();
+  const query = editorSearchQuery.value.trim();
+  if (!query) {
+    editorSearchMatches.value = [];
+    editorSearchIndex.value = -1;
+    return;
+  }
+  let matches = collectEditorSearchMatches(query);
+  if (!matches.length) {
+    await revealCollapsedEditorContent();
+    matches = collectEditorSearchMatches(query);
+  }
+  editorSearchMatches.value = matches;
+  focusEditorSearchMatch(0);
+};
+
+const scheduleEditorSearch = () => {
+  if (editorSearchTimer) clearTimeout(editorSearchTimer);
+  editorSearchTimer = setTimeout(() => void runEditorSearch(), 220);
+};
+
+const goToNextEditorSearchMatch = () => {
+  if (!editorSearchQuery.value.trim()) return;
+  if (!editorSearchMatches.value.length) void runEditorSearch();
+  else focusEditorSearchMatch(editorSearchIndex.value + 1);
+};
+
+const clearEditorSearch = () => {
+  editorSearchQuery.value = "";
+  editorSearchMatches.value = [];
+  editorSearchIndex.value = -1;
+  clearEditorSearchHighlight();
+};
+
+const templateDocumentSections = computed(() => {
+  if (isMailSelected.value) {
+    return [{ id: "mail", label: "Mail d’envoi", count: 0 }];
+  }
+  const countById: Record<string, number> = {
+    quoteInfo: 0,
+    proposal: 0,
+    scope: form.parts.reduce((total, part) => total + part.sections.length, 0),
+    deliverables: form.deliverables.length,
+    addons: form.addons.length,
+    roadmap: form.roadmap.length,
+    conditions: form.conditions.length,
+    acceptance: form.acceptance.length,
+    principles: form.principles.length,
+  };
+  const sections = isBaseSelected.value
+    ? [
+        ["quoteInfo", "Informations du template"],
+        ["conditions", "Conditions communes"],
+        ["acceptance", "Acceptation"],
+        ["principles", "Nos principes"],
+      ]
+    : [
+        ["quoteInfo", "Informations du template"],
+        ["proposal", "Proposition de projet"],
+        ["scope", "Portée du projet"],
+        ["deliverables", "Livrables"],
+        ["addons", "Options complémentaires"],
+        ["roadmap", "Feuille de route"],
+        ["conditions", "Conditions"],
+      ];
+  return sections.map(([id, label]) => ({ id, label, count: countById[id] || 0 }));
+});
+
+const activeTemplateSectionId = ref("");
+let templateSectionSpyFrame = 0;
+
+const scrollToTemplateSection = (id: string) => {
+  const target = templateEditorRoot.value?.querySelector<HTMLElement>(
+    `[data-section-id="${id}"]`,
+  );
+  if (!target) return;
+  activeTemplateSectionId.value = id;
+  const top = target.getBoundingClientRect().top + window.scrollY - templateToolbarOffset();
+  window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+};
+
+const syncActiveTemplateSection = () => {
+  if (templateSectionSpyFrame) return;
+  templateSectionSpyFrame = window.requestAnimationFrame(() => {
+    templateSectionSpyFrame = 0;
+    const nodes = Array.from(
+      templateEditorRoot.value?.querySelectorAll<HTMLElement>("[data-section-id]") || [],
+    )
+      .map((node) => ({ node, top: node.getBoundingClientRect().top }))
+      .sort((a, b) => a.top - b.top);
+    if (!nodes.length) return;
+    const threshold = templateToolbarOffset() + 8;
+    let current = nodes[0].node;
+    for (const entry of nodes) if (entry.top <= threshold) current = entry.node;
+    activeTemplateSectionId.value = current.dataset.sectionId || "";
+  });
+};
+
+const copyFrenchContentToActiveLanguage = () => {
+  if (form.language === "fr") return;
+  const targetLanguage = form.language;
+  confirm.require({
+    message: `Le contenu ${languageLabel(targetLanguage).toLowerCase()} actuel sera remplacé par une copie du français. Continuer ?`,
+    header: "Copier le contenu français ?",
+    icon: "warning",
+    rejectProps: { label: "Annuler", severity: "secondary", outlined: true },
+    acceptProps: { label: "Copier", severity: "primary" },
+    accept: () => {
+      persistActiveLanguageContent(targetLanguage);
+      const frenchContent = cloneLocalizedSlice(form.localizedContent?.fr);
+      form.localizedContent = {
+        ...form.localizedContent,
+        [targetLanguage]: frenchContent,
+      };
+      hydrateVisibleContentFromLanguage(targetLanguage);
+      clearEditorSearch();
+      toast.add({
+        severity: "success",
+        summary: "Contenu copié",
+        detail: `La version ${languageLabel(targetLanguage).toLowerCase()} reprend maintenant le contenu français.`,
+        life: 2600,
+      });
+    },
+  });
+};
+
+onUnmounted(() => {
+  if (editorSearchTimer) clearTimeout(editorSearchTimer);
+  clearEditorSearchHighlight();
+  window.removeEventListener("scroll", syncActiveTemplateSection);
+  if (templateSectionSpyFrame) cancelAnimationFrame(templateSectionSpyFrame);
+});
+
 onMounted(async () => {
+  window.addEventListener("scroll", syncActiveTemplateSection, { passive: true });
   await quoteTemplatesStore.fetchTemplates();
-  hydrateFromTemplate(quoteTemplatesStore.selectedTemplate);
+  syncSelectionFromRoute();
+  await nextTick();
+  syncActiveTemplateSection();
+});
+
+watch(
+  () => [route.name, routeTemplateId.value],
+  () => {
+    if (!quoteTemplatesStore.loading && quoteTemplatesStore.templates.length) {
+      syncSelectionFromRoute();
+    } else if (route.name === "quote-template-new") {
+      syncSelectionFromRoute();
+    }
+  },
+);
+
+watch([selectedLibraryItem, () => form.language], async () => {
+  activeTemplateSectionId.value = "";
+  await nextTick();
+  syncActiveTemplateSection();
 });
 </script>
 
@@ -1766,147 +1183,170 @@ onMounted(async () => {
   <div class="flex flex-col gap-6">
     <ConfirmDialog />
 
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-      <div class="flex items-start gap-3">
-        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
-          <span class="material-symbols-outlined text-2xl text-primary">library_books</span>
-        </span>
-        <div>
-          <h1 class="text-3xl font-heading font-bold text-surface-dark">
-            Templates
-          </h1>
-          <p class="mt-1 text-sm text-surface-dark/55">
-            Base commune et templates de stack réutilisables pour vos devis.
+    <div
+      data-template-toolbar
+      class="sticky top-4 z-20 flex flex-wrap items-center gap-3 rounded-3xl border border-surface-dark/8 bg-surface-card/95 p-2.5 shadow-sm backdrop-blur"
+    >
+      <div class="flex min-w-0 flex-1 basis-[300px] items-center gap-3">
+        <Button
+          text
+          severity="secondary"
+          class="!h-9 !w-9 !shrink-0 !rounded-xl !p-0"
+          aria-label="Retour aux templates"
+          title="Retour aux templates"
+          @click="returnToTemplates"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">arrow_back</span></template>
+        </Button>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <h1 class="truncate font-heading text-lg font-bold text-surface-dark">
+              {{ templateId ? form.name : "Nouveau template" }}
+            </h1>
+            <span
+              v-if="isBaseSelected || isMailSelected"
+              class="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary"
+            >
+              Base commune
+            </span>
+          </div>
+          <p class="truncate text-xs text-surface-dark/55">
+            {{ languageOptions.find((option) => option.value === form.language)?.label || form.language }}
+            <template v-if="isMailSelected"> · Mail d’envoi</template>
+            <template v-else-if="templateId"> · Template de devis</template>
+            <template v-else> · En création</template>
           </p>
         </div>
       </div>
-      <Button label="Nouveau template" @click="createTemplate">
-        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
-      </Button>
-    </div>
 
-    <div
-      class="grid grid-cols-1 gap-6 xl:grid-cols-[320px_minmax(0,1fr)] items-start"
-    >
-      <div class="flex flex-col gap-4 xl:sticky xl:top-6">
-        <section
-          class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5"
-        >
-            <div class="mb-3">
-              <h2 class="font-heading font-bold text-surface-dark">
-                Réglages communs
-              </h2>
-            </div>
-
-            <div
-              v-if="baseTemplate"
-              class="w-full cursor-pointer rounded-2xl border p-4 text-left transition-all"
-              :class="
-                isBaseSelected
-                  ? 'border-primary/20 bg-primary/10'
-                  : 'border-surface-dark/8 bg-white hover:border-primary/15'
-              "
-              @click="selectTemplate(baseTemplate.id)"
-            >
-              <div class="flex items-start justify-between gap-2">
-                <p class="font-heading font-bold text-surface-dark">
-                  Base commune
-                </p>
-                <span
-                  class="material-symbols-outlined shrink-0 text-lg text-primary"
-                  title="Base commune protégée — préremplit les nouveaux devis"
-                  >verified</span
-                >
-              </div>
-              <p class="mt-2 text-xs text-surface-dark/45">
-                Modifié : {{ formatTemplateUpdatedAt(baseTemplate) }}
-              </p>
-            </div>
-
-            <div
-              v-if="baseTemplate"
-              class="mt-3 w-full cursor-pointer rounded-2xl border p-4 text-left transition-all"
-              :class="
-                isMailSelected
-                  ? 'border-primary/20 bg-primary/10'
-                  : 'border-surface-dark/8 bg-white hover:border-primary/15'
-              "
-              @click="selectMailTemplate"
-            >
-              <div class="flex items-start justify-between gap-2">
-                <p class="font-heading font-bold text-surface-dark">
-                  Mail d’envoi
-                </p>
-                <span
-                  class="material-symbols-outlined shrink-0 text-lg text-surface-dark/50"
-                  >mail</span
-                >
-              </div>
-              <p class="mt-2 text-xs text-surface-dark/45">
-                Modifié : {{ formatTemplateUpdatedAt(baseTemplate) }}
-              </p>
-            </div>
-        </section>
-
-        <section
-          class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5"
-        >
-            <div class="mb-4">
-              <div class="min-w-0">
-                <h2 class="font-heading font-bold text-surface-dark">
-                  Bibliothèque
-                </h2>
-              </div>
-            </div>
-
-            <div class="flex flex-col gap-3">
-              <div
-                v-for="template in customTemplates"
-                :key="template.id"
-                class="w-full cursor-pointer rounded-2xl border p-4 text-left transition-all"
-                :class="
-                  templateId === template.id
-                    ? 'border-primary/20 bg-primary/10'
-                    : 'border-surface-dark/8 bg-white hover:border-primary/15'
-                "
-                @click="selectTemplate(template.id)"
-              >
-                <div class="flex items-start justify-between gap-2">
-                  <p class="font-heading font-bold text-surface-dark">
-                    {{ template.name }}
-                  </p>
-                </div>
-                <div class="mt-1 flex items-center gap-2">
-                  <span class="text-sm text-surface-dark/60">
-                    {{ template.platform || "other" }}
-                  </span>
-                </div>
-                <p class="mt-2 text-xs text-surface-dark/45">
-                  Modifié : {{ formatTemplateUpdatedAt(template) }}
-                </p>
-              </div>
-
-              <div
-                v-if="customTemplates.length === 0"
-                class="rounded-2xl border border-dashed border-surface-dark/10 p-5 text-sm text-surface-dark/55"
-              >
-                Aucun template pour l’instant.
-              </div>
-            </div>
-        </section>
+      <div class="relative min-w-[210px] flex-1 basis-[250px] lg:max-w-[320px]">
+        <span class="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg text-surface-dark/35">search</span>
+        <input
+          v-model="editorSearchQuery"
+          type="search"
+          class="h-10 w-full rounded-xl border border-surface-dark/10 bg-white py-2 pl-10 pr-14 text-sm text-surface-dark outline-none transition placeholder:text-surface-dark/35 focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+          placeholder="Rechercher dans le template…"
+          aria-label="Rechercher dans l’éditeur du template"
+          @input="scheduleEditorSearch"
+          @keydown.enter.prevent="goToNextEditorSearchMatch"
+          @keydown.esc="clearEditorSearch"
+        />
+        <span
+          v-if="editorSearchQuery.trim()"
+          class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] tabular-nums"
+          :class="editorSearchMatches.length ? 'text-surface-dark/45' : 'text-red-500'"
+        >{{ editorSearchMatches.length ? `${editorSearchIndex + 1}/${editorSearchMatches.length}` : "0" }}</span>
       </div>
 
-      <div class="flex flex-col gap-6">
-        <QuoteActionBar
-          :can-duplicate="Boolean(templateId) && !isBaseSelected && !isMailSelected"
-          :can-delete="Boolean(templateId) && !isBaseSelected && !isMailSelected"
-          :has-unsaved-changes="hasUnsavedChanges"
-          @save="saveTemplate"
-          @discard="discardChanges"
-          @duplicate="duplicateTemplate"
-          @delete="deleteTemplate"
-        />
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-surface-dark/45">
+          <span class="material-symbols-outlined text-base">{{ hasUnsavedChanges ? "edit" : "cloud_done" }}</span>
+          {{ hasUnsavedChanges ? "Modifié" : "Enregistré" }}
+        </span>
+        <Button v-if="hasUnsavedChanges" text severity="secondary" class="!rounded-xl" label="Annuler" @click="discardChanges">
+          <template #icon><span class="material-symbols-outlined text-lg">undo</span></template>
+        </Button>
+        <Button
+          v-if="templateId && !isBaseSelected && !isMailSelected"
+          text
+          severity="secondary"
+          class="!h-9 !w-9 !rounded-xl !p-0"
+          aria-label="Dupliquer le template"
+          title="Dupliquer le template"
+          @click="duplicateTemplate"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">content_copy</span></template>
+        </Button>
+        <Button class="!rounded-xl !px-5 font-semibold" label="Sauvegarder" :disabled="!hasUnsavedChanges" @click="saveTemplate">
+          <template #icon><span class="material-symbols-outlined text-lg">save</span></template>
+        </Button>
+        <Button
+          v-if="templateId && !isBaseSelected && !isMailSelected"
+          text
+          severity="danger"
+          class="!h-9 !w-9 !rounded-xl !p-0"
+          aria-label="Supprimer le template"
+          title="Supprimer le template"
+          @click="deleteTemplate"
+        >
+          <template #icon><span class="material-symbols-outlined text-lg">delete</span></template>
+        </Button>
+      </div>
+    </div>
 
+    <section class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-surface-dark/7 bg-surface-card px-3 py-2.5 shadow-sm">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="mr-1 text-[11px] font-semibold uppercase tracking-wider text-surface-dark/40">Langue du contenu</span>
+        <button
+          v-for="language in templateLanguages"
+          :key="language"
+          type="button"
+          class="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition"
+          :class="[
+            form.language === language
+              ? 'border-primary/25 bg-primary/10 text-primary'
+              : 'border-transparent bg-surface-dark/[0.035] text-surface-dark/60 hover:bg-surface-dark/6 hover:text-surface-dark',
+          ]"
+          @click="form.language = language"
+        >
+          <span class="uppercase">{{ language }}</span>
+          <span class="hidden sm:inline">{{ languageLabel(language) }}</span>
+          <span
+            class="h-2 w-2 rounded-full"
+            :class="
+              languageStatus(language) === 'complete'
+                ? 'bg-emerald-500'
+                : languageStatus(language) === 'partial'
+                  ? 'bg-amber-500'
+                  : 'bg-surface-dark/20'
+            "
+            :title="languageStatusLabel(languageStatus(language))"
+          ></span>
+        </button>
+      </div>
+      <div class="flex items-center gap-3">
+        <span
+          class="hidden rounded-full border px-2.5 py-1 text-xs font-semibold sm:inline-flex"
+          :class="languageStatusClass(languageStatus(form.language))"
+        >{{ languageStatusLabel(languageStatus(form.language)) }}</span>
+        <Button
+          v-if="form.language !== 'fr'"
+          text
+          severity="secondary"
+          size="small"
+          class="!rounded-xl"
+          label="Copier depuis le français"
+          @click="copyFrenchContentToActiveLanguage"
+        >
+          <template #icon><span class="material-symbols-outlined text-base">content_copy</span></template>
+        </Button>
+      </div>
+    </section>
+
+    <div
+      v-if="quoteTemplatesStore.selectedTemplate?.kind === 'base'"
+      class="inline-flex w-fit rounded-xl bg-surface-dark/5 p-1"
+    >
+      <button
+        type="button"
+        class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+        :class="isBaseSelected ? 'bg-white text-surface-dark shadow-sm' : 'text-surface-dark/50 hover:text-surface-dark'"
+        @click="showTemplateContent"
+      >
+        Contenu du template
+      </button>
+      <button
+        type="button"
+        class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+        :class="isMailSelected ? 'bg-white text-surface-dark shadow-sm' : 'text-surface-dark/50 hover:text-surface-dark'"
+        @click="selectMailTemplate"
+      >
+        Mail d’envoi
+      </button>
+    </div>
+
+    <div class="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div ref="templateEditorRoot" class="flex min-w-0 flex-col gap-6">
         <div
           v-if="isBaseSelected"
           class="flex items-center gap-3 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-surface-dark/75"
@@ -1921,6 +1361,7 @@ onMounted(async () => {
 
         <section
           v-if="isMailSelected"
+          data-section-id="mail"
           class="rounded-3xl border border-surface-dark/5 bg-white p-5"
         >
           <div class="mb-4 flex flex-wrap items-start justify-between gap-4">
@@ -1937,18 +1378,6 @@ onMounted(async () => {
                   Objet et contenu utilisés lors de l’envoi d’un devis.
                 </p>
               </div>
-            </div>
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-surface-dark"
-                >Langue</label
-              >
-              <Select
-                v-model="form.language"
-                :options="languageOptions"
-                option-label="label"
-                option-value="value"
-                class="w-40"
-              />
             </div>
           </div>
           <QuoteOutputPanel
@@ -1977,14 +1406,13 @@ onMounted(async () => {
           :title="form.name"
           project-name=""
           :quote-date="null"
-          valid-until=""
+          :valid-until="null"
           client-id=""
           client-name=""
           client-address=""
           client-website=""
           client-country=""
           client-vat-label=""
-          :platform="form.platform"
           :custom-platform-label="form.customPlatformLabel"
           :language="form.language"
           :vat-rate="form.vatRate"
@@ -1994,6 +1422,7 @@ onMounted(async () => {
           investment-summary=""
           :investment-amount="0"
           :parts="form.parts"
+          :deliverables="form.deliverables"
           :currency-locale="currencyLocale"
           :conditions="form.conditions"
           :reusable-conditions="commonConditionOptions"
@@ -2013,7 +1442,6 @@ onMounted(async () => {
           @update:project-name="() => undefined"
           @update:quote-date="() => undefined"
           @update:client-id="() => undefined"
-          @update:platform="form.platform = $event"
           @update:custom-platform-label="form.customPlatformLabel = $event"
           @update:language="form.language = $event"
           @update:vat-rate="form.vatRate = $event"
@@ -2023,6 +1451,7 @@ onMounted(async () => {
           @update:investment-summary="() => undefined"
           @update:investment-amount="() => undefined"
           @update:parts="form.parts = $event"
+          @update:deliverables="form.deliverables = $event"
           @update:payment-schedule="form.paymentSchedule = $event"
           @add-condition="addCondition"
           @add-reusable-condition="addCommonCondition"
@@ -2035,69 +1464,7 @@ onMounted(async () => {
               (condition) => condition.id !== $event,
             )
           "
-          @add-condition-item="addConditionItem"
-          @update-condition-item="
-            updateConditionItem($event.conditionId, $event.itemId, $event.value)
-          "
-          @remove-condition-item="
-            removeConditionItem($event.conditionId, $event.itemId)
-          "
-          @move-condition-item="
-            moveConditionItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @nest-condition-item-under-item="
-            nestConditionItemUnderItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-condition-sub-item="
-            addConditionSubItem($event.conditionId, $event.itemId)
-          "
-          @update-condition-sub-item="
-            updateConditionSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-condition-sub-item="
-            removeConditionSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-            )
-          "
-          @move-condition-sub-item="
-            moveConditionSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-condition-sub-item-to-item="
-            moveConditionSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-condition-sub-item-to-item="
-            promoteConditionSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
+          @update-condition-blocks="setConditionBlocks('conditions', $event.conditionId, $event.blocks)"
           @add-roadmap-phase="addRoadmapPhase"
           @move-roadmap-phase="
             moveRoadmapPhase($event.draggedId, $event.targetId)
@@ -2108,69 +1475,7 @@ onMounted(async () => {
           @remove-roadmap-phase="
             form.roadmap = form.roadmap.filter((phase) => phase.id !== $event)
           "
-          @add-roadmap-item="addRoadmapItem"
-          @update-roadmap-item="
-            updateRoadmapItem($event.conditionId, $event.itemId, $event.value)
-          "
-          @remove-roadmap-item="
-            removeRoadmapItem($event.conditionId, $event.itemId)
-          "
-          @move-roadmap-item="
-            moveRoadmapItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @nest-roadmap-item-under-item="
-            nestRoadmapItemUnderItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-roadmap-sub-item="
-            addRoadmapSubItem($event.conditionId, $event.itemId)
-          "
-          @update-roadmap-sub-item="
-            updateRoadmapSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-roadmap-sub-item="
-            removeRoadmapSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-            )
-          "
-          @move-roadmap-sub-item="
-            moveRoadmapSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-roadmap-sub-item-to-item="
-            moveRoadmapSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-roadmap-sub-item-to-item="
-            promoteRoadmapSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
+          @update-roadmap-blocks="setConditionBlocks('roadmap', $event.conditionId, $event.blocks)"
           @add-acceptance="addAcceptance"
           @move-acceptance="moveAcceptance($event.draggedId, $event.targetId)"
           @update-acceptance="
@@ -2181,73 +1486,7 @@ onMounted(async () => {
               (entry) => entry.id !== $event,
             )
           "
-          @add-acceptance-item="addAcceptanceItem"
-          @update-acceptance-item="
-            updateAcceptanceItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.value,
-            )
-          "
-          @remove-acceptance-item="
-            removeAcceptanceItem($event.conditionId, $event.itemId)
-          "
-          @move-acceptance-item="
-            moveAcceptanceItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @nest-acceptance-item-under-item="
-            nestAcceptanceItemUnderItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-acceptance-sub-item="
-            addAcceptanceSubItem($event.conditionId, $event.itemId)
-          "
-          @update-acceptance-sub-item="
-            updateAcceptanceSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-acceptance-sub-item="
-            removeAcceptanceSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-            )
-          "
-          @move-acceptance-sub-item="
-            moveAcceptanceSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-acceptance-sub-item-to-item="
-            moveAcceptanceSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-acceptance-sub-item-to-item="
-            promoteAcceptanceSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
+          @update-acceptance-blocks="setConditionBlocks('acceptance', $event.conditionId, $event.blocks)"
           @add-principle="addPrinciple"
           @move-principle="movePrinciple($event.draggedId, $event.targetId)"
           @update-principle="
@@ -2258,69 +1497,7 @@ onMounted(async () => {
               (principle) => principle.id !== $event,
             )
           "
-          @add-principle-item="addPrincipleItem"
-          @update-principle-item="
-            updatePrincipleItem($event.conditionId, $event.itemId, $event.value)
-          "
-          @remove-principle-item="
-            removePrincipleItem($event.conditionId, $event.itemId)
-          "
-          @move-principle-item="
-            movePrincipleItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @nest-principle-item-under-item="
-            nestPrincipleItemUnderItem(
-              $event.conditionId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-principle-sub-item="
-            addPrincipleSubItem($event.conditionId, $event.itemId)
-          "
-          @update-principle-sub-item="
-            updatePrincipleSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-principle-sub-item="
-            removePrincipleSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.subItemId,
-            )
-          "
-          @move-principle-sub-item="
-            movePrincipleSubItem(
-              $event.conditionId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-principle-sub-item-to-item="
-            movePrincipleSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-principle-sub-item-to-item="
-            promotePrincipleSubItemToItem(
-              $event.conditionId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
+          @update-principle-blocks="setConditionBlocks('principles', $event.conditionId, $event.blocks)"
           @add-addon-preset="addAddonPreset"
           @duplicate-addon="duplicateAddon"
           @update-addon="updateAddon($event.id, $event.field, $event.value)"
@@ -2328,57 +1505,7 @@ onMounted(async () => {
             form.addons = form.addons.filter((addon) => addon.id !== $event)
           "
           @move-addon="moveAddon($event.draggedId, $event.targetId)"
-          @add-addon-item="addAddonItem"
-          @update-addon-item="
-            updateAddonItem($event.addonId, $event.itemId, $event.value)
-          "
-          @remove-addon-item="removeAddonItem($event.addonId, $event.itemId)"
-          @move-addon-item="
-            moveAddonItem($event.addonId, $event.draggedId, $event.targetId)
-          "
-          @nest-addon-item-under-item="
-            nestAddonItemUnderItem(
-              $event.addonId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @add-addon-sub-item="addAddonSubItem($event.addonId, $event.itemId)"
-          @update-addon-sub-item="
-            updateAddonSubItem(
-              $event.addonId,
-              $event.itemId,
-              $event.subItemId,
-              $event.value,
-            )
-          "
-          @remove-addon-sub-item="
-            removeAddonSubItem($event.addonId, $event.itemId, $event.subItemId)
-          "
-          @move-addon-sub-item="
-            moveAddonSubItem(
-              $event.addonId,
-              $event.itemId,
-              $event.draggedId,
-              $event.targetId,
-            )
-          "
-          @move-addon-sub-item-to-item="
-            moveAddonSubItemToItem(
-              $event.addonId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetItemId,
-            )
-          "
-          @promote-addon-sub-item-to-item="
-            promoteAddonSubItemToItem(
-              $event.addonId,
-              $event.fromItemId,
-              $event.subItemId,
-              $event.targetId,
-            )
-          "
+          @update-addon-blocks="setAddonBlocks($event.addonId, $event.blocks)"
         />
         <p
           v-if="!isMailSelected && selectedTemplateMetadata"
@@ -2388,6 +1515,50 @@ onMounted(async () => {
           {{ selectedTemplateMetadata.updatedAt }}
         </p>
       </div>
+      <aside class="flex flex-col gap-4 xl:sticky xl:top-24 xl:self-start">
+        <div class="rounded-2xl border border-surface-dark/6 bg-surface-card p-4 shadow-sm">
+          <p class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-surface-dark/35">
+            Sections
+          </p>
+          <nav class="-mx-1.5 flex flex-col gap-px">
+            <button
+              v-for="section in templateDocumentSections"
+              :key="section.id"
+              type="button"
+              class="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition"
+              :class="
+                activeTemplateSectionId === section.id
+                  ? 'bg-primary/10 font-semibold text-primary'
+                  : 'text-surface-dark/70 hover:bg-surface-dark/4 hover:text-surface-dark'
+              "
+              @click="scrollToTemplateSection(section.id)"
+            >
+              <span class="min-w-0 truncate">{{ section.label }}</span>
+              <span
+                v-if="section.count"
+                class="shrink-0 text-[11.5px] tabular-nums"
+                :class="activeTemplateSectionId === section.id ? 'opacity-75' : 'text-surface-dark/35'"
+              >{{ section.count }}</span>
+            </button>
+          </nav>
+        </div>
+        <div class="rounded-2xl border border-surface-dark/6 bg-surface-card p-4 text-xs text-surface-dark/50 shadow-sm">
+          <p class="font-semibold text-surface-dark/70">{{ languageLabel(form.language) }}</p>
+          <p class="mt-1">{{ languageStatusLabel(languageStatus(form.language)) }}</p>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
+
+<style scoped>
+:global(.template-editor-search-hit) {
+  position: relative;
+  z-index: 1;
+  border-radius: 8px;
+  outline: 3px solid color-mix(in srgb, var(--p-primary-color) 32%, transparent);
+  outline-offset: 3px;
+  background-color: color-mix(in srgb, var(--p-primary-color) 9%, transparent) !important;
+  transition: outline-color 0.2s ease, background-color 0.2s ease;
+}
+</style>

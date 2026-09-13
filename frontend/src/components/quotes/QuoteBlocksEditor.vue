@@ -2,8 +2,6 @@
 import { nextTick, ref } from "vue";
 import type { QuoteBlock, QuoteBlockKind, QuoteTable } from "@client-tracker/contracts";
 import Button from "primevue/button";
-import Menu from "primevue/menu";
-import type { MenuItem } from "primevue/menuitem";
 import QuoteTableBlockEditor from "@/components/quotes/QuoteTableBlockEditor.vue";
 import {
   MAX_BLOCK_DEPTH,
@@ -15,11 +13,16 @@ import {
   parseClipboardBlocks,
 } from "@/utils/quoteBlocks";
 
-const props = defineProps<{ modelValue: QuoteBlock[] }>();
+const props = withDefaults(
+  defineProps<{ modelValue: QuoteBlock[]; readonly?: boolean }>(),
+  { readonly: false },
+);
 const emit = defineEmits<{ "update:modelValue": [value: QuoteBlock[]] }>();
 
 const INDENT_PX = 22;
 const BULLET_GLYPHS = ["•", "◦", "▪", "▫"];
+const editorRoot = ref<HTMLElement | null>(null);
+const activeBlockId = ref<string | null>(null);
 
 /* ------------------------------------------------------------------ */
 /* Focus                                                               */
@@ -33,6 +36,7 @@ const registerInput = (id: string, element: unknown) => {
 
 /** `caret = -1` place le curseur en fin de bloc. */
 const focusBlock = async (id: string, caret = -1) => {
+  activeBlockId.value = id;
   await nextTick();
   const element = inputs.get(id);
   if (!element) return;
@@ -61,6 +65,7 @@ const replaceAt = (index: number, patch: Partial<QuoteBlock>) =>
 
 const setKind = (index: number, kind: QuoteBlockKind) => {
   const block = props.modelValue[index];
+  activeBlockId.value = block.id;
   if (kind === "table") {
     replaceAt(index, { kind, depth: 0, table: block.table || createEmptyTable() });
     return;
@@ -80,6 +85,7 @@ const removeAt = (index: number) => {
   commit(next);
   const neighbour = next[index - 1] || next[index];
   if (neighbour) focusBlock(neighbour.id);
+  else activeBlockId.value = null;
 };
 
 const duplicateAt = (index: number) => {
@@ -91,8 +97,35 @@ const duplicateAt = (index: number) => {
 
 const addBlockAtEnd = (kind: QuoteBlockKind = "paragraph") => {
   const block = createBlock({ kind, table: kind === "table" ? createEmptyTable() : undefined });
+  activeBlockId.value = block.id;
   insertAt(props.modelValue.length, [block]);
   if (kind !== "table") focusBlock(block.id);
+};
+
+/**
+ * La barre du bas modifie le bloc actif. Sans bloc actif, elle ajoute un
+ * nouveau bloc : le même composant sert ainsi partout sans logique dupliquée.
+ */
+const applyToolbarKind = (kind: QuoteBlockKind) => {
+  const activeIndex = props.modelValue.findIndex(
+    (block) => block.id === activeBlockId.value,
+  );
+  if (activeIndex >= 0) {
+    setKind(activeIndex, kind);
+    return;
+  }
+  addBlockAtEnd(kind);
+};
+
+const isToolbarKindActive = (kind: QuoteBlockKind) =>
+  props.modelValue.some(
+    (block) => block.id === activeBlockId.value && block.kind === kind,
+  );
+
+const handleEditorFocusOut = (event: FocusEvent) => {
+  const nextTarget = event.relatedTarget as Node | null;
+  if (nextTarget && editorRoot.value?.contains(nextTarget)) return;
+  activeBlockId.value = null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -309,45 +342,6 @@ const moveBranch = (targetId: string) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* Menu de bloc                                                        */
-/* ------------------------------------------------------------------ */
-
-const blockMenu = ref<InstanceType<typeof Menu> | null>(null);
-const menuIndex = ref(-1);
-
-const menuItems = ref<MenuItem[]>([
-  {
-    label: "Texte",
-    icon: "notes",
-    command: () => setKind(menuIndex.value, "paragraph"),
-  },
-  {
-    label: "Puce",
-    icon: "format_list_bulleted",
-    command: () => setKind(menuIndex.value, "bullet"),
-  },
-  {
-    label: "Liste numérotée",
-    icon: "format_list_numbered",
-    command: () => setKind(menuIndex.value, "numbered"),
-  },
-  { label: "Titre", icon: "title", command: () => setKind(menuIndex.value, "heading") },
-  { label: "Tableau", icon: "table", command: () => setKind(menuIndex.value, "table") },
-  { separator: true },
-  {
-    label: "Dupliquer",
-    icon: "content_copy",
-    command: () => duplicateAt(menuIndex.value),
-  },
-  { label: "Supprimer", icon: "delete", command: () => removeAt(menuIndex.value) },
-]);
-
-const openMenu = (index: number, event: Event) => {
-  menuIndex.value = index;
-  blockMenu.value?.toggle(event);
-};
-
-/* ------------------------------------------------------------------ */
 /* Affichage                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -366,17 +360,22 @@ const updateTable = (index: number, table: QuoteTable) => replaceAt(index, { tab
 </script>
 
 <template>
-  <div class="quote-blocks-editor flex flex-col">
+  <div
+    ref="editorRoot"
+    class="quote-blocks-editor flex flex-col"
+    @focusout="handleEditorFocusOut"
+  >
     <div
       v-for="(block, index) in modelValue"
       :key="block.id"
       class="group/block relative flex items-start gap-1 rounded-lg py-px transition-colors hover:bg-surface-dark/[0.022]"
       :class="draggedId === block.id ? 'opacity-50' : ''"
       :style="{ marginLeft: `${block.depth * INDENT_PX}px` }"
+      @focusin="activeBlockId = block.id"
       @dragover.prevent="moveBranch(block.id)"
     >
-      <!-- Poignées : discrètes tant qu'on ne survole pas la ligne -->
-      <div class="flex shrink-0 items-center gap-0.5 pt-1 opacity-0 transition-opacity group-hover/block:opacity-100 focus-within:opacity-100">
+      <!-- Poignée : discrète tant qu'on ne survole pas la ligne -->
+      <div class="flex shrink-0 items-center pt-1 opacity-0 transition-opacity group-hover/block:opacity-100 focus-within:opacity-100">
         <button
           type="button"
           draggable="true"
@@ -387,15 +386,6 @@ const updateTable = (index: number, table: QuoteTable) => replaceAt(index, { tab
           @dragend="draggedId = null"
         >
           <span class="material-symbols-outlined text-base leading-none">drag_indicator</span>
-        </button>
-        <button
-          type="button"
-          class="text-surface-dark/25 hover:text-primary"
-          aria-label="Changer le type de bloc"
-          title="Type de bloc"
-          @click="openMenu(index, $event)"
-        >
-          <span class="material-symbols-outlined text-base leading-none">more_horiz</span>
         </button>
       </div>
 
@@ -440,6 +430,7 @@ const updateTable = (index: number, table: QuoteTable) => replaceAt(index, { tab
             :data-block-id="block.id"
             rows="1"
             class="w-full bg-transparent text-surface-dark outline-none placeholder:text-surface-dark/30 focus:bg-primary/[0.04]"
+            :readonly="props.readonly"
             :value="block.text"
             :placeholder="placeholderFor(block, index)"
             @input="onInput(index, $event)"
@@ -449,43 +440,57 @@ const updateTable = (index: number, table: QuoteTable) => replaceAt(index, { tab
         </div>
       </div>
 
-      <button
-        type="button"
-        class="mt-1 shrink-0 text-surface-dark/20 opacity-0 transition-opacity hover:text-red-500 group-hover/block:opacity-100"
-        aria-label="Supprimer le bloc"
-        title="Supprimer"
-        @click="removeAt(index)"
+      <div
+        v-if="!props.readonly"
+        class="mt-1 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/block:opacity-100 focus-within:opacity-100"
       >
-        <span class="material-symbols-outlined text-base leading-none">close</span>
-      </button>
+        <button
+          type="button"
+          class="text-surface-dark/20 transition-colors hover:text-primary"
+          aria-label="Dupliquer le bloc"
+          title="Dupliquer"
+          @click="duplicateAt(index)"
+        >
+          <span class="material-symbols-outlined text-base leading-none">content_copy</span>
+        </button>
+        <button
+          type="button"
+          class="text-surface-dark/20 transition-colors hover:text-red-500"
+          aria-label="Supprimer le bloc"
+          title="Supprimer"
+          @click="removeAt(index)"
+        >
+          <span class="material-symbols-outlined text-base leading-none">close</span>
+        </button>
+      </div>
     </div>
 
-    <Menu ref="blockMenu" :model="menuItems" popup class="w-56">
-      <template #itemicon="{ item }">
-        <span class="material-symbols-outlined text-lg">{{ item.icon }}</span>
-      </template>
-    </Menu>
-
-    <div class="mt-1 flex flex-wrap items-center gap-1">
+    <div v-if="!props.readonly" class="mt-1 flex flex-wrap items-center gap-1">
       <Button
         type="button"
         text
         severity="secondary"
         size="small"
-        class="!px-2 !text-xs"
         label="Texte"
-        @click="addBlockAtEnd('paragraph')"
+        :class="[
+          '!px-2 !text-xs',
+          isToolbarKindActive('paragraph') ? '!bg-primary/10 !text-primary' : '',
+        ]"
+        @click="applyToolbarKind('paragraph')"
       >
-        <template #icon><span class="material-symbols-outlined text-sm">add</span></template>
+        <template #icon><span class="material-symbols-outlined text-sm">notes</span></template>
       </Button>
       <Button
         type="button"
         text
         severity="secondary"
         size="small"
-        class="!px-2 !text-xs"
+        :class="[
+          '!px-2 !text-xs',
+          isToolbarKindActive('bullet') ? '!bg-primary/10 !text-primary' : '',
+        ]"
         label="Puce"
-        @click="addBlockAtEnd('bullet')"
+        @click="applyToolbarKind('bullet')"
       >
         <template #icon
           ><span class="material-symbols-outlined text-sm">format_list_bulleted</span></template
@@ -496,9 +501,42 @@ const updateTable = (index: number, table: QuoteTable) => replaceAt(index, { tab
         text
         severity="secondary"
         size="small"
-        class="!px-2 !text-xs"
+        :class="[
+          '!px-2 !text-xs',
+          isToolbarKindActive('numbered') ? '!bg-primary/10 !text-primary' : '',
+        ]"
+        label="Liste numérotée"
+        @click="applyToolbarKind('numbered')"
+      >
+        <template #icon
+          ><span class="material-symbols-outlined text-sm">format_list_numbered</span></template
+        >
+      </Button>
+      <Button
+        type="button"
+        text
+        severity="secondary"
+        size="small"
+        :class="[
+          '!px-2 !text-xs',
+          isToolbarKindActive('heading') ? '!bg-primary/10 !text-primary' : '',
+        ]"
+        label="Titre"
+        @click="applyToolbarKind('heading')"
+      >
+        <template #icon><span class="material-symbols-outlined text-sm">title</span></template>
+      </Button>
+      <Button
+        type="button"
+        text
+        severity="secondary"
+        size="small"
+        :class="[
+          '!px-2 !text-xs',
+          isToolbarKindActive('table') ? '!bg-primary/10 !text-primary' : '',
+        ]"
         label="Tableau"
-        @click="addBlockAtEnd('table')"
+        @click="applyToolbarKind('table')"
       >
         <template #icon><span class="material-symbols-outlined text-sm">table</span></template>
       </Button>

@@ -8,8 +8,8 @@ import AccordionPanel from "primevue/accordionpanel";
 import AccordionHeader from "primevue/accordionheader";
 import AccordionContent from "primevue/accordioncontent";
 import QuoteBlocksEditor from "@/components/quotes/QuoteBlocksEditor.vue";
-import { createEntityId } from "@/utils/quote";
-import { createBlock, parseClipboardBlocks } from "@/utils/quoteBlocks";
+import { createEmptyQuoteSection } from "@/utils/quote";
+import { parseClipboardBlocks } from "@/utils/quoteBlocks";
 
 const props = withDefaults(
   defineProps<{
@@ -78,7 +78,7 @@ const mapSection = (
 const addSection = () =>
   commit([
     ...props.modelValue,
-    { id: createEntityId(), title: "", blocks: [createBlock()] },
+    createEmptyQuoteSection(),
   ]);
 
 const removeSection = (id: string) =>

@@ -19,7 +19,6 @@ import {
   duplicateQuoteInput,
   formatCurrency,
   formatQuoteDate,
-  getQuotePlatformLabel,
 } from "@/utils/quote";
 import type { QuoteSortField } from "@/utils/quoteFilters";
 import {
@@ -51,12 +50,6 @@ const sortDirection = ref(initialState.sortDirection);
 const rowMenu = ref<InstanceType<typeof Menu> | null>(null);
 const menuQuoteId = ref<string>("");
 const expandedGroups = ref<Set<string>>(new Set());
-
-const languageLabels: Record<string, string> = {
-  fr: "Français",
-  en: "Anglais",
-  es: "Espagnol",
-};
 
 const listState = computed(() => ({
   search: search.value,
@@ -485,11 +478,11 @@ const toggleVersionHistory = (groupId: string) => {
                 <div class="max-w-[260px] truncate text-[13.5px] text-surface-dark">
                   {{ group.latest.projectName || group.latest.title || "Projet sans titre" }}
                 </div>
-                <div class="mt-px text-xs text-surface-dark/55">
-                  <template v-if="getQuotePlatformLabel(group.latest.platform, group.latest.customPlatformLabel)">
-                    {{ getQuotePlatformLabel(group.latest.platform, group.latest.customPlatformLabel) }} ·
-                  </template>
-                  {{ languageLabels[group.latest.language] || group.latest.language }}
+                <div
+                  v-if="group.latest.customPlatformLabel?.trim()"
+                  class="mt-px max-w-[260px] truncate text-xs text-surface-dark/55"
+                >
+                  {{ group.latest.customPlatformLabel.trim() }}
                 </div>
               </td>
               <td class="px-4 py-3">

@@ -2,7 +2,6 @@ import type { LocationQuery, LocationQueryRaw } from 'vue-router';
 import type { Quote, QuoteStatus } from '@client-tracker/contracts';
 import { quoteStatusMeta, quoteStatusOptions } from '@/lib/clientPresets';
 import { toDateObj } from '@/utils/date';
-import { getQuotePlatformLabel } from '@/utils/quote';
 
 export type QuoteSortField = 'client' | 'status' | 'total' | 'quoteDate' | 'updatedAt';
 export type QuoteSortDirection = 'asc' | 'desc';
@@ -105,7 +104,7 @@ export const filterQuotes = (quotes: Quote[], state: QuoteListState): Quote[] =>
       quote.quoteRef,
       quote.clientName,
       quote.projectName,
-      getQuotePlatformLabel(quote.platform, quote.customPlatformLabel),
+      quote.customPlatformLabel,
       quote.projectSummary,
     ]
       .filter(Boolean)

@@ -25,16 +25,10 @@ const emit = defineEmits<{
     :class="
       embedded
         ? ''
-        : 'bg-surface-card border border-surface-dark/5 rounded-3xl p-6 h-full'
+        : 'rounded-3xl border border-surface-dark/5 bg-white p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)]'
     "
   >
-    <div
-      :class="
-        embedded
-          ? ''
-          : 'rounded-3xl bg-white border border-surface-dark/5 p-5'
-      "
-    >
+    <div>
       <div v-if="!embedded" class="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h3 class="font-heading font-bold text-surface-dark">Mail d’envoi</h3>
         <Button

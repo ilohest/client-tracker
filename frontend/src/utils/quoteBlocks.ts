@@ -21,6 +21,11 @@ export const createBlock = (partial: Partial<QuoteBlock> = {}): QuoteBlock => {
   };
 };
 
+/** Contenu initial commun à toute nouvelle ligne structurée. */
+export const createInitialContentBlocks = (): QuoteBlock[] => [
+  createBlock({ kind: 'bullet' }),
+];
+
 export const cloneBlocks = (blocks: QuoteBlock[] = []): QuoteBlock[] =>
   blocks.map((block) => ({
     ...block,

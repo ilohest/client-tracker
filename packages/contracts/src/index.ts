@@ -170,15 +170,6 @@ export const onboardingTaskSchema = z.object({
   required: z.boolean().default(true),
 });
 
-export const clientDocumentSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  url: z.string(),
-  path: z.string(),
-  size: z.number(),
-  uploadedAt: z.union([z.string(), z.date(), z.any()]),
-});
-
 export const clientProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -216,7 +207,6 @@ export const clientSchema = z.object({
   stage: clientStageSchema.default('prospect'),
   notes: z.string().optional().default(''),
   clientNotes: z.array(clientNoteSchema).default([]),
-  documents: z.array(clientDocumentSchema).default([]),
   projects: z.array(clientProjectSchema).default([]),
   onboardingTasks: z.array(onboardingTaskSchema).default([]),
   createdAt: z.union([z.string(), z.date(), z.any()]),
@@ -265,17 +255,6 @@ export const quoteBlockSchema = z.object({
   table: quoteTableSchema.optional(),
 });
 
-export const quoteConditionSubItemSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-});
-
-export const quoteConditionItemSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  subItems: z.array(quoteConditionSubItemSchema).default([]),
-});
-
 export const quoteSectionSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -301,15 +280,15 @@ export const quoteConditionSchema = z.object({
   commonConditionId: z.string().optional(),
   title: z.string(),
   tag: z.string().optional(),
-  body: z.string().default(''),
-  items: z.array(quoteConditionItemSchema).default([]),
+  /** Contenu structuré, même modèle que la portée du projet. */
+  blocks: z.array(quoteBlockSchema).default([]),
 });
 
 export const quoteAddonSchema = z.object({
   id: z.string(),
   title: z.string(),
-  description: z.string(),
-  items: z.array(quoteConditionItemSchema).default([]),
+  /** Contenu structuré, même modèle que la portée du projet. */
+  blocks: z.array(quoteBlockSchema).default([]),
   price: z.number(),
   unitLabel: z.string().default(''),
   enabled: z.boolean().default(true),
@@ -356,6 +335,8 @@ export const quoteTemplateLocalizedContentSchema = z.object({
   emailSubject: z.string().default(''),
   emailBody: z.string().default(''),
   parts: z.array(quotePartSchema).default([]),
+  /** Livrables : lignes structurées, affichées sous la portée du projet. */
+  deliverables: z.array(quoteSectionSchema).default([]),
   conditions: z.array(quoteConditionSchema).default([]),
   roadmap: z.array(quoteConditionSchema).default([]),
   acceptance: z.array(quoteConditionSchema).default([]),
@@ -389,6 +370,7 @@ export const quoteSchema = z.object({
   title: z.string().default(''),
   projectName: z.string().optional().default(''),
   quoteDate: z.string().default(''),
+  validUntil: z.string().optional().default(''),
   quoteRef: z.string(),
   platform: clientPlatformSchema,
   customPlatformLabel: z.string().optional().default(''),
@@ -410,6 +392,8 @@ export const quoteSchema = z.object({
   versionGroupId: z.string().default(''),
   projectId: z.string().optional(),
   parts: z.array(quotePartSchema).default([]),
+  /** Livrables : lignes structurées, affichées sous la portée du projet. */
+  deliverables: z.array(quoteSectionSchema).default([]),
   conditions: z.array(quoteConditionSchema).default([]),
   roadmap: z.array(quoteConditionSchema).default([]),
   acceptance: z.array(quoteConditionSchema).default([]),
@@ -456,6 +440,7 @@ export const quoteTemplateSchema = z.object({
   discountType: quoteDiscountTypeSchema.default('percent'),
   discountValue: z.number().default(0),
   parts: z.array(quotePartSchema).default([]),
+  deliverables: z.array(quoteSectionSchema).default([]),
   conditions: z.array(quoteConditionSchema).default([]),
   roadmap: z.array(quoteConditionSchema).default([]),
   acceptance: z.array(quoteConditionSchema).default([]),
@@ -463,9 +448,9 @@ export const quoteTemplateSchema = z.object({
   addons: z.array(quoteAddonSchema).default([]),
   paymentSchedule: z.array(quotePaymentScheduleStepSchema).default([]),
   localizedContent: quoteTemplateLocalizedContentMapSchema.default({
-    fr: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
-    en: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
-    es: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
+    fr: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], deliverables: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
+    en: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], deliverables: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
+    es: { projectSummary: '', emailSubject: '', emailBody: '', parts: [], deliverables: [], conditions: [], roadmap: [], acceptance: [], principles: [], addons: [], paymentSchedule: [] },
   }),
   createdAt: z.union([z.string(), z.date(), z.any()]),
   updatedAt: z.union([z.string(), z.date(), z.any()]).optional(),
@@ -616,7 +601,6 @@ export type OnboardingTaskCategory = z.infer<
   typeof onboardingTaskCategorySchema
 >;
 export type OnboardingTask = z.infer<typeof onboardingTaskSchema>;
-export type ClientDocument = z.infer<typeof clientDocumentSchema>;
 export type ClientProject = z.infer<typeof clientProjectSchema>;
 export type Client = z.infer<typeof clientSchema>;
 export type ClientInput = z.infer<typeof clientInputSchema>;
@@ -631,8 +615,6 @@ export type QuoteInvestmentLineMode = z.infer<typeof quoteInvestmentLineModeSche
 export type QuoteInvestmentLine = z.infer<typeof quoteInvestmentLineSchema>;
 export type QuotePartDisplayStyle = z.infer<typeof quotePartDisplayStyleSchema>;
 export type QuotePart = z.infer<typeof quotePartSchema>;
-export type QuoteConditionSubItem = z.infer<typeof quoteConditionSubItemSchema>;
-export type QuoteConditionItem = z.infer<typeof quoteConditionItemSchema>;
 export type QuoteCondition = z.infer<typeof quoteConditionSchema>;
 export type QuoteAddon = z.infer<typeof quoteAddonSchema>;
 export type QuoteCustomSection = z.infer<typeof quoteCustomSectionSchema>;

@@ -1,5 +1,5 @@
 import type { Quote, QuoteInput, QuoteStatus } from '@client-tracker/contracts';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { auth, db } from '@/services/firebase';
 
 const ensureUser = (): string => {
@@ -23,6 +23,13 @@ const toMillis = (value: unknown): number => {
   return 0;
 };
 
+const withoutLegacyPlatform = (
+  payload: QuoteInput & Pick<Quote, 'subtotal' | 'totalWithVat'>,
+) => {
+  const { platform: _legacyPlatform, ...persistedPayload } = payload;
+  return persistedPayload;
+};
+
 export const quotesService = {
   async fetchAll(): Promise<Quote[]> {
     const userId = ensureUser();
@@ -36,8 +43,9 @@ export const quotesService = {
   async create(payload: QuoteInput & Pick<Quote, 'subtotal' | 'totalWithVat'>): Promise<Quote> {
     const userId = ensureUser();
     const now = new Date().toISOString();
+    const persistedPayload = withoutLegacyPlatform(payload);
     const docRef = await addDoc(collection(db, 'quotes'), {
-      ...payload,
+      ...persistedPayload,
       userId,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -61,8 +69,10 @@ export const quotesService = {
     const existingSnapshot = await getDoc(docRef);
     const existing = existingSnapshot.exists() ? (existingSnapshot.data() as Partial<Quote>) : {};
     const now = new Date().toISOString();
+    const persistedPayload = withoutLegacyPlatform(payload);
     await updateDoc(docRef, {
-      ...payload,
+      ...persistedPayload,
+      platform: deleteField(),
       updatedAt: serverTimestamp(),
     });
 

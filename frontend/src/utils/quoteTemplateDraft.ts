@@ -1,26 +1,13 @@
 import type {
   QuoteCondition,
-  QuoteConditionItem,
   QuoteLanguage,
   QuoteTemplateInput,
   QuoteTemplateLocalizedContent,
 } from "@client-tracker/contracts";
 import { createEntityId } from "@/utils/quote";
-import { comparableBlocks } from "@/utils/quoteBlocks";
+import { cloneBlocks, comparableBlocks } from "@/utils/quoteBlocks";
 
 const quoteTemplateLanguages: QuoteLanguage[] = ["fr", "en", "es"];
-
-export const cloneQuoteConditionItems = (
-  items: QuoteConditionItem[] = [],
-): QuoteConditionItem[] =>
-  items.map((item) => ({
-    id: item.id || createEntityId(),
-    text: item.text || "",
-    subItems: (item.subItems || []).map((subItem) => ({
-      id: subItem.id || createEntityId(),
-      text: subItem.text || "",
-    })),
-  }));
 
 export const cloneQuoteConditions = (
   conditions: QuoteCondition[] = [],
@@ -30,8 +17,7 @@ export const cloneQuoteConditions = (
     id: condition.id || createEntityId(),
     commonConditionId: condition.commonConditionId || "",
     tag: condition.tag || "",
-    body: condition.body || "",
-    items: cloneQuoteConditionItems(condition.items || []),
+    blocks: cloneBlocks(condition.blocks || []),
   }));
 
 export const resolveCommonConditionReferences = (
@@ -51,18 +37,9 @@ export const resolveCommonConditionReferences = (
         ? condition.commonConditionId || ""
         : "",
       tag: source.tag || "",
-      body: source.body || "",
-      items: cloneQuoteConditionItems(source.items || []),
+      blocks: cloneBlocks(source.blocks || []),
     };
   });
-
-const comparableItems = (items: QuoteConditionItem[] = []) =>
-  items.map((item) => ({
-    text: item.text || "",
-    subItems: (item.subItems || []).map((subItem) => ({
-      text: subItem.text || "",
-    })),
-  }));
 
 export const comparableCondition = (condition: QuoteCondition) => {
   if (condition.commonConditionId) {
@@ -74,8 +51,7 @@ export const comparableCondition = (condition: QuoteCondition) => {
   return {
     title: condition.title || "",
     tag: condition.tag || "",
-    body: condition.body || "",
-    items: comparableItems(condition.items || []),
+    blocks: comparableBlocks(condition.blocks || []),
   };
 };
 
@@ -95,14 +71,17 @@ const comparableLocalizedSlice = (slice: QuoteTemplateLocalizedContent) => ({
       blocks: comparableBlocks(section.blocks || []),
     })),
   })),
+  deliverables: (slice.deliverables || []).map((section) => ({
+    title: section.title || "",
+    blocks: comparableBlocks(section.blocks || []),
+  })),
   conditions: (slice.conditions || []).map(comparableCondition),
   roadmap: (slice.roadmap || []).map(comparableCondition),
   acceptance: (slice.acceptance || []).map(comparableCondition),
   principles: (slice.principles || []).map(comparableCondition),
   addons: (slice.addons || []).map((addon) => ({
     title: addon.title || "",
-    description: addon.description || "",
-    items: comparableItems(addon.items || []),
+    blocks: comparableBlocks(addon.blocks || []),
     price: Number(addon.price || 0),
     unitLabel: addon.unitLabel || "",
     enabled: addon.enabled ?? true,
@@ -132,6 +111,7 @@ export const comparableQuoteTemplate = (template: QuoteTemplateInput) => ({
           emailSubject: "",
           emailBody: "",
           parts: [],
+          deliverables: [],
           conditions: [],
           roadmap: [],
           acceptance: [],

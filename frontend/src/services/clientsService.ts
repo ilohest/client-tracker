@@ -1,8 +1,9 @@
-import type { Client, ClientDocument, ClientInput, ClientProject, OnboardingTaskStatus } from '@client-tracker/contracts';
+import type { Client, ClientInput, ClientProject, OnboardingTaskStatus } from '@client-tracker/contracts';
 import {
   addDoc,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDocs,
   query,
@@ -67,15 +68,17 @@ const normalizeClientStage = (value: unknown): Client['stage'] => {
   return 'prospect';
 };
 
-const normalizeClient = (item: Client): Client => ({
-  ...item,
-  stage: normalizeClientStage(item.stage),
-  notes: item.notes || '',
-  clientNotes: normalizeClientNotes(item),
-  documents: item.documents || [],
-  projects: item.projects || [],
-  onboardingTasks: item.onboardingTasks || [],
-});
+const normalizeClient = (item: Client & { documents?: unknown }): Client => {
+  const { documents: _legacyDocuments, ...client } = item;
+  return {
+    ...client,
+    stage: normalizeClientStage(item.stage),
+    notes: item.notes || '',
+    clientNotes: normalizeClientNotes(item),
+    projects: item.projects || [],
+    onboardingTasks: item.onboardingTasks || [],
+  };
+};
 
 export const clientsService = {
   async fetchAll(): Promise<Client[]> {
@@ -110,6 +113,7 @@ export const clientsService = {
     const userId = ensureUser();
     await updateDoc(doc(db, 'clients', id), {
       ...payload,
+      documents: deleteField(),
       updatedAt: serverTimestamp(),
     });
 
@@ -181,17 +185,5 @@ export const clientsService = {
       updatedAt: serverTimestamp(),
     });
     return nextProjects;
-  },
-
-  async updateDocuments(
-    id: string,
-    documents: ClientDocument[],
-  ): Promise<ClientDocument[]> {
-    await updateDoc(doc(db, 'clients', id), {
-      documents,
-      updatedAt: serverTimestamp(),
-    });
-
-    return documents;
   },
 };

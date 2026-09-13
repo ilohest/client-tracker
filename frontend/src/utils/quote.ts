@@ -1,7 +1,7 @@
-import type { Quote, QuoteAddon, QuoteConditionItem, QuoteDiscountType, QuoteInput, QuoteInvestmentLine, QuotePart, QuotePaymentScheduleStep, QuoteSection, VatRate } from '@client-tracker/contracts';
+import type { Quote, QuoteAddon, QuoteDiscountType, QuoteInput, QuoteInvestmentLine, QuotePart, QuotePaymentScheduleStep, QuoteSection, VatRate } from '@client-tracker/contracts';
 
 import { createEntityId } from './id';
-import { cloneBlocks } from './quoteBlocks';
+import { cloneBlocks, createInitialContentBlocks } from './quoteBlocks';
 
 export { createEntityId };
 
@@ -48,7 +48,7 @@ export const formatQuoteDate = (value: string, locale: string = 'fr-FR'): string
 export const getQuoteValidityDate = (quoteDate: string): string => {
   const parsed = parseQuoteDate(quoteDate);
   const next = new Date(parsed);
-  next.setMonth(next.getMonth() + 1);
+  next.setDate(next.getDate() + 30);
   const year = next.getFullYear();
   const month = `${next.getMonth() + 1}`.padStart(2, '0');
   const day = `${next.getDate()}`.padStart(2, '0');
@@ -65,6 +65,13 @@ export const createEmptyQuotePart = (): QuotePart => ({
   includeInInvestment: true,
   priceNote: '',
   sections: [],
+});
+
+/** Ligne structurée vide, partagée par la portée, les livrables et les sections libres. */
+export const createEmptyQuoteSection = (): QuoteSection => ({
+  id: createEntityId(),
+  title: '',
+  blocks: createInitialContentBlocks(),
 });
 
 /** Sous-total = somme des prix des parties facturées et non optionnelles (hors add-ons). */
@@ -247,20 +254,6 @@ export const cloneInvestmentLines = (
     note: line.note || '',
   }));
 
-/** Convertit les parties incluses en lignes d'investissement (montant fixe). */
-export const investmentLinesFromParts = (
-  parts: QuotePart[] = [],
-): QuoteInvestmentLine[] =>
-  parts
-    .filter((part) => part.includeInInvestment !== false)
-    .map((part, index) => ({
-      id: createEntityId(),
-      label: part.title?.trim() || `Partie ${index + 1}`,
-      mode: 'fixed' as const,
-      value: Number(part.price || 0),
-      note: part.optional && part.priceNote?.trim() ? part.priceNote.trim() : '',
-    }));
-
 const platformLabels: Record<Quote['platform'], string> = {
   '': '',
   shopify: 'Shopify',
@@ -271,20 +264,8 @@ const platformLabels: Record<Quote['platform'], string> = {
   other: 'Autre',
 };
 
-export const getQuotePlatformLabel = (platform: Quote['platform'], customPlatformLabel: string = ''): string => {
-  if (platform === 'other' && customPlatformLabel.trim()) return customPlatformLabel.trim();
-  return platformLabels[platform] ?? platform;
-};
-
-const cloneConditionItems = (items: QuoteConditionItem[] = []): QuoteConditionItem[] =>
-  items.map((item) => ({
-    ...item,
-    id: createEntityId(),
-    subItems: (item.subItems || []).map((subItem) => ({
-      ...subItem,
-      id: createEntityId(),
-    })),
-  }));
+export const getQuotePlatformLabel = (platform: Quote['platform']): string =>
+  platformLabels[platform] ?? platform;
 
 const cloneSections = (sections: QuoteSection[] = []): QuoteSection[] =>
   sections.map((section) => ({
@@ -309,6 +290,7 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     title: quote.title || '',
     projectName: quote.projectName || '',
     quoteDate: nextQuoteDate,
+    validUntil: getQuoteValidityDate(nextQuoteDate),
     quoteRef: generateQuoteReference(quote.clientName, parseQuoteDate(nextQuoteDate)),
     platform: quote.platform,
     customPlatformLabel: quote.customPlatformLabel || '',
@@ -329,30 +311,31 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     version: 1,
     versionGroupId: createEntityId(),
     parts: cloneQuoteParts(quote.parts),
+    deliverables: cloneSections(quote.deliverables || []),
     conditions: quote.conditions.map((condition) => ({
       ...condition,
       id: createEntityId(),
-      items: cloneConditionItems(condition.items || []),
+      blocks: cloneBlocks(condition.blocks || []),
     })),
     roadmap: (quote.roadmap || []).map((phase) => ({
       ...phase,
       id: createEntityId(),
-      items: cloneConditionItems(phase.items || []),
+      blocks: cloneBlocks(phase.blocks || []),
     })),
     acceptance: (quote.acceptance || []).map((entry) => ({
       ...entry,
       id: createEntityId(),
-      items: cloneConditionItems(entry.items || []),
+      blocks: cloneBlocks(entry.blocks || []),
     })),
     principles: (quote.principles || []).map((principle) => ({
       ...principle,
       id: createEntityId(),
-      items: cloneConditionItems(principle.items || []),
+      blocks: cloneBlocks(principle.blocks || []),
     })),
     addons: quote.addons.map((addon) => ({
       ...addon,
       id: createEntityId(),
-      items: cloneConditionItems(addon.items || []),
+      blocks: cloneBlocks(addon.blocks || []),
     })),
     customSections: (quote.customSections || []).map((section) => ({
       ...section,

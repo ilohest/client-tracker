@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia';
-import type { Client, ClientDocument, ClientInput, ClientProject, OnboardingTaskStatus } from '@client-tracker/contracts';
-import { clientDocumentsService } from '@/services/clientDocumentsService';
+import type { Client, ClientInput, ClientProject, OnboardingTaskStatus } from '@client-tracker/contracts';
 import { clientsService } from '@/services/clientsService';
 import { createClientProject } from '@/lib/clientPresets';
 import { toDateObj } from '@/utils/date';
@@ -155,24 +154,6 @@ export const useClientsStore = defineStore('clients', {
         createClientProject(nextProjectName),
       );
       client.projects = nextProjects;
-    },
-
-    async uploadClientDocument(id: string, file: File) {
-      const client = this.clients.find((item) => item.id === id);
-      if (!client) return;
-
-      this.error = null;
-      const nextDocuments = await clientDocumentsService.upload(id, client.documents || [], file);
-      client.documents = nextDocuments;
-    },
-
-    async removeClientDocument(id: string, documentId: string) {
-      const client = this.clients.find((item) => item.id === id);
-      if (!client) return;
-
-      this.error = null;
-      const nextDocuments = await clientDocumentsService.remove(id, client.documents || [], documentId);
-      client.documents = nextDocuments;
     },
   },
 });

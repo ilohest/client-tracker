@@ -178,38 +178,6 @@ const handleDelete = () => {
   });
 };
 
-const handleUploadDocument = async (file: File) => {
-  if (!selectedClient.value) return;
-  if (file.type !== 'application/pdf') {
-    toast.add({
-      severity: 'error',
-      summary: 'Format non supporté',
-      detail: 'Seuls les PDF sont autorisés.',
-      life: 2500,
-    });
-    return;
-  }
-
-  await clientsStore.uploadClientDocument(selectedClient.value.id, file);
-  toast.add({
-    severity: 'success',
-    summary: 'PDF ajouté',
-    detail: 'Le document a été associé au client.',
-    life: 2500,
-  });
-};
-
-const handleRemoveDocument = async (documentId: string) => {
-  if (!selectedClient.value) return;
-  await clientsStore.removeClientDocument(selectedClient.value.id, documentId);
-  toast.add({
-    severity: 'secondary',
-    summary: 'Document supprimé',
-    detail: 'Le PDF a été retiré du profil client.',
-    life: 2200,
-  });
-};
-
 const openRelatedQuote = (quoteId: string) => {
   quotesStore.selectQuote(quoteId);
   router.push({ name: 'quote-detail', params: { id: quoteId } });
@@ -218,6 +186,16 @@ const openRelatedQuote = (quoteId: string) => {
 const openRelatedProject = (projectId: string) => {
   projectsStore.selectProject(projectId);
   router.push({ name: 'project-detail', params: { id: projectId } });
+};
+
+const openClientQuotes = () => {
+  if (!selectedClient.value) return;
+  void router.push({ name: 'quotes', query: { client: selectedClient.value.id } });
+};
+
+const openClientProjects = () => {
+  if (!selectedClient.value) return;
+  void router.push({ name: 'projects', query: { client: selectedClient.value.id } });
 };
 
 const handleSaveNotes = async (notes: Client['clientNotes']) => {
@@ -304,9 +282,8 @@ const handleSaveNotes = async (notes: Client['clientNotes']) => {
         </div>
       </div>
 
-      <div class="flex flex-wrap items-end gap-2">
-        <label class="grid gap-1">
-          <span class="pl-1 text-[10px] font-bold uppercase tracking-wider text-surface-dark/35">Relation</span>
+      <div class="flex flex-wrap items-center gap-2">
+        <div>
           <Select
             :model-value="selectedClient.stage"
             :options="clientStageOptions"
@@ -331,7 +308,7 @@ const handleSaveNotes = async (notes: Client['clientNotes']) => {
               />
             </template>
           </Select>
-        </label>
+        </div>
         <Button
           severity="secondary"
           outlined
@@ -361,10 +338,10 @@ const handleSaveNotes = async (notes: Client['clientNotes']) => {
       :projects="relatedProjects"
       @edit="openEditDialog"
       @delete="handleDelete"
-      @upload-document="handleUploadDocument"
-      @remove-document="handleRemoveDocument"
       @view-quote="openRelatedQuote"
       @view-project="openRelatedProject"
+      @view-quotes="openClientQuotes"
+      @view-projects="openClientProjects"
       @save-notes="handleSaveNotes"
     />
 

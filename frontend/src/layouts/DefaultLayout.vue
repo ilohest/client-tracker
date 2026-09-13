@@ -20,6 +20,10 @@ const timesheetsStore = useTimesheetsStore();
 const projectsStore = useProjectsStore();
 const route = useRoute();
 const router = useRouter();
+const isNavigationLinkActive = (to: string) => {
+  if (to === "/" || to === "/admin") return route.path === to;
+  return route.path === to || route.path.startsWith(`${to}/`);
+};
 // L'aperçu du devis récupère de la largeur en réduisant le menu aux icônes.
 const isQuotePreviewMode = computed(
   () =>
@@ -289,7 +293,7 @@ onBeforeUnmount(() => {
           class="flex items-center rounded-lg text-sm font-medium transition-colors border border-transparent"
           :class="[
             isQuotePreviewMode ? 'justify-center gap-0 px-2 py-2.5' : 'gap-3 px-3 py-2',
-            route.path === link.to
+            isNavigationLinkActive(link.to)
               ? 'bg-primary text-white border-primary shadow-[0_3px_8px_rgba(233,106,95,0.35)]'
               : 'text-surface-dark/70 hover:bg-surface-dark/[0.055] hover:text-surface-dark',
           ]"
@@ -298,7 +302,7 @@ onBeforeUnmount(() => {
           <span
             class="material-symbols-outlined"
             :class="[
-              route.path === link.to ? 'text-white' : 'text-surface-dark/50',
+              isNavigationLinkActive(link.to) ? 'text-white' : 'text-surface-dark/50',
             ]"
             >{{ link.icon }}</span
           >
@@ -323,7 +327,7 @@ onBeforeUnmount(() => {
           class="flex items-center rounded-lg text-sm font-medium transition-colors border border-transparent"
           :class="[
             isQuotePreviewMode ? 'justify-center gap-0 px-2 py-2.5' : 'gap-3 px-3 py-2',
-            route.path === link.to
+            isNavigationLinkActive(link.to)
               ? 'bg-primary text-white border-primary shadow-[0_3px_8px_rgba(233,106,95,0.35)]'
               : 'text-surface-dark/60 hover:bg-surface-dark/[0.055] hover:text-surface-dark',
           ]"
@@ -331,7 +335,7 @@ onBeforeUnmount(() => {
         >
           <span
             class="material-symbols-outlined"
-            :class="route.path === link.to ? 'text-white' : 'text-surface-dark/50'"
+            :class="isNavigationLinkActive(link.to) ? 'text-white' : 'text-surface-dark/50'"
           >{{
             link.icon
           }}</span>
@@ -490,7 +494,7 @@ onBeforeUnmount(() => {
           @click="mobileMenuOpen = false"
           class="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors"
           :class="
-            route.path === link.to
+            isNavigationLinkActive(link.to)
               ? 'bg-primary/10 text-primary'
               : 'text-surface-dark/70 hover:bg-surface-dark/5'
           "
@@ -516,7 +520,12 @@ onBeforeUnmount(() => {
           :key="link.to"
           :to="link.to"
           @click="mobileMenuOpen = false"
-          class="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors text-surface-dark/70 hover:bg-surface-dark/5"
+          class="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors"
+          :class="
+            isNavigationLinkActive(link.to)
+              ? 'bg-primary/10 font-semibold text-primary'
+              : 'text-surface-dark/70 hover:bg-surface-dark/5'
+          "
         >
           <span class="material-symbols-outlined text-lg">{{ link.icon }}</span>
           {{ link.label }}

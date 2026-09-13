@@ -90,8 +90,20 @@ const router = createRouter({
         {
            path: 'quote-templates',
            name: 'quote-templates',
-           component: () => import('../views/QuoteTemplatesWorkspace.vue'),
+           component: () => import('../views/QuoteTemplatesIndex.vue'),
            meta: { title: 'Templates' }
+        },
+        {
+           path: 'quote-templates/new',
+           name: 'quote-template-new',
+           component: () => import('../views/QuoteTemplatesWorkspace.vue'),
+           meta: { title: 'Nouveau template' }
+        },
+        {
+           path: 'quote-templates/:id',
+           name: 'quote-template-detail',
+           component: () => import('../views/QuoteTemplatesWorkspace.vue'),
+           meta: { title: 'Template' }
         },
         {
            path: 'quote-design',

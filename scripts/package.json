@@ -7,7 +7,10 @@
   "scripts": {
     "create-admin": "tsx createAdmin.ts",
     "migrate-project-quotes": "tsx migrateProjectQuotes.ts",
-    "migrate-quote-blocks": "tsx migrateQuoteBlocks.ts"
+    "migrate-quote-blocks": "tsx migrateQuoteBlocks.ts",
+    "migrate-condition-blocks": "tsx migrateConditionBlocks.ts",
+    "remove-legacy-quote-platforms": "tsx removeLegacyQuotePlatforms.ts",
+    "remove-legacy-client-documents": "tsx removeLegacyClientDocuments.ts"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0"

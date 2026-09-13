@@ -1,5 +1,6 @@
-import type { ClientPlatform, ClientProject, ClientStage, OnboardingTask, QuoteAddon, QuoteCondition, QuoteConditionItem, QuoteDiscountType, QuoteLanguage, QuotePaymentScheduleStep, QuoteStatus, QuoteTemplateInput, QuoteTemplateLocalizedContent, VatRate } from '@client-tracker/contracts';
+import type { ClientPlatform, ClientProject, ClientStage, OnboardingTask, QuoteAddon, QuoteCondition, QuoteDiscountType, QuoteLanguage, QuotePaymentScheduleStep, QuoteStatus, QuoteTemplateInput, QuoteTemplateLocalizedContent, VatRate } from '@client-tracker/contracts';
 import { isEuroCountry } from '@/lib/countries';
+import { createInitialContentBlocks, parseBlocksFromText } from '@/utils/quoteBlocks';
 
 const createId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -20,36 +21,6 @@ export const estimatedTimelineTitles: LocalizedCopy = {
 
 export const getEstimatedTimelineTitle = (language: QuoteLanguage): string =>
   estimatedTimelineTitles[language] || estimatedTimelineTitles.fr;
-
-const bulletItemsFromCopy = (value: string): QuoteConditionItem[] => {
-  const lines = value
-    .split('\n')
-    .map((line) => line.replace(/\r/g, ''))
-    .filter((line) => line.trim().length > 0);
-
-  const items: QuoteConditionItem[] = [];
-  let currentItem: QuoteConditionItem | null = null;
-
-  lines.forEach((line) => {
-    const trimmed = line.trim();
-    const isSubItem = /^\s{2,}[•\-]/.test(line);
-    const text = trimmed.replace(/^[•\-]\s*/, '');
-
-    if (isSubItem && currentItem) {
-      currentItem.subItems.push({ id: createId(), text });
-      return;
-    }
-
-    currentItem = {
-      id: createId(),
-      text,
-      subItems: [],
-    };
-    items.push(currentItem);
-  });
-
-  return items;
-};
 
 export const platformOptions: Array<{ label: string; value: ClientPlatform }> = [
   { label: 'Shopify', value: 'shopify' },
@@ -495,8 +466,7 @@ export const createDefaultQuoteConditions = (
   createQuoteConditionTemplates(platform || 'other', clientCountry).map((condition) => ({
     id: createId(),
     title: pick(condition.title, language),
-    body: pick(condition.body, language),
-    items: bulletItemsFromCopy(pick(condition.body, language)),
+    blocks: parseBlocksFromText(pick(condition.body, language)),
   }));
 
 export const createDefaultQuoteRoadmap = (
@@ -506,8 +476,7 @@ export const createDefaultQuoteRoadmap = (
   getQuoteRoadmapTemplates(platform || 'other').map((phase) => ({
     id: createId(),
     title: pick(phase.title, language),
-    body: pick(phase.body, language),
-    items: bulletItemsFromCopy(pick(phase.body, language)),
+    blocks: parseBlocksFromText(pick(phase.body, language)),
   }));
 
 const acceptanceTemplates: Array<{ title: LocalizedCopy; body: LocalizedCopy }> = [
@@ -531,8 +500,7 @@ export const createDefaultQuoteAcceptance = (
   acceptanceTemplates.map((entry) => ({
     id: createId(),
     title: pick(entry.title, language),
-    body: pick(entry.body, language),
-    items: bulletItemsFromCopy(pick(entry.body, language)),
+    blocks: parseBlocksFromText(pick(entry.body, language)),
   }));
 
 const principleTemplates: Array<{ title: LocalizedCopy; body: LocalizedCopy }> = [
@@ -556,16 +524,14 @@ export const createDefaultQuotePrinciples = (
   principleTemplates.map((entry) => ({
     id: createId(),
     title: pick(entry.title, language),
-    body: pick(entry.body, language),
-    items: bulletItemsFromCopy(pick(entry.body, language)),
+    blocks: parseBlocksFromText(pick(entry.body, language)),
   }));
 
 export const createAddonPresets = (language: QuoteLanguage): QuoteAddon[] =>
   addonTemplates.map((addon) => ({
     id: createId(),
     title: pick(addon.title, language),
-    description: pick(addon.description, language),
-    items: bulletItemsFromCopy(pick(addon.description, language)),
+    blocks: parseBlocksFromText(pick(addon.description, language)),
     price: addon.price,
     unitLabel: addon.unitLabel ? pick(addon.unitLabel, language) : '',
     enabled: true,
@@ -573,9 +539,8 @@ export const createAddonPresets = (language: QuoteLanguage): QuoteAddon[] =>
 
 export const createBlankAddon = (): QuoteAddon => ({
   id: createId(),
-  title: 'Nouvelle option',
-  description: '',
-  items: [],
+  title: '',
+  blocks: createInitialContentBlocks(),
   price: 0,
   unitLabel: '',
   enabled: true,
@@ -627,6 +592,7 @@ export const createDefaultQuoteTemplateLocalizedContent = (
     emailSubject: '',
     emailBody: '',
     parts: [],
+  deliverables: [],
     conditions: createDefaultQuoteConditions(platform, language, clientCountry),
     roadmap: createDefaultQuoteRoadmap(platform, language),
     acceptance: createDefaultQuoteAcceptance(language),
@@ -659,6 +625,7 @@ export const createDefaultQuoteTemplate = (
     discountType: 'percent',
     discountValue: 0,
     parts: activeContent.parts,
+    deliverables: activeContent.deliverables,
     conditions: activeContent.conditions,
     roadmap: activeContent.roadmap,
     acceptance: activeContent.acceptance,
