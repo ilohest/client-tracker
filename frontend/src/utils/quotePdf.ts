@@ -630,6 +630,7 @@ const renderPaymentScheduleContent = (
   displayMode: "table" | "text" = "table",
   simpleText: string = "",
   t: DocLabels,
+  locale: Locale,
   money: (value: number) => string,
   subtotal: number,
   totalIncl: number,
@@ -651,9 +652,14 @@ const renderPaymentScheduleContent = (
         totalIncl,
       );
       const label = step.label?.trim() || `${t.paymentStep} ${index + 1}`;
+      const share = new Intl.NumberFormat(locale, {
+        style: "percent",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amounts.percent / 100);
       return `<tr>
         <td><div class="row-title">${escapeHtml(label)}</div></td>
-        <td class="amount">${amounts.percent.toFixed(2)}%</td>
+        <td class="amount">${share}</td>
         <td class="amount">${money(amounts.amountExcl)}</td>
         <td class="amount">${money(amounts.amountIncl)}</td>
       </tr>`;
@@ -685,6 +691,7 @@ const renderConditionBlocks = (
     pageBreakBefore?: boolean;
     principleCards?: boolean;
     skipLastNumber?: boolean;
+    displayStyle?: "flow" | "framed";
     signatureLabels?: { date: string; signature: string };
   } = {},
   renderVariables: (value: string) => string = (value) => value,
@@ -768,6 +775,7 @@ const renderConditionBlocks = (
       const items = renderBlocks(entry.blocks || [], renderVariables);
       const condClass = [
         "cond-block",
+        options.displayStyle === "framed" ? "scope-cell" : "",
         options.signatureLabels && index === entries.length - 1
           ? "signature-anchor"
           : "",
@@ -956,8 +964,14 @@ export const renderQuoteDocumentHtml = (
   const parts = quote.parts;
   const partsContent = renderParts(parts, t, renderVariables);
 
+  const deliverablesDisplayStyle = quote.deliverablesDisplayStyle || "flow";
   const deliverablesInner = (quote.deliverables || [])
-    .map((section) => `<div class="text-block">${renderSectionInner(section, renderVariables)}</div>`)
+    .map((section) => {
+      const tag = deliverablesDisplayStyle === "framed" ? "section" : "div";
+      const className =
+        deliverablesDisplayStyle === "framed" ? "scope-cell" : "text-block";
+      return `<${tag} class="${className}">${renderSectionInner(section, renderVariables)}</${tag}>`;
+    })
     .join("");
   const deliverablesContent = deliverablesInner
     ? `<section class="doc-section quote-part"><h2>${escapeHtml(t.deliverables)}</h2>${deliverablesInner}</section>`
@@ -981,6 +995,7 @@ export const renderQuoteDocumentHtml = (
         quote.paymentScheduleDisplay || "table",
         quote.paymentScheduleText || "",
         t,
+        locale,
         money,
         subtotal,
         totalIncl,
@@ -1018,6 +1033,7 @@ export const renderQuoteDocumentHtml = (
       numberedEntries: true,
       skipLastNumber: true,
       spacedEntries: true,
+      displayStyle: quote.roadmapDisplayStyle || "flow",
     },
     renderVariables,
   );
@@ -1026,6 +1042,7 @@ export const renderQuoteDocumentHtml = (
     quote.acceptance || [],
     {
       relaxedTitles: true,
+      pageBreakBefore: true,
       signatureLabels: { date: t.clientDate, signature: t.clientSignature },
     },
     renderVariables,
@@ -1720,10 +1737,17 @@ export const renderQuoteDocumentHtml = (
           insertedBreakSpace += pageHeightPx - remainder;
         }
       });
-      const pageCount = Math.max(
+      const measuredPageCount = Math.max(
         1,
         Math.ceil((contentHeight + insertedBreakSpace + 1) / pageHeightPx),
       );
+      // L'acceptation est volontairement isolée sur une dernière feuille.
+      // Chromium n'intègre pas cette feuille créée par fragmentation dans le
+      // scrollHeight du conteneur : on la compte explicitement.
+      const hasDedicatedAcceptancePage = Boolean(
+        page.querySelector('.page-break-before.has-signature-block'),
+      );
+      const pageCount = measuredPageCount + (hasDedicatedAcceptancePage ? 1 : 0);
       const website = footers.getAttribute('data-website') || '';
       for (let index = 0; index < pageCount; index += 1) {
         const footer = document.createElement('div');

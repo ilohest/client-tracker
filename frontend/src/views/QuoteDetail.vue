@@ -157,8 +157,10 @@ const createDraft = (): QuoteDraft => ({
   versionGroupId: createEntityId(),
   parts: [],
   deliverables: [],
+  deliverablesDisplayStyle: "flow",
   conditions: [],
   roadmap: [],
+  roadmapDisplayStyle: "flow",
   acceptance: [],
   principles: [],
   addons: [],
@@ -194,6 +196,7 @@ const cloneTemplateLocalizedSlice = (
     id: section.id || createEntityId(),
     blocks: hydrateBlocks(section.blocks || []),
   })),
+  deliverablesDisplayStyle: slice?.deliverablesDisplayStyle || "flow",
   conditions: (slice?.conditions || []).map((condition) => ({
     ...condition,
     id: condition.id || createEntityId(),
@@ -204,6 +207,7 @@ const cloneTemplateLocalizedSlice = (
     id: phase.id || createEntityId(),
     blocks: hydrateBlocks(phase.blocks || []),
   })),
+  roadmapDisplayStyle: slice?.roadmapDisplayStyle || "flow",
   acceptance: (slice?.acceptance || []).map((entry) => ({
     ...entry,
     id: entry.id || createEntityId(),
@@ -239,8 +243,11 @@ const resolveTemplateContent = (
   return cloneTemplateLocalizedSlice({
     projectSummary: template.projectSummary || "",
     parts: template.parts,
+    deliverables: template.deliverables,
+    deliverablesDisplayStyle: template.deliverablesDisplayStyle,
     conditions: template.conditions,
     roadmap: template.roadmap,
+    roadmapDisplayStyle: template.roadmapDisplayStyle,
     acceptance: template.acceptance,
     principles: template.principles,
     addons: template.addons,
@@ -354,6 +361,7 @@ const createDraftFromTemplate = (
       id: section.id || createEntityId(),
       blocks: hydrateBlocks(section.blocks || []),
     })),
+    deliverablesDisplayStyle: localizedContent.deliverablesDisplayStyle || "flow",
     templateId: template.id,
     title: "",
     projectName: "",
@@ -384,6 +392,7 @@ const createDraftFromTemplate = (
       targetLanguage,
     ),
     roadmap: localizedContent.roadmap,
+    roadmapDisplayStyle: localizedContent.roadmapDisplayStyle || "flow",
     acceptance: localizedContent.acceptance,
     principles: localizedContent.principles,
     addons: localizedContent.addons,
@@ -624,6 +633,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
     title: section.title,
     blocks: serializeBlocks(section.blocks || [], { withIds: false }),
   })),
+  deliverablesDisplayStyle: draft.deliverablesDisplayStyle || "flow",
   conditions: draft.conditions.map((condition) => ({
     title: condition.title,
     tag: condition.tag || "",
@@ -634,6 +644,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
     tag: phase.tag || "",
     blocks: serializeBlocks(phase.blocks || [], { withIds: false }),
   })),
+  roadmapDisplayStyle: draft.roadmapDisplayStyle || "flow",
   acceptance: draft.acceptance.map((entry) => ({
     title: entry.title,
     tag: entry.tag || "",
@@ -697,20 +708,10 @@ const livePreviewStandaloneHtml = computed(() =>
 );
 const quotePdfDocumentTitle = computed(() => {
   const quote = livePreviewQuote.value;
-  const quoteDate = quote.quoteDate || form.quoteDate;
-  const clientName = quote.clientName || form.clientName;
-  // La référence reste celle de la V1 pour toute la famille de versions : elle
-  // encode donc une date périmée. Le titre du fichier suit la date réelle du devis.
-  const reference =
-    (quoteDate
-      ? generateQuoteReference(clientName, parseQuoteDate(quoteDate))
-      : "") ||
-    quote.quoteRef ||
-    form.quoteRef ||
-    "devis";
-  const version = Number(quote.version || 1);
-  const withVersion = version > 1 ? `${reference}_V${version}` : reference;
-  return withVersion.trim().replace(/[\\/:*?"<>|]+/g, "-") || "devis";
+  // La référence enregistrée est la source de vérité du nom du PDF, y compris
+  // pour les nouvelles versions d'un même devis.
+  const reference = quote.quoteRef || form.quoteRef || "devis";
+  return reference.trim().replace(/[\\/:*?"<>|]+/g, "-") || "devis";
 });
 
 const getPreviewScrollElement = (): HTMLElement | null => {
@@ -874,6 +875,7 @@ const baselineDraft = computed<QuoteDraft>(() => {
       id: section.id || createEntityId(),
       blocks: hydrateBlocks(section.blocks || []),
     })),
+    deliverablesDisplayStyle: current.deliverablesDisplayStyle || "flow",
     conditions: current.conditions.map((condition) => ({
       ...condition,
       blocks: hydrateBlocks(condition.blocks || []),
@@ -882,6 +884,7 @@ const baselineDraft = computed<QuoteDraft>(() => {
       ...phase,
       blocks: hydrateBlocks(phase.blocks || []),
     })),
+    roadmapDisplayStyle: current.roadmapDisplayStyle || "flow",
     acceptance: (current.acceptance || []).map((entry) => ({
       ...entry,
       blocks: hydrateBlocks(entry.blocks || []),
@@ -1069,6 +1072,12 @@ const hydrateFromQuote = (quote: Quote | null) => {
     version: quote.version || 1,
     versionGroupId: quote.versionGroupId || quote.id,
     parts: cloneQuoteParts(quote.parts),
+    deliverables: (quote.deliverables || []).map((section) => ({
+      ...section,
+      id: section.id || createEntityId(),
+      blocks: hydrateBlocks(section.blocks || []),
+    })),
+    deliverablesDisplayStyle: quote.deliverablesDisplayStyle || "flow",
     conditions: quote.conditions.map((condition) => ({
       ...condition,
       blocks: hydrateBlocks(condition.blocks || []),
@@ -1077,6 +1086,7 @@ const hydrateFromQuote = (quote: Quote | null) => {
       ...phase,
       blocks: hydrateBlocks(phase.blocks || []),
     })),
+    roadmapDisplayStyle: quote.roadmapDisplayStyle || "flow",
     acceptance: (quote.acceptance || []).map((entry) => ({
       ...entry,
       blocks: hydrateBlocks(entry.blocks || []),
@@ -1114,8 +1124,43 @@ const UNDO_HISTORY_LIMIT = 50;
 const undoStack = ref<string[]>([]);
 const redoStack = ref<string[]>([]);
 let historySnapshot = JSON.stringify(form);
+let lastObservedHistorySnapshot = historySnapshot;
+let forceApplicationUndo = false;
+let forceApplicationRedo = false;
 let restoringHistory = false;
 let historyTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Compte les entrées de toutes les listes imbriquées du brouillon.
+ * Une diminution signale une suppression structurelle (ligne, bloc, phase…),
+ * contrairement à l'effacement de texte dans un champ.
+ */
+const countNestedListEntries = (value: unknown): number => {
+  if (Array.isArray(value)) {
+    return (
+      value.length +
+      value.reduce(
+        (total, entry) => total + countNestedListEntries(entry),
+        0,
+      )
+    );
+  }
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).reduce<number>(
+      (total, entry) => total + countNestedListEntries(entry),
+      0,
+    );
+  }
+  return 0;
+};
+
+let lastObservedListEntryCount = countNestedListEntries(form);
+
+const pushUndoSnapshot = (snapshot: string) => {
+  if (undoStack.value.at(-1) === snapshot) return;
+  undoStack.value.push(snapshot);
+  if (undoStack.value.length > UNDO_HISTORY_LIMIT) undoStack.value.shift();
+};
 
 const resetQuoteHistory = () => {
   if (historyTimer) {
@@ -1125,22 +1170,50 @@ const resetQuoteHistory = () => {
   undoStack.value = [];
   redoStack.value = [];
   historySnapshot = JSON.stringify(form);
+  lastObservedHistorySnapshot = historySnapshot;
+  lastObservedListEntryCount = countNestedListEntries(form);
+  forceApplicationUndo = false;
+  forceApplicationRedo = false;
 };
 
 // Les frappes rapprochées sont regroupées en une seule entrée d'historique.
 watch(
   form,
   () => {
+    const next = JSON.stringify(form);
+    const nextListEntryCount = countNestedListEntries(form);
+    const previousObservedSnapshot = lastObservedHistorySnapshot;
+    const previousListEntryCount = lastObservedListEntryCount;
+    lastObservedHistorySnapshot = next;
+    lastObservedListEntryCount = nextListEntryCount;
+
     if (restoringHistory) return;
+
+    // Une suppression doit être annulable immédiatement, même si le composant
+    // place ensuite le focus dans le champ texte de la ligne voisine.
+    if (nextListEntryCount < previousListEntryCount) {
+      if (historyTimer) {
+        clearTimeout(historyTimer);
+        historyTimer = null;
+      }
+      if (previousObservedSnapshot !== next) {
+        pushUndoSnapshot(previousObservedSnapshot);
+      }
+      redoStack.value = [];
+      historySnapshot = next;
+      forceApplicationUndo = true;
+      forceApplicationRedo = false;
+      return;
+    }
+
     if (historyTimer) clearTimeout(historyTimer);
     historyTimer = setTimeout(() => {
       historyTimer = null;
-      const next = JSON.stringify(form);
-      if (next === historySnapshot) return;
-      undoStack.value.push(historySnapshot);
-      if (undoStack.value.length > UNDO_HISTORY_LIMIT) undoStack.value.shift();
+      const current = JSON.stringify(form);
+      if (current === historySnapshot) return;
+      pushUndoSnapshot(historySnapshot);
       redoStack.value = [];
-      historySnapshot = next;
+      historySnapshot = current;
     }, 350);
   },
   { deep: true },
@@ -1150,6 +1223,8 @@ const applyHistorySnapshot = (snapshot: string) => {
   restoringHistory = true;
   Object.assign(form, JSON.parse(snapshot) as QuoteDraft);
   historySnapshot = snapshot;
+  lastObservedHistorySnapshot = snapshot;
+  lastObservedListEntryCount = countNestedListEntries(form);
   void nextTick(() => {
     restoringHistory = false;
   });
@@ -1163,8 +1238,10 @@ const flushPendingHistory = () => {
   }
   const current = JSON.stringify(form);
   if (current !== historySnapshot) {
-    undoStack.value.push(historySnapshot);
+    pushUndoSnapshot(historySnapshot);
     historySnapshot = current;
+    lastObservedHistorySnapshot = current;
+    lastObservedListEntryCount = countNestedListEntries(form);
   }
 };
 
@@ -1182,6 +1259,8 @@ const undoLastChange = () => {
   }
   redoStack.value.push(JSON.stringify(form));
   applyHistorySnapshot(previous);
+  forceApplicationUndo = false;
+  forceApplicationRedo = true;
   toast.add({
     severity: "secondary",
     summary: "Modification annulée",
@@ -1195,6 +1274,8 @@ const redoLastChange = () => {
   if (!next) return;
   undoStack.value.push(JSON.stringify(form));
   applyHistorySnapshot(next);
+  forceApplicationUndo = true;
+  forceApplicationRedo = false;
   toast.add({
     severity: "secondary",
     summary: "Modification rétablie",
@@ -1213,8 +1294,13 @@ const isTextEditingTarget = (target: EventTarget | null): boolean => {
 const handleUndoShortcut = (event: KeyboardEvent) => {
   if (!(event.metaKey || event.ctrlKey)) return;
   if (event.key.toLowerCase() !== "z") return;
+  const forcedApplicationShortcut = event.shiftKey
+    ? forceApplicationRedo
+    : forceApplicationUndo;
   // Dans un champ texte, l'annulation native du navigateur reste prioritaire.
-  if (isTextEditingTarget(event.target)) return;
+  // Exception : juste après une suppression structurelle, le prochain raccourci
+  // restaure la ligne, même si le focus a été déplacé dans un champ voisin.
+  if (isTextEditingTarget(event.target) && !forcedApplicationShortcut) return;
   event.preventDefault();
   if (event.shiftKey) redoLastChange();
   else undoLastChange();
@@ -1389,10 +1475,12 @@ const applyStandardContent = (language: QuoteLanguage) => {
       language,
     );
     form.roadmap = content.roadmap;
+    form.roadmapDisplayStyle = content.roadmapDisplayStyle || "flow";
   } else {
     form.parts = [];
     form.conditions = [];
     form.roadmap = [];
+    form.roadmapDisplayStyle = "flow";
     form.addons = [];
   }
   const baseContent = getBaseCommonContent(language);
@@ -1777,6 +1865,7 @@ const duplicateQuote = async (id: string) => {
 type TemplateSectionKey =
   | "projectSummary"
   | "parts"
+  | "deliverables"
   | "conditions"
   | "roadmap"
   | "addons";
@@ -1795,6 +1884,11 @@ const templateSectionOptions: Array<{
     key: "parts",
     label: "Parties & prix",
     hint: "Les parties du devis, leurs sections et leurs prix",
+  },
+  {
+    key: "deliverables",
+    label: "Livrables",
+    hint: "Les livrables prévus à la fin du projet",
   },
   {
     key: "conditions",
@@ -1844,11 +1938,16 @@ const applyTemplateSections = (keys?: TemplateSectionKey[]) => {
       case "parts":
         form.parts = nextDraft.parts;
         break;
+      case "deliverables":
+        form.deliverables = nextDraft.deliverables;
+        form.deliverablesDisplayStyle = nextDraft.deliverablesDisplayStyle;
+        break;
       case "conditions":
         form.conditions = nextDraft.conditions;
         break;
       case "roadmap":
         form.roadmap = nextDraft.roadmap;
+        form.roadmapDisplayStyle = nextDraft.roadmapDisplayStyle;
         break;
       case "addons":
         form.addons = nextDraft.addons;
@@ -1953,8 +2052,11 @@ const handleTemplateSelection = (value: string | null) => {
   form.templateId = value || "";
   if (!value) {
     form.parts = [];
+    form.deliverables = [];
+    form.deliverablesDisplayStyle = "flow";
     form.conditions = [];
     form.roadmap = [];
+    form.roadmapDisplayStyle = "flow";
     form.addons = [];
     form.paymentSchedule = getBaseCommonContent(form.language).paymentSchedule;
     return;
@@ -2127,11 +2229,13 @@ const printLivePreview = () => {
     const frameDocument = previewFrame.value?.contentDocument;
     if (frameDocument) frameDocument.title = quotePdfDocumentTitle.value;
     document.title = quotePdfDocumentTitle.value;
+    const restoreDocumentTitle = () => {
+      document.title = previousDocumentTitle;
+      frameWindow.removeEventListener("afterprint", restoreDocumentTitle);
+    };
+    frameWindow.addEventListener("afterprint", restoreDocumentTitle);
     frameWindow.focus();
     frameWindow.print();
-    window.setTimeout(() => {
-      document.title = previousDocumentTitle;
-    }, 500);
     return;
   }
 
@@ -2519,6 +2623,9 @@ const normalizeEditorSearchText = (value: string) =>
   value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    // Apostrophes droites, typographiques et signes proches doivent produire
+    // la même recherche (ex. « d'une » retrouve aussi « d’une »).
+    .replace(/[\u2018\u2019\u201B\u02BC\u02B9\uFF07\u0060\u00B4]/g, "'")
     .toLocaleLowerCase("fr")
     .replace(/\s+/g, " ")
     .trim();
@@ -3054,6 +3161,8 @@ const saveThenLeave = async () => {
           :addons="form.addons"
           :custom-sections="form.customSections"
           :deliverables="form.deliverables"
+          :deliverables-display-style="form.deliverablesDisplayStyle"
+          :roadmap-display-style="form.roadmapDisplayStyle"
           :document-order="form.documentOrder"
           :hidden-sections="form.hiddenSections"
           :payment-schedule="form.paymentSchedule"
@@ -3084,6 +3193,8 @@ const saveThenLeave = async () => {
           @update:parts="form.parts = $event"
           @update:custom-sections="form.customSections = $event"
           @update:deliverables="form.deliverables = $event"
+          @update:deliverables-display-style="form.deliverablesDisplayStyle = $event"
+          @update:roadmap-display-style="form.roadmapDisplayStyle = $event"
           @update:document-order="form.documentOrder = $event"
           @update:hidden-sections="form.hiddenSections = $event"
           @update:payment-schedule="form.paymentSchedule = $event"

@@ -25,6 +25,7 @@ import Select from "primevue/select";
 import SelectButton from "primevue/selectbutton";
 import QuoteAddonsEditor from "@/components/quotes/QuoteAddonsEditor.vue";
 import QuoteConditionsEditor from "@/components/quotes/QuoteConditionsEditor.vue";
+import QuoteDisplayStyleToggle from "@/components/quotes/QuoteDisplayStyleToggle.vue";
 import QuoteInvestmentLinesEditor from "@/components/quotes/QuoteInvestmentLinesEditor.vue";
 import QuotePaymentScheduleEditor from "@/components/quotes/QuotePaymentScheduleEditor.vue";
 import QuoteSectionsEditor from "@/components/quotes/QuoteSectionsEditor.vue";
@@ -81,6 +82,8 @@ const props = defineProps<{
   addons: QuoteAddon[];
   customSections?: QuoteCustomSection[];
   deliverables?: QuoteSection[];
+  deliverablesDisplayStyle?: QuotePartDisplayStyle;
+  roadmapDisplayStyle?: QuotePartDisplayStyle;
   documentOrder?: string[];
   hiddenSections?: string[];
   paymentSchedule: QuotePaymentScheduleStep[];
@@ -111,11 +114,13 @@ const emit = defineEmits<{
   "update:investmentAmount": [value: number];
   "update:investmentLines": [value: QuoteInvestmentLine[]];
   reapplyTemplateSection: [
-    section: "projectSummary" | "parts" | "conditions" | "roadmap" | "addons",
+    section: "projectSummary" | "parts" | "deliverables" | "conditions" | "roadmap" | "addons",
   ];
   "update:parts": [value: QuotePart[]];
   "update:customSections": [value: QuoteCustomSection[]];
   "update:deliverables": [value: QuoteSection[]];
+  "update:deliverablesDisplayStyle": [value: QuotePartDisplayStyle];
+  "update:roadmapDisplayStyle": [value: QuotePartDisplayStyle];
   "update:documentOrder": [value: string[]];
   "update:hiddenSections": [value: string[]];
   "update:paymentSchedule": [value: QuotePaymentScheduleStep[]];
@@ -325,6 +330,7 @@ const setSectionMenu = (id: string, instance: unknown) => {
 const sectionMenuItems = (id: string) => [
   ...(id === "proposal" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer le contenu du template", command: () => emit("reapplyTemplateSection", "projectSummary") }] : []),
   ...(id === "scope" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer la portée du template", command: () => emit("reapplyTemplateSection", "parts") }] : []),
+  ...(id === "deliverables" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer les livrables", command: () => emit("reapplyTemplateSection", "deliverables") }] : []),
   ...(id === "addons" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer les options du template", command: () => emit("reapplyTemplateSection", "addons") }] : []),
   ...(id === "roadmap" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer la feuille de route", command: () => emit("reapplyTemplateSection", "roadmap") }] : []),
   ...(id === "conditions" && props.canReapplyTemplate ? [{ label: "↻  Réappliquer les conditions", command: () => emit("reapplyTemplateSection", "conditions") }] : []),
@@ -749,27 +755,7 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
           </h3>
         </div>
         <div class="ml-auto flex items-center gap-0.5">
-          <button
-            type="button"
-            role="switch"
-            :aria-checked="scopeDisplayStyle === 'framed'"
-            :aria-label="`Affichage ${scopeDisplayStyle === 'framed' ? 'encadré' : 'fluide'}`"
-            title="Basculer entre l’affichage fluide et encadré"
-            class="mr-1 inline-flex h-8 items-center gap-2 rounded-full px-2 text-[11px] font-medium text-surface-dark/55 transition-colors hover:bg-surface-dark/[0.04] hover:text-surface-dark/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-            @click="scopeDisplayStyle = scopeDisplayStyle === 'framed' ? 'flow' : 'framed'"
-          >
-            <span>{{ scopeDisplayStyle === "framed" ? "Encadré" : "Fluide" }}</span>
-            <span
-              class="relative h-4 w-7 shrink-0 rounded-full transition-colors"
-              :class="scopeDisplayStyle === 'framed' ? 'bg-primary/70' : 'bg-surface-dark/15'"
-              aria-hidden="true"
-            >
-              <span
-                class="absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform"
-                :class="scopeDisplayStyle === 'framed' ? 'translate-x-3' : 'translate-x-0'"
-              />
-            </span>
-          </button>
+          <QuoteDisplayStyleToggle v-model="scopeDisplayStyle" />
           <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('scope') ? 'Afficher la portée' : 'Masquer la portée'" :title="isSectionHidden('scope') ? 'Afficher la portée' : 'Masquer la portée'" @click="toggleSectionHidden('scope')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('scope') ? 'visibility_off' : 'visibility' }}</span></template></Button><Button type="button" text rounded severity="secondary" size="small" aria-label="Monter la portée" title="Déplacer vers le haut" @click="moveDocumentItem('scope', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
           <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre la portée" title="Déplacer vers le bas" @click="moveDocumentItem('scope', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
         </div>
@@ -794,6 +780,10 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
           <h3 class="font-heading font-bold text-surface-dark">Livrables</h3>
         </div>
         <div class="ml-auto flex items-center gap-0.5">
+          <QuoteDisplayStyleToggle
+            :model-value="deliverablesDisplayStyle || 'flow'"
+            @update:model-value="emit('update:deliverablesDisplayStyle', $event)"
+          />
           <Button type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('deliverables') ? 'Afficher les livrables' : 'Masquer les livrables'" :title="isSectionHidden('deliverables') ? 'Afficher les livrables' : 'Masquer les livrables'" @click="toggleSectionHidden('deliverables')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('deliverables') ? 'visibility_off' : 'visibility' }}</span></template></Button>
           <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter les livrables" title="Déplacer vers le haut" @click="moveDocumentItem('deliverables', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
           <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre les livrables" title="Déplacer vers le bas" @click="moveDocumentItem('deliverables', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>
@@ -912,6 +902,10 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
       @update-condition-blocks="emit('updateRoadmapBlocks', $event)"
     >
       <template #headerActions>
+        <QuoteDisplayStyleToggle
+          :model-value="roadmapDisplayStyle || 'flow'"
+          @update:model-value="emit('update:roadmapDisplayStyle', $event)"
+        />
         <Button v-if="isQuote" type="button" text rounded severity="secondary" size="small" :aria-label="isSectionHidden('roadmap') ? 'Afficher la feuille de route' : 'Masquer la feuille de route'" :title="isSectionHidden('roadmap') ? 'Afficher la feuille de route' : 'Masquer la feuille de route'" @click="toggleSectionHidden('roadmap')"><template #icon><span class="material-symbols-outlined text-base">{{ isSectionHidden('roadmap') ? 'visibility_off' : 'visibility' }}</span></template></Button>
         <Button type="button" text rounded severity="secondary" size="small" aria-label="Monter la feuille de route" title="Déplacer vers le haut" @click="moveDocumentItem('roadmap', -1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_up</span></template></Button>
         <Button type="button" text rounded severity="secondary" size="small" aria-label="Descendre la feuille de route" title="Déplacer vers le bas" @click="moveDocumentItem('roadmap', 1)"><template #icon><span class="material-symbols-outlined text-base">keyboard_arrow_down</span></template></Button>

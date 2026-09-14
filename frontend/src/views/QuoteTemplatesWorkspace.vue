@@ -112,8 +112,10 @@ const cloneLocalizedSlice = (
     id: section.id || createEntityId(),
     blocks: cloneBlocks(section.blocks || []),
   })),
+  deliverablesDisplayStyle: slice?.deliverablesDisplayStyle || "flow",
   conditions: cloneConditions(slice?.conditions || []),
   roadmap: cloneConditions(slice?.roadmap || []),
+  roadmapDisplayStyle: slice?.roadmapDisplayStyle || "flow",
   acceptance: cloneConditions(slice?.acceptance || []),
   principles: cloneConditions(slice?.principles || []),
   addons: cloneAddons(slice?.addons || []),
@@ -134,6 +136,8 @@ const getLegacyLocalizedContent = (
     | "emailSubject"
     | "emailBody"
     | "deliverables"
+    | "deliverablesDisplayStyle"
+    | "roadmapDisplayStyle"
   >,
 ): Record<QuoteLanguage, QuoteTemplateLocalizedContent> => ({
   fr: cloneLocalizedSlice(source),
@@ -157,8 +161,10 @@ const getNormalizedLocalizedContent = (
       projectSummary: source.projectSummary || "",
       parts: source.parts || [],
       deliverables: source.deliverables || [],
+      deliverablesDisplayStyle: source.deliverablesDisplayStyle || "flow",
       conditions: source.conditions || [],
       roadmap: source.roadmap || [],
+      roadmapDisplayStyle: source.roadmapDisplayStyle || "flow",
       acceptance: source.acceptance || [],
       principles: source.principles || [],
       addons: source.addons || [],
@@ -189,6 +195,7 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
     en: cloneLocalizedSlice(draft.localizedContent?.en),
     es: cloneLocalizedSlice(draft.localizedContent?.es),
   },
+  deliverablesDisplayStyle: draft.deliverablesDisplayStyle || "flow",
   deliverables: (draft.deliverables || []).map((section) => ({
     id: section.id,
     title: section.title,
@@ -222,6 +229,7 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
     tag: phase.tag || "",
     blocks: serializeBlocks(phase.blocks || [], { withIds: true }),
   })),
+  roadmapDisplayStyle: draft.roadmapDisplayStyle || "flow",
   acceptance: draft.acceptance.map((entry) => ({
     id: entry.id,
     commonConditionId: entry.commonConditionId || "",
@@ -304,12 +312,14 @@ const baselineTemplate = computed<QuoteTemplateInput>(() => {
       id: section.id || createEntityId(),
       blocks: cloneBlocks(section.blocks || []),
     })),
+    deliverablesDisplayStyle: activeContent.deliverablesDisplayStyle || "flow",
     conditions: resolveTemplateConditionReferencesForEditor(
       activeContent.conditions,
       current.language,
       shouldResolveCommonConditions,
     ),
     roadmap: cloneConditions(activeContent.roadmap),
+    roadmapDisplayStyle: activeContent.roadmapDisplayStyle || "flow",
     acceptance: cloneConditions(activeContent.acceptance),
     principles: cloneConditions(activeContent.principles),
     addons: cloneAddons(activeContent.addons),
@@ -330,8 +340,10 @@ const withVisibleLanguageContent = (
       emailBody: draft.emailBody,
       parts: draft.parts,
       deliverables: draft.deliverables,
+      deliverablesDisplayStyle: draft.deliverablesDisplayStyle,
       conditions: draft.conditions,
       roadmap: draft.roadmap,
+      roadmapDisplayStyle: draft.roadmapDisplayStyle,
       acceptance: draft.acceptance,
       principles: draft.principles,
       addons: draft.addons,
@@ -408,12 +420,14 @@ const hydrateFromTemplate = (template: QuoteTemplate | null) => {
       id: section.id || createEntityId(),
       blocks: cloneBlocks(section.blocks || []),
     })),
+    deliverablesDisplayStyle: activeContent.deliverablesDisplayStyle || "flow",
     conditions: resolveTemplateConditionReferencesForEditor(
       activeContent.conditions,
       template.language,
       shouldResolveCommonConditions,
     ),
     roadmap: cloneConditions(activeContent.roadmap),
+    roadmapDisplayStyle: activeContent.roadmapDisplayStyle || "flow",
     acceptance: cloneConditions(activeContent.acceptance),
     principles: cloneConditions(activeContent.principles),
     addons: cloneAddons(activeContent.addons),
@@ -435,8 +449,10 @@ const persistActiveLanguageContent = (language: QuoteLanguage) => {
       emailBody: form.emailBody,
       parts: form.parts,
       deliverables: form.deliverables,
+      deliverablesDisplayStyle: form.deliverablesDisplayStyle,
       conditions: form.conditions,
       roadmap: form.roadmap,
+      roadmapDisplayStyle: form.roadmapDisplayStyle,
       acceptance: form.acceptance,
       principles: form.principles,
       addons: form.addons,
@@ -453,12 +469,14 @@ const hydrateVisibleContentFromLanguage = (language: QuoteLanguage) => {
   form.emailBody = activeContent.emailBody;
   form.parts = partsFromContent(activeContent);
   form.deliverables = cloneSections(activeContent.deliverables);
+  form.deliverablesDisplayStyle = activeContent.deliverablesDisplayStyle || "flow";
   form.conditions = resolveTemplateConditionReferencesForEditor(
     activeContent.conditions,
     language,
     (form.kind || "custom") !== "base",
   );
   form.roadmap = activeContent.roadmap;
+  form.roadmapDisplayStyle = activeContent.roadmapDisplayStyle || "flow";
   form.acceptance = activeContent.acceptance;
   form.principles = activeContent.principles;
   form.addons = activeContent.addons;
@@ -501,8 +519,10 @@ watch(
       form.projectSummary,
       form.parts,
       form.deliverables,
+      form.deliverablesDisplayStyle,
       form.conditions,
       form.roadmap,
+      form.roadmapDisplayStyle,
       form.acceptance,
       form.principles,
       form.addons,
@@ -1423,6 +1443,8 @@ watch([selectedLibraryItem, () => form.language], async () => {
           :investment-amount="0"
           :parts="form.parts"
           :deliverables="form.deliverables"
+          :deliverables-display-style="form.deliverablesDisplayStyle"
+          :roadmap-display-style="form.roadmapDisplayStyle"
           :currency-locale="currencyLocale"
           :conditions="form.conditions"
           :reusable-conditions="commonConditionOptions"
@@ -1452,6 +1474,8 @@ watch([selectedLibraryItem, () => form.language], async () => {
           @update:investment-amount="() => undefined"
           @update:parts="form.parts = $event"
           @update:deliverables="form.deliverables = $event"
+          @update:deliverables-display-style="form.deliverablesDisplayStyle = $event"
+          @update:roadmap-display-style="form.roadmapDisplayStyle = $event"
           @update:payment-schedule="form.paymentSchedule = $event"
           @add-condition="addCondition"
           @add-reusable-condition="addCommonCondition"

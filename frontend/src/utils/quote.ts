@@ -312,6 +312,7 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     versionGroupId: createEntityId(),
     parts: cloneQuoteParts(quote.parts),
     deliverables: cloneSections(quote.deliverables || []),
+    deliverablesDisplayStyle: quote.deliverablesDisplayStyle || 'flow',
     conditions: quote.conditions.map((condition) => ({
       ...condition,
       id: createEntityId(),
@@ -322,6 +323,7 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
       id: createEntityId(),
       blocks: cloneBlocks(phase.blocks || []),
     })),
+    roadmapDisplayStyle: quote.roadmapDisplayStyle || 'flow',
     acceptance: (quote.acceptance || []).map((entry) => ({
       ...entry,
       id: createEntityId(),
