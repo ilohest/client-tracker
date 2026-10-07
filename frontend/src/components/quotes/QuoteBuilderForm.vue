@@ -19,6 +19,7 @@ import type {
 import Button from "primevue/button";
 import DatePicker from "primevue/datepicker";
 import InputText from "primevue/inputtext";
+import Textarea from "primevue/textarea";
 import InputNumber from "primevue/inputnumber";
 import Menu from "primevue/menu";
 import Select from "primevue/select";
@@ -67,6 +68,7 @@ const props = defineProps<{
   discountType: QuoteDiscountType;
   discountValue: number;
   discountLabel: string;
+  investmentNote: string;
   projectSummary: string;
   investmentSummary: string;
   investmentAmount: number;
@@ -111,6 +113,7 @@ const emit = defineEmits<{
   "update:discountType": [value: QuoteDiscountType];
   "update:discountValue": [value: number];
   "update:discountLabel": [value: string];
+  "update:investmentNote": [value: string];
   "update:projectSummary": [value: string];
   "update:investmentSummary": [value: string];
   "update:investmentAmount": [value: number];
@@ -235,9 +238,9 @@ const documentItems = computed(() => {
     { id: "scope", label: "Portée du projet", fixed: true },
     { id: "deliverables", label: "Livrables", fixed: true },
     { id: "customSections", label: "Sections personnalisées", fixed: true },
-    { id: "addons", label: "Options complémentaires", fixed: true },
     { id: "investment", label: "Investissement", fixed: true },
     { id: "paymentSchedule", label: "Échéancier de paiement", fixed: true },
+    { id: "addons", label: "Options complémentaires", fixed: true },
     { id: "roadmap", label: "Feuille de route", fixed: true },
     { id: "conditions", label: "Conditions", fixed: true },
     { id: "acceptance", label: "Acceptation", fixed: true },
@@ -684,7 +687,7 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
             @update:model-value="handleInvestmentLines"
           />
         </div>
-        <div class="mt-4 grid grid-cols-1 gap-3 border-t border-surface-dark/6 pt-4 md:grid-cols-2">
+        <div class="mt-4 grid grid-cols-1 gap-3 border-t border-surface-dark/6 pt-4 md:grid-cols-3">
           <label class="flex flex-col gap-2">
             <span class="text-sm font-semibold text-surface-dark"
               >Type de réduction</span
@@ -697,7 +700,10 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
               @update:model-value="handleDiscountType"
             />
           </label>
-          <label class="flex flex-col gap-2 md:col-span-2">
+          <label
+            v-if="discountType !== 'none'"
+            class="flex flex-col gap-2"
+          >
             <span class="text-sm font-semibold text-surface-dark"
               >Titre de la réduction</span
             >
@@ -710,9 +716,12 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
               "
             />
           </label>
-          <label class="flex flex-col gap-2">
+          <label
+            v-if="discountType !== 'none'"
+            class="flex flex-col gap-2"
+          >
             <span class="text-sm font-semibold text-surface-dark"
-              >Réduction</span
+              >Valeur</span
             >
             <InputNumber
               :model-value="discountValue"
@@ -724,6 +733,21 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
               suffix=""
               class="w-full"
               @update:model-value="handleDiscountValue"
+            />
+          </label>
+          <label class="flex flex-col gap-2 md:col-span-3">
+            <span class="text-sm font-semibold text-surface-dark"
+              >Note sous le tableau</span
+            >
+            <Textarea
+              :model-value="investmentNote"
+              rows="2"
+              auto-resize
+              placeholder="Ex. : Tarif valable 30 jours, hors frais d'hébergement."
+              class="w-full"
+              @update:model-value="
+                emit('update:investmentNote', String($event ?? ''))
+              "
             />
           </label>
         </div>

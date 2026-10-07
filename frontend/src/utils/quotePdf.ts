@@ -562,6 +562,7 @@ const renderInvestmentTable = (
   investmentLines: QuoteInvestmentLine[] = [],
   renderVariables: (value: string) => string = (value) => value,
   paymentScheduleHtml: string = "",
+  investmentNote: string = "",
 ): string => {
   const investmentParts = parts.filter(
     (part) => part.includeInInvestment !== false,
@@ -622,6 +623,7 @@ const renderInvestmentTable = (
         <tr class="grand"><td>${escapeHtml(t.totalIncl)}</td><td class="amount">${money(totalIncl)}</td></tr>
       </tbody>
     </table>
+    ${investmentNote.trim() ? `<div class="investment-note">${renderRichText(renderVariables(investmentNote))}</div>` : ""}
     ${paymentScheduleHtml}
   </section>`;
 };
@@ -1020,6 +1022,7 @@ export const renderQuoteDocumentHtml = (
     quote.investmentLines || [],
     renderVariables,
     embedPaymentSchedule ? paymentScheduleContent : "",
+    quote.investmentNote || "",
   );
   const standalonePaymentSchedule =
     !embedPaymentSchedule && paymentScheduleContent
@@ -1120,9 +1123,9 @@ export const renderQuoteDocumentHtml = (
     "proposal",
     "scope",
     "deliverables",
-    "addons",
     "investment",
     "paymentSchedule",
+    "addons",
     "roadmap",
     "conditions",
     "acceptance",
@@ -1570,6 +1573,8 @@ export const renderQuoteDocumentHtml = (
   .grid-table .row-desc ul { margin: 2px 0; }
   .amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .unit { color: var(--muted); font-weight: 400; }
+  .investment-note { font-size: 9.5pt; color: var(--muted); margin-top: 10px; }
+  .investment-note p { margin: 0 0 4px; }
   .hint { font-size: 8.5pt; color: var(--muted); font-style: italic; margin-top: 6px; }
 
   .totals {

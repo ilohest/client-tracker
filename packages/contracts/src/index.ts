@@ -362,7 +362,7 @@ export const quoteStatusSchema = z.enum([
   'revision_requested', // le client demande des modifications
   'superseded', // remplacé par une version plus récente
 ]);
-export const quoteDiscountTypeSchema = z.enum(['percent', 'fixed']);
+export const quoteDiscountTypeSchema = z.enum(['none', 'percent', 'fixed']);
 
 export const quoteSchema = z.object({
   id: z.string(),
@@ -391,6 +391,7 @@ export const quoteSchema = z.object({
   discountType: quoteDiscountTypeSchema.default('percent'),
   discountValue: z.number().default(0),
   discountLabel: z.string().optional().default(''),
+  investmentNote: z.string().optional().default(''),
   version: z.number().default(1),
   versionGroupId: z.string().default(''),
   projectId: z.string().optional(),
@@ -445,6 +446,7 @@ export const quoteTemplateSchema = z.object({
   discountType: quoteDiscountTypeSchema.default('percent'),
   discountValue: z.number().default(0),
   discountLabel: z.string().optional().default(''),
+  investmentNote: z.string().optional().default(''),
   parts: z.array(quotePartSchema).default([]),
   deliverables: z.array(quoteSectionSchema).default([]),
   deliverablesDisplayStyle: quotePartDisplayStyleSchema.default('flow'),

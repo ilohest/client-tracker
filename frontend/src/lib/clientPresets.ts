@@ -65,6 +65,7 @@ export const quoteStatusOptions: Array<{ label: string; value: QuoteStatus }> = 
 ).map((value) => ({ label: quoteStatusMeta[value].label, value }));
 
 export const discountTypeOptions: Array<{ label: string; value: QuoteDiscountType }> = [
+  { label: 'Aucune', value: 'none' },
   { label: 'Pourcentage', value: 'percent' },
   { label: 'Montant fixe', value: 'fixed' },
 ];
@@ -627,6 +628,7 @@ export const createDefaultQuoteTemplate = (
     discountType: 'percent',
     discountValue: 0,
     discountLabel: '',
+    investmentNote: '',
     parts: activeContent.parts,
     deliverables: activeContent.deliverables,
     deliverablesDisplayStyle: activeContent.deliverablesDisplayStyle,

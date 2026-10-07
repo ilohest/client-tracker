@@ -154,6 +154,7 @@ const createDraft = (): QuoteDraft => ({
   discountType: "percent",
   discountValue: 0,
   discountLabel: "",
+  investmentNote: "",
   version: 1,
   versionGroupId: createEntityId(),
   parts: [],
@@ -386,6 +387,7 @@ const createDraftFromTemplate = (
     discountType: template.discountType || "percent",
     discountValue: template.discountValue || 0,
     discountLabel: template.discountLabel || "",
+    investmentNote: template.investmentNote || "",
     version: 1,
     versionGroupId: createEntityId(),
     parts: cloneQuoteParts(localizedContent.parts),
@@ -619,6 +621,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   discountType: draft.discountType,
   discountValue: draft.discountValue,
   discountLabel: draft.discountLabel,
+  investmentNote: draft.investmentNote,
   status: draft.status,
   parts: draft.parts.map((part) => ({
     title: part.title,
@@ -871,6 +874,7 @@ const baselineDraft = computed<QuoteDraft>(() => {
     discountType: current.discountType || "percent",
     discountValue: current.discountValue || 0,
     discountLabel: current.discountLabel || "",
+    investmentNote: current.investmentNote || "",
     version: current.version || 1,
     versionGroupId: current.versionGroupId || current.id,
     parts: cloneQuoteParts(current.parts),
@@ -1074,6 +1078,7 @@ const hydrateFromQuote = (quote: Quote | null) => {
     discountType: quote.discountType || "percent",
     discountValue: quote.discountValue || 0,
     discountLabel: quote.discountLabel || "",
+    investmentNote: quote.investmentNote || "",
     version: quote.version || 1,
     versionGroupId: quote.versionGroupId || quote.id,
     parts: cloneQuoteParts(quote.parts),
@@ -3151,6 +3156,7 @@ const saveThenLeave = async () => {
           :discount-type="form.discountType"
           :discount-value="form.discountValue"
           :discount-label="form.discountLabel"
+          :investment-note="form.investmentNote"
           :project-summary="form.projectSummary"
           :investment-summary="form.investmentSummary"
           :investment-amount="form.investmentAmount"
@@ -3192,6 +3198,7 @@ const saveThenLeave = async () => {
           @update:discount-type="updateDiscountType"
           @update:discount-value="updateDiscountValue"
           @update:discount-label="form.discountLabel = $event"
+          @update:investment-note="form.investmentNote = $event"
           @update:project-summary="form.projectSummary = $event"
           @update:investment-summary="form.investmentSummary = $event"
           @update:investment-amount="form.investmentAmount = $event"

@@ -191,6 +191,7 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
   discountType: draft.discountType,
   discountValue: draft.discountValue,
   discountLabel: draft.discountLabel,
+  investmentNote: draft.investmentNote,
   localizedContent: {
     fr: cloneLocalizedSlice(draft.localizedContent?.fr),
     en: cloneLocalizedSlice(draft.localizedContent?.en),
@@ -308,6 +309,7 @@ const baselineTemplate = computed<QuoteTemplateInput>(() => {
     discountType: current.discountType || "percent",
     discountValue: current.discountValue || 0,
     discountLabel: current.discountLabel || "",
+    investmentNote: current.investmentNote || "",
     parts: partsFromContent(activeContent),
     deliverables: (activeContent.deliverables || []).map((section) => ({
       ...section,
@@ -417,6 +419,7 @@ const hydrateFromTemplate = (template: QuoteTemplate | null) => {
     discountType: template.discountType || "percent",
     discountValue: template.discountValue || 0,
     discountLabel: template.discountLabel || "",
+    investmentNote: template.investmentNote || "",
     parts: partsFromContent(activeContent),
     deliverables: (activeContent.deliverables || []).map((section) => ({
       ...section,
@@ -944,6 +947,7 @@ const duplicateTemplate = async () => {
     discountType: form.discountType || "percent",
     discountValue: form.discountValue || 0,
     discountLabel: form.discountLabel || "",
+    investmentNote: form.investmentNote || "",
     parts: cloneQuoteParts(form.parts),
     deliverables: cloneSections(form.deliverables),
     conditions: cloneConditions(form.conditions),
@@ -1443,6 +1447,7 @@ watch([selectedLibraryItem, () => form.language], async () => {
           :discount-type="form.discountType"
           :discount-value="form.discountValue"
           :discount-label="form.discountLabel"
+          :investment-note="form.investmentNote"
           :project-summary="form.projectSummary"
           investment-summary=""
           :investment-amount="0"
@@ -1475,6 +1480,7 @@ watch([selectedLibraryItem, () => form.language], async () => {
           @update:discount-type="form.discountType = $event as QuoteDiscountType"
           @update:discount-value="form.discountValue = $event"
           @update:discount-label="form.discountLabel = $event"
+          @update:investment-note="form.investmentNote = $event"
           @update:project-summary="form.projectSummary = $event"
           @update:investment-summary="() => undefined"
           @update:investment-amount="() => undefined"

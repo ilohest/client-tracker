@@ -119,6 +119,7 @@ export const calculateDiscountAmount = (
   discountType: QuoteDiscountType,
   discountValue: number,
 ): number => {
+  if (discountType === 'none') return 0;
   const normalizedAmount = Number(amountBeforeDiscount || 0);
   const normalizedDiscount = Math.max(Number(discountValue || 0), 0);
   const rawDiscount =
@@ -309,6 +310,7 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     discountType: quote.discountType || 'percent',
     discountValue: quote.discountValue || 0,
     discountLabel: quote.discountLabel || '',
+    investmentNote: quote.investmentNote || '',
     version: 1,
     versionGroupId: createEntityId(),
     parts: cloneQuoteParts(quote.parts),
