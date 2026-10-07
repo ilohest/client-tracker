@@ -104,6 +104,7 @@ export const comparableQuoteTemplate = (template: QuoteTemplateInput) => ({
   vatRate: template.vatRate,
   discountType: template.discountType || "percent",
   discountValue: Number(template.discountValue || 0),
+  discountLabel: template.discountLabel || "",
   localizedContent: Object.fromEntries(
     quoteTemplateLanguages.map((language) => [
       language,

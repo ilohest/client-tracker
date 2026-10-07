@@ -21,6 +21,7 @@ import {
 import { getEstimatedTimelineTitle } from "@/lib/clientPresets";
 import {
   calculateInvestmentLineAmount,
+  calculateQuotePartsTotals,
   calculatePaymentScheduleStepAmounts,
   formatCurrency,
   formatQuoteDate,
@@ -555,7 +556,7 @@ const renderInvestmentTable = (
   vatRate: number,
   vatAmount: number,
   totalIncl: number,
-  discountLabel: string,
+  discount: { title: string; amount: number },
   investmentSummary: string = "",
   investmentAmount: number = 0,
   investmentLines: QuoteInvestmentLine[] = [],
@@ -615,8 +616,8 @@ const renderInvestmentTable = (
     </table>
     <table class="totals">
       <tbody>
+        ${discount.amount > 0 ? `<tr><td>${escapeHtml(discount.title)}</td><td class="amount">− ${money(discount.amount)}</td></tr>` : ""}
         <tr><td>${escapeHtml(t.subtotalExcl)}</td><td class="amount">${money(subtotal)}</td></tr>
-        ${discountLabel ? `<tr><td>${escapeHtml(t.discount)}</td><td class="amount">− ${discountLabel}</td></tr>` : ""}
         <tr><td>${escapeHtml(t.vat)} ${vatRate}%</td><td class="amount">${money(vatAmount)}</td></tr>
         <tr class="grand"><td>${escapeHtml(t.totalIncl)}</td><td class="amount">${money(totalIncl)}</td></tr>
       </tbody>
@@ -925,13 +926,17 @@ export const renderQuoteDocumentHtml = (
   const subtotal = Number(quote.subtotal || 0);
   const vatAmount = Number((subtotal * (vatRate / 100)).toFixed(2));
   const totalIncl = Number(quote.totalWithVat || subtotal + vatAmount);
-  const discountValue = Number(quote.discountValue || 0);
-  const discountLabel =
-    discountValue > 0
-      ? quote.discountType === "fixed"
-        ? money(discountValue)
-        : `${discountValue}%`
-      : "";
+  const discountAmount = calculateQuotePartsTotals(
+    quote.parts || [],
+    vatRate as 0 | 21,
+    quote.discountType || "percent",
+    Number(quote.discountValue || 0),
+    Number(quote.investmentAmount || 0),
+  ).discountAmount;
+  const discount = {
+    title: quote.discountLabel?.trim() || t.discount,
+    amount: discountAmount,
+  };
 
   // Options / add-ons (affichés hors total)
   // Les options affichées dans l’éditeur sont toutes destinées au devis. Les
@@ -1009,7 +1014,7 @@ export const renderQuoteDocumentHtml = (
     vatRate,
     vatAmount,
     totalIncl,
-    discountLabel,
+    discount,
     quote.investmentSummary || "",
     quote.investmentAmount || 0,
     quote.investmentLines || [],
@@ -1569,7 +1574,7 @@ export const renderQuoteDocumentHtml = (
 
   .totals {
     border: 1px solid var(--line);
-    border-top: 3px solid var(--band);
+    border-top: 0;
     border-radius: 0 0 10px 10px;
     background: #fff;
   }
@@ -1579,6 +1584,7 @@ export const renderQuoteDocumentHtml = (
     color: var(--ink);
     font-weight: 700;
     font-size: 11.5pt;
+    border-top: 2px solid var(--band);
     border-bottom: 0;
   }
   .totals .grand td:first-child { border-radius: 0 0 0 10px; }

@@ -190,6 +190,7 @@ const normalizeTemplate = (draft: QuoteTemplateInput) => ({
   emailBody: draft.emailBody || "",
   discountType: draft.discountType,
   discountValue: draft.discountValue,
+  discountLabel: draft.discountLabel,
   localizedContent: {
     fr: cloneLocalizedSlice(draft.localizedContent?.fr),
     en: cloneLocalizedSlice(draft.localizedContent?.en),
@@ -306,6 +307,7 @@ const baselineTemplate = computed<QuoteTemplateInput>(() => {
     emailBody: activeContent.emailBody,
     discountType: current.discountType || "percent",
     discountValue: current.discountValue || 0,
+    discountLabel: current.discountLabel || "",
     parts: partsFromContent(activeContent),
     deliverables: (activeContent.deliverables || []).map((section) => ({
       ...section,
@@ -414,6 +416,7 @@ const hydrateFromTemplate = (template: QuoteTemplate | null) => {
     emailBody: activeContent.emailBody,
     discountType: template.discountType || "percent",
     discountValue: template.discountValue || 0,
+    discountLabel: template.discountLabel || "",
     parts: partsFromContent(activeContent),
     deliverables: (activeContent.deliverables || []).map((section) => ({
       ...section,
@@ -940,6 +943,7 @@ const duplicateTemplate = async () => {
     emailBody: form.emailBody,
     discountType: form.discountType || "percent",
     discountValue: form.discountValue || 0,
+    discountLabel: form.discountLabel || "",
     parts: cloneQuoteParts(form.parts),
     deliverables: cloneSections(form.deliverables),
     conditions: cloneConditions(form.conditions),
@@ -1438,6 +1442,7 @@ watch([selectedLibraryItem, () => form.language], async () => {
           :vat-rate="form.vatRate"
           :discount-type="form.discountType"
           :discount-value="form.discountValue"
+          :discount-label="form.discountLabel"
           :project-summary="form.projectSummary"
           investment-summary=""
           :investment-amount="0"
@@ -1469,6 +1474,7 @@ watch([selectedLibraryItem, () => form.language], async () => {
           @update:vat-rate="form.vatRate = $event"
           @update:discount-type="form.discountType = $event as QuoteDiscountType"
           @update:discount-value="form.discountValue = $event"
+          @update:discount-label="form.discountLabel = $event"
           @update:project-summary="form.projectSummary = $event"
           @update:investment-summary="() => undefined"
           @update:investment-amount="() => undefined"

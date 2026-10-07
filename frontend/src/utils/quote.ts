@@ -308,6 +308,7 @@ export const duplicateQuoteInput = (quote: Quote): QuoteInput => {
     emailBody: quote.emailBody || '',
     discountType: quote.discountType || 'percent',
     discountValue: quote.discountValue || 0,
+    discountLabel: quote.discountLabel || '',
     version: 1,
     versionGroupId: createEntityId(),
     parts: cloneQuoteParts(quote.parts),

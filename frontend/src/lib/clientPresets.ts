@@ -626,6 +626,7 @@ export const createDefaultQuoteTemplate = (
     emailBody: activeContent.emailBody,
     discountType: 'percent',
     discountValue: 0,
+    discountLabel: '',
     parts: activeContent.parts,
     deliverables: activeContent.deliverables,
     deliverablesDisplayStyle: activeContent.deliverablesDisplayStyle,

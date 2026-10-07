@@ -153,6 +153,7 @@ const createDraft = (): QuoteDraft => ({
   emailBody: "",
   discountType: "percent",
   discountValue: 0,
+  discountLabel: "",
   version: 1,
   versionGroupId: createEntityId(),
   parts: [],
@@ -384,6 +385,7 @@ const createDraftFromTemplate = (
     emailBody: "",
     discountType: template.discountType || "percent",
     discountValue: template.discountValue || 0,
+    discountLabel: template.discountLabel || "",
     version: 1,
     versionGroupId: createEntityId(),
     parts: cloneQuoteParts(localizedContent.parts),
@@ -616,6 +618,7 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   emailBody: draft.emailBody,
   discountType: draft.discountType,
   discountValue: draft.discountValue,
+  discountLabel: draft.discountLabel,
   status: draft.status,
   parts: draft.parts.map((part) => ({
     title: part.title,
@@ -867,6 +870,7 @@ const baselineDraft = computed<QuoteDraft>(() => {
     emailBody: current.emailBody || "",
     discountType: current.discountType || "percent",
     discountValue: current.discountValue || 0,
+    discountLabel: current.discountLabel || "",
     version: current.version || 1,
     versionGroupId: current.versionGroupId || current.id,
     parts: cloneQuoteParts(current.parts),
@@ -1069,6 +1073,7 @@ const hydrateFromQuote = (quote: Quote | null) => {
     emailBody,
     discountType: quote.discountType || "percent",
     discountValue: quote.discountValue || 0,
+    discountLabel: quote.discountLabel || "",
     version: quote.version || 1,
     versionGroupId: quote.versionGroupId || quote.id,
     parts: cloneQuoteParts(quote.parts),
@@ -3145,6 +3150,7 @@ const saveThenLeave = async () => {
           :vat-rate="form.vatRate"
           :discount-type="form.discountType"
           :discount-value="form.discountValue"
+          :discount-label="form.discountLabel"
           :project-summary="form.projectSummary"
           :investment-summary="form.investmentSummary"
           :investment-amount="form.investmentAmount"
@@ -3185,6 +3191,7 @@ const saveThenLeave = async () => {
           @update:vat-rate="form.vatRate = $event"
           @update:discount-type="updateDiscountType"
           @update:discount-value="updateDiscountValue"
+          @update:discount-label="form.discountLabel = $event"
           @update:project-summary="form.projectSummary = $event"
           @update:investment-summary="form.investmentSummary = $event"
           @update:investment-amount="form.investmentAmount = $event"
@@ -3351,19 +3358,19 @@ const saveThenLeave = async () => {
             Totaux
           </p>
           <div class="flex flex-col gap-2 tabular-nums">
-            <div class="flex items-baseline justify-between gap-3 text-sm text-surface-dark/70">
-              Sous-total
-              <span class="font-semibold text-surface-dark">
-                {{ formatCurrency(totals.subtotal, currencyLocale) }}
-              </span>
-            </div>
             <div
               v-if="totals.discountAmount > 0"
               class="flex items-baseline justify-between gap-3 text-sm text-amber-700"
             >
-              Remise
+              {{ form.discountLabel.trim() || "Remise" }}
               <span class="font-semibold">
                 − {{ formatCurrency(totals.discountAmount, currencyLocale) }}
+              </span>
+            </div>
+            <div class="flex items-baseline justify-between gap-3 text-sm text-surface-dark/70">
+              Sous-total
+              <span class="font-semibold text-surface-dark">
+                {{ formatCurrency(totals.subtotal, currencyLocale) }}
               </span>
             </div>
             <div class="flex items-baseline justify-between gap-3 text-sm text-surface-dark/70">

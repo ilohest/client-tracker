@@ -66,6 +66,7 @@ const props = defineProps<{
   vatRate: VatRate;
   discountType: QuoteDiscountType;
   discountValue: number;
+  discountLabel: string;
   projectSummary: string;
   investmentSummary: string;
   investmentAmount: number;
@@ -109,6 +110,7 @@ const emit = defineEmits<{
   "update:vatRate": [value: VatRate];
   "update:discountType": [value: QuoteDiscountType];
   "update:discountValue": [value: number];
+  "update:discountLabel": [value: string];
   "update:projectSummary": [value: string];
   "update:investmentSummary": [value: string];
   "update:investmentAmount": [value: number];
@@ -693,6 +695,19 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
               option-label="label"
               option-value="value"
               @update:model-value="handleDiscountType"
+            />
+          </label>
+          <label class="flex flex-col gap-2 md:col-span-2">
+            <span class="text-sm font-semibold text-surface-dark"
+              >Titre de la réduction</span
+            >
+            <InputText
+              :model-value="discountLabel"
+              placeholder="Remise"
+              class="w-full"
+              @update:model-value="
+                emit('update:discountLabel', String($event ?? ''))
+              "
             />
           </label>
           <label class="flex flex-col gap-2">
