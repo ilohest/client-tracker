@@ -464,17 +464,6 @@ const planningSummaryMetrics = computed<SummaryMetric[]>(() => {
   ];
 });
 
-const projectNextMilestoneIndex = (project: Project) => {
-  const milestones = project.milestones || [];
-  return milestones.findIndex((milestone) => milestone.status !== "done");
-};
-
-const selectedNextMilestone = computed(() => {
-  if (!selectedProject.value) return null;
-  const nextIndex = projectNextMilestoneIndex(selectedProject.value);
-  return nextIndex >= 0 ? selectedProject.value.milestones[nextIndex] : null;
-});
-
 const selectedWorkflowMilestones = computed(() =>
   (selectedProject.value?.milestones || []).filter(
     (milestone) =>
@@ -2051,24 +2040,6 @@ onMounted(async () => {
               >
             </Button>
           </div>
-        </div>
-
-        <div
-          class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5"
-        >
-          <h3 class="text-lg font-bold text-surface-dark">Étape suivante</h3>
-          <p
-            class="mt-3 rounded-2xl border p-4 text-sm font-semibold"
-            :class="
-              selectedNextMilestone
-                ? 'border-amber-500/25 bg-amber-500/8 text-amber-800'
-                : 'border-emerald-500/25 bg-emerald-500/8 text-emerald-700'
-            "
-          >
-            {{
-              selectedNextMilestone?.label || "Toutes les étapes sont validées."
-            }}
-          </p>
         </div>
 
         <div
