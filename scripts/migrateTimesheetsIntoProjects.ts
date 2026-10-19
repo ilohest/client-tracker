@@ -5,7 +5,8 @@
 //  - les statuts projet passent de 10 valeurs à 3 (in_progress / delivered / closed) ;
 //  - `health`, `blockedReason`, `timesheetId` et `projectNotes` disparaissent (les notes sont concaténées dans `notes`).
 // Les timesheets ne sont supprimées qu'avec --delete-timesheets (à lancer après vérification).
-// Usage : cd scripts && npx tsx migrateTimesheetsIntoProjects.ts [--dry-run] [--delete-timesheets]
+// --skip-orphans : ne crée pas de projet pour les timesheets sans projet (à utiliser si ce sont des doublons).
+// Usage : cd scripts && npx tsx migrateTimesheetsIntoProjects.ts [--dry-run] [--skip-orphans] [--delete-timesheets]
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import path from 'path';
@@ -22,6 +23,7 @@ if (!getApps().length) {
 const db = getFirestore();
 const dryRun = process.argv.includes('--dry-run');
 const deleteTimesheets = process.argv.includes('--delete-timesheets');
+const skipOrphans = process.argv.includes('--skip-orphans');
 
 type Doc = Record<string, any>;
 
@@ -90,7 +92,13 @@ async function main() {
 
   for (const timesheet of timesheets.values()) {
     if (consumed.has(timesheet.id)) continue;
-    console.log(`  ➕ Nouveau projet depuis la timesheet orpheline "${timesheet.title}"`);
+    const hours = (Number(timesheet.totalTrackedSeconds || 0) / 3600).toFixed(1);
+    const details = `${(timesheet.sessions || []).length} session(s), ${hours} h, userId ${timesheet.userId}, id ${timesheet.id}`;
+    if (skipOrphans) {
+      console.log(`  ⏭️  Timesheet orpheline ignorée "${timesheet.title}" (${details})`);
+      continue;
+    }
+    console.log(`  ➕ Nouveau projet depuis la timesheet orpheline "${timesheet.title}" (${details})`);
     if (!dryRun) {
       await db.collection('projects').add({
         userId: timesheet.userId,
