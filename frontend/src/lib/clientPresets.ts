@@ -189,9 +189,9 @@ const createQuoteConditionTemplates = (
   {
     title: { fr: '4. Livraison finale', en: '4. Final delivery', es: '4. Entrega final' },
     body: {
-      fr: 'La livraison finale intervient après validation des éléments prévus au devis et régularisation des paiements dus. Les transferts de propriété, exports, accès ou fichiers finaux sont remis à ce stade.',
-      en: 'Final delivery takes place after approval of the quoted deliverables and settlement of the outstanding payments. Ownership transfer, exports, access, or final files are delivered at that stage.',
-      es: 'La entrega final se realiza una vez validados los elementos previstos en el presupuesto y regularizados los pagos pendientes. La transferencia de propiedad, exports, accesos o archivos finales se entregan en ese momento.',
+      fr: 'La livraison finale intervient après validation des éléments prévus au devis et régularisation des paiements dus. Les exports, accès ou fichiers finaux prévus au devis sont remis à ce stade.',
+      en: 'Final delivery takes place after approval of the quoted deliverables and settlement of the outstanding payments. The exports, access, or final files listed in the quote are delivered at that stage.',
+      es: 'La entrega final se realiza una vez validados los elementos previstos en el presupuesto y regularizados los pagos pendientes. Los exports, accesos o archivos finales previstos en el presupuesto se entregan en ese momento.',
     },
   },
   {
@@ -217,6 +217,14 @@ const createQuoteConditionTemplates = (
   {
     title: { fr: '8. Prix, paiement & devise', en: '8. Pricing, payment & currency', es: '8. Precio, pago y divisa' },
     body: getPaymentCondition(clientCountry),
+  },
+  {
+    title: { fr: '9. Propriété intellectuelle', en: '9. Intellectual property', es: '9. Propiedad intelectual' },
+    body: {
+      fr: 'Le code, les composants, les scripts et la structure technique conçus par la prestataire restent sa propriété exclusive. Après règlement intégral du projet, le client bénéficie d’un droit d’utilisation non exclusif et non transférable du site livré, pour ses besoins propres. Les textes, images, logos et autres contenus fournis par le client restent sa propriété. La prestataire peut réutiliser ses méthodes, composants génériques et savoir-faire dans d’autres projets.',
+      en: 'The code, components, scripts, and technical structure created by the provider remain the provider’s exclusive property. Once the project is paid in full, the client receives a non-exclusive, non-transferable right to use the delivered website for its own purposes. Text, images, logos, and other content supplied by the client remain the client’s property. The provider may reuse their methods, generic components, and know-how on other projects.',
+      es: 'El código, los componentes, los scripts y la estructura técnica creados por la prestadora siguen siendo de su propiedad exclusiva. Tras el pago íntegro del proyecto, el cliente obtiene un derecho de uso no exclusivo e intransferible del sitio entregado, para sus propias necesidades. Los textos, imágenes, logos y demás contenidos aportados por el cliente siguen siendo suyos. La prestadora puede reutilizar sus métodos, componentes genéricos y know-how en otros proyectos.',
+    },
   },
 ];
 
