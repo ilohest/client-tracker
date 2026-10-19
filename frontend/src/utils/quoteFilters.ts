@@ -128,7 +128,7 @@ export const sortQuoteList = (quotes: Quote[], state: QuoteListState): Quote[] =
           quoteStatusMeta[a.status].label.localeCompare(quoteStatusMeta[b.status].label, 'fr')
         );
       case 'total':
-        return factor * (a.totalWithVat - b.totalWithVat);
+        return factor * (a.subtotal - b.subtotal);
       case 'quoteDate':
         return factor * (a.quoteDate || '').localeCompare(b.quoteDate || '');
       default:

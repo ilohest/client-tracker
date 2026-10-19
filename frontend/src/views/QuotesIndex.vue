@@ -132,7 +132,7 @@ const allQuoteGroups = computed(() => groupQuoteVersions(quotesStore.quotes));
 const quoteGroupCount = computed(() => allQuoteGroups.value.length);
 
 const filteredTotal = computed(() =>
-  sortedQuotes.value.reduce((total, quote) => total + (quote.totalWithVat || 0), 0),
+  sortedQuotes.value.reduce((total, quote) => total + (quote.subtotal || 0), 0),
 );
 
 const pendingQuotes = computed(() =>
@@ -140,7 +140,7 @@ const pendingQuotes = computed(() =>
 );
 
 const pendingAmount = computed(() =>
-  pendingQuotes.value.reduce((total, quote) => total + (quote.totalWithVat || 0), 0),
+  pendingQuotes.value.reduce((total, quote) => total + (quote.subtotal || 0), 0),
 );
 
 const toggleSort = (field: QuoteSortField) => {
@@ -270,15 +270,9 @@ const toggleVersionHistory = (groupId: string) => {
         </span>
         <div>
           <h1 class="text-3xl font-heading font-bold text-surface-dark">Devis</h1>
-          <p class="mt-1 text-sm text-surface-dark/55">
-            {{ quoteGroupCount }} devis
-            <template v-if="quotesStore.quotes.length !== quoteGroupCount">
-              · {{ quotesStore.quotes.length }} versions
-            </template>
-            <template v-if="pendingQuotes.length">
-              · {{ pendingQuotes.length }} en attente de réponse ·
-              {{ formatCurrency(pendingAmount) }} en cours de négociation
-            </template>
+          <p v-if="pendingQuotes.length" class="mt-1 text-sm text-surface-dark/55">
+            {{ pendingQuotes.length }} en attente de réponse ·
+            {{ formatCurrency(pendingAmount) }} en cours de négociation
           </p>
         </div>
       </div>
@@ -422,7 +416,7 @@ const toggleVersionHistory = (groupId: string) => {
                   { field: 'client' as QuoteSortField, label: 'Client', align: 'left' },
                   { field: null, label: 'Projet', align: 'left' },
                   { field: 'status' as QuoteSortField, label: 'Statut', align: 'left' },
-                  { field: 'total' as QuoteSortField, label: 'Montant TTC', align: 'right' },
+                  { field: 'total' as QuoteSortField, label: 'Montant HT', align: 'right' },
                   { field: 'quoteDate' as QuoteSortField, label: 'Date du devis', align: 'left' },
                   { field: 'updatedAt' as QuoteSortField, label: 'Modifié', align: 'left' },
                 ]"
@@ -501,7 +495,7 @@ const toggleVersionHistory = (groupId: string) => {
                     : 'text-surface-dark'
                 "
               >
-                {{ formatCurrency(group.latest.totalWithVat || 0) }}
+                {{ formatCurrency(group.latest.subtotal || 0) }}
               </td>
               <td class="whitespace-nowrap px-4 py-3 text-[13px] text-surface-dark/70">
                 {{ group.latest.quoteDate ? formatQuoteDate(group.latest.quoteDate) : "—" }}
@@ -561,7 +555,7 @@ const toggleVersionHistory = (groupId: string) => {
                       {{ quoteStatusMeta[version.status].label }}
                     </span>
                     <span class="min-w-[90px] text-right text-xs font-semibold text-surface-dark/70">
-                      {{ formatCurrency(version.totalWithVat || 0) }}
+                      {{ formatCurrency(version.subtotal || 0) }}
                     </span>
                   </button>
                 </div>
@@ -580,7 +574,6 @@ const toggleVersionHistory = (groupId: string) => {
           devis sur {{ quoteGroupCount }} · {{ quotesStore.quotes.length }} version{{ quotesStore.quotes.length > 1 ? "s" : "" }} · total filtré
           <strong class="font-semibold text-surface-dark">{{ formatCurrency(filteredTotal) }}</strong>
         </span>
-        <span>Entrée pour ouvrir un devis</span>
       </div>
     </section>
 
