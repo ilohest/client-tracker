@@ -5,7 +5,6 @@ import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
 import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
-import { useTimesheetsStore } from "@/stores/timesheetsStore";
 import { useProjectsStore } from "@/stores/projectsStore";
 import Button from "primevue/button";
 import Avatar from "primevue/avatar";
@@ -16,7 +15,6 @@ const authStore = useAuthStore();
 const clientsStore = useClientsStore();
 const quotesStore = useQuotesStore();
 const quoteTemplatesStore = useQuoteTemplatesStore();
-const timesheetsStore = useTimesheetsStore();
 const projectsStore = useProjectsStore();
 const route = useRoute();
 const router = useRouter();
@@ -51,7 +49,6 @@ const mainLinks = computed(() => {
     { label: "Tableau de bord", icon: "home", to: "/" },
     { label: "Devis", icon: "receipt_long", to: "/quotes" },
     { label: "Projets", icon: "workspaces", to: "/projects" },
-    { label: "Timesheets", icon: "timer", to: "/timesheets" },
     { label: "Clients", icon: "groups", to: "/clients" },
     { label: "Stats", icon: "monitoring", to: "/stats" },
     { label: "Templates", icon: "library_books", to: "/quote-templates" },
@@ -170,16 +167,6 @@ const globalSearchResults = computed<GlobalSearchResult[]>(() => {
     action: () => quoteTemplatesStore.selectTemplate(template.id),
   }));
 
-  const timesheetResults = timesheetsStore.timesheets.map((timesheet) => ({
-    id: `timesheet-${timesheet.id}`,
-    type: "page" as const,
-    title: timesheet.title || "Timesheet sans titre",
-    subtitle: [timesheet.clientName, timesheet.quoteRef].filter(Boolean).join(" · ") || "Timesheet",
-    icon: "timer",
-    path: "/timesheets",
-    action: () => timesheetsStore.selectTimesheet(timesheet.id),
-  }));
-
   const projectResults = projectsStore.projects.map((project) => {
     const quoteRef = quotesStore.quotes.find((quote) => quote.projectId === project.id)?.quoteRef;
     return {
@@ -188,12 +175,12 @@ const globalSearchResults = computed<GlobalSearchResult[]>(() => {
       title: project.title || "Projet sans titre",
       subtitle: [project.clientName, quoteRef].filter(Boolean).join(" · ") || "Projet",
       icon: "workspaces",
-      path: "/projects",
+      path: `/projects/${project.id}`,
       action: () => projectsStore.selectProject(project.id),
     };
   });
 
-  return [...quoteResults, ...clientResults, ...projectResults, ...timesheetResults, ...templateResults, ...pageResults.value]
+  return [...quoteResults, ...clientResults, ...projectResults, ...templateResults, ...pageResults.value]
     .filter((result) =>
       normalizeSearch(`${result.title} ${result.subtitle}`).includes(query),
     )
@@ -207,7 +194,6 @@ const ensureSearchData = async () => {
   if (!clientsStore.clients.length) tasks.push(clientsStore.fetchClients());
   if (!projectsStore.projects.length) tasks.push(projectsStore.fetchProjects());
   if (!quoteTemplatesStore.templates.length) tasks.push(quoteTemplatesStore.fetchTemplates());
-  if (!timesheetsStore.timesheets.length) tasks.push(timesheetsStore.fetchTimesheets());
   if (!tasks.length) return;
 
   searchLoading.value = true;
@@ -258,9 +244,7 @@ const handleGlobalShortcut = (event: KeyboardEvent) => {
 };
 
 // --- CHRONO DANS LE TITRE DE L'ONGLET ---
-const activeTimesheet = computed(
-  () => timesheetsStore.timesheets.find((entry) => entry.activeStartedAt) || null,
-);
+const runningProject = computed(() => projectsStore.runningProject);
 const timerNow = ref(Date.now());
 let timerTitleInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -270,17 +254,21 @@ const formatTimerTitle = (startedAt: string) => {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 };
 
+const stopRunningTimer = () => {
+  if (runningProject.value) void projectsStore.stopTimer(runningProject.value.id);
+};
+
 const syncDocumentTitle = () => {
   const pageTitle = route.meta.title as string | undefined;
   const base = pageTitle ? `${pageTitle} | Devisio` : "Devisio";
-  const active = activeTimesheet.value;
+  const active = runningProject.value;
   document.title = active?.activeStartedAt
     ? `⏱ ${formatTimerTitle(active.activeStartedAt)} · ${base}`
     : base;
 };
 
 watch(
-  () => activeTimesheet.value?.activeStartedAt,
+  () => runningProject.value?.activeStartedAt,
   (startedAt) => {
     if (timerTitleInterval) clearInterval(timerTitleInterval);
     timerTitleInterval = null;
@@ -297,7 +285,7 @@ watch([timerNow, () => route.fullPath], syncDocumentTitle);
 
 onMounted(() => {
   window.addEventListener("keydown", handleGlobalShortcut);
-  if (!timesheetsStore.timesheets.length) void timesheetsStore.fetchTimesheets();
+  if (!projectsStore.projects.length) void projectsStore.fetchProjects();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleGlobalShortcut);
@@ -478,6 +466,29 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="flex items-center">
+            <div
+              v-if="runningProject"
+              class="mr-2 flex max-w-72 items-center gap-1 rounded-full bg-emerald-500/10 py-1 pl-3 pr-1 text-emerald-700"
+            >
+              <router-link
+                :to="{ name: 'project-detail', params: { id: runningProject.id } }"
+                class="flex min-w-0 items-center gap-2 text-xs font-semibold"
+                title="Ouvrir le projet"
+              >
+                <span class="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500"></span>
+                <span class="hidden truncate sm:inline">{{ runningProject.title }}</span>
+                <span class="font-mono">{{ formatTimerTitle(runningProject.activeStartedAt) }}</span>
+              </router-link>
+              <button
+                type="button"
+                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-emerald-500/15"
+                title="Arrêter le chrono"
+                aria-label="Arrêter le chrono"
+                @click="stopRunningTimer"
+              >
+                <span class="material-symbols-outlined text-lg">stop_circle</span>
+              </button>
+            </div>
             <Avatar
               :label="userInitials"
               shape="circle"

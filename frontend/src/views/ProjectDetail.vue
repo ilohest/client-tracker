@@ -4,7 +4,6 @@ import type {
   Project,
   ProjectStatus,
   Quote,
-  Timesheet,
 } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import ConfirmDialog from "primevue/confirmdialog";
@@ -26,22 +25,20 @@ import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
 import { useProjectsStore } from "@/stores/projectsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
-import { useTimesheetsStore } from "@/stores/timesheetsStore";
 import { toDateObj } from "@/utils/date";
 import {
   calculatePaymentScheduleStepAmounts,
   formatCurrency,
 } from "@/utils/quote";
-import type { ProjectMacroStatus } from "@/utils/projectFilters";
+import { formatDuration, projectTrackedSeconds } from "@/utils/timeTracking";
+import ProjectTimeTracker from "@/components/projects/ProjectTimeTracker.vue";
 import {
   buildProjectList,
   isProjectOverdue,
   projectDoneMilestones,
-  projectMacroStatus,
-  projectMacroStatusMeta,
-  projectMacroStatusOptions,
+  projectStatusMeta,
+  projectStatusOptions,
   projectProgress,
-  projectStatusForMacro,
   readProjectListQuery,
 } from "@/utils/projectFilters";
 import {
@@ -62,15 +59,13 @@ const authStore = useAuthStore();
 const clientsStore = useClientsStore();
 const projectsStore = useProjectsStore();
 const quotesStore = useQuotesStore();
-const timesheetsStore = useTimesheetsStore();
 const confirm = useConfirm();
 const toast = useToast();
 const router = useRouter();
 const route = useRoute();
 
 const dialogOpen = ref(false);
-const newProjectNote = ref("");
-const projectNoteDrafts = reactive<Record<string, string>>({});
+const notesDraft = ref("");
 const addMilestoneDialogOpen = ref(false);
 const finishProjectDialogOpen = ref(false);
 const finishProjectBillingChoice = ref<
@@ -101,12 +96,6 @@ const colorPool = [
   "#64748b",
 ];
 
-const statusOptions: Array<{ label: string; value: ProjectStatus }> = [
-  { label: "Actif", value: "in_progress" },
-  { label: "En attente", value: "blocked" },
-  { label: "À facturer", value: "ready_to_invoice" },
-  { label: "Clos", value: "closed" },
-];
 const clientOptions = computed(() =>
   clientsStore.clients.map((client) => ({
     label: client.name || client.contactEmail || "Client",
@@ -114,13 +103,6 @@ const clientOptions = computed(() =>
   })),
 );
 const selectedProject = computed(() => projectsStore.selectedProject);
-const selectedTimesheet = computed(() =>
-  selectedProject.value?.timesheetId
-    ? timesheetsStore.timesheets.find(
-        (item) => item.id === selectedProject.value?.timesheetId,
-      ) || null
-    : null,
-);
 // Tous les devis liés à un projet (devis initial + avenants), du plus ancien au plus récent.
 const projectQuotes = (project: Project): Quote[] =>
   sharedProjectQuotes(project, quotesStore.quotes);
@@ -315,22 +297,11 @@ const attachableQuotesForSelectedProject = computed(() => {
 
 const selectedProjectStatusValue = computed<ProjectStatus>(() =>
   selectedProject.value
-    ? projectStatusForMacro(projectMacroStatus(selectedProject.value))
+    ? selectedProject.value.status
     : "in_progress",
 );
 
-const projectSeconds = (project: Project) => {
-  const timesheet = project.timesheetId
-    ? timesheetsStore.timesheets.find((item) => item.id === project.timesheetId)
-    : timesheetsStore.timesheets.find((item) => item.projectId === project.id);
-  return Number(timesheet?.totalTrackedSeconds || 0);
-};
-
-const formatDuration = (seconds: number) => {
-  const hours = Math.floor(Math.max(0, seconds) / 3600);
-  const minutes = Math.floor((Math.max(0, seconds) % 3600) / 60);
-  return `${hours}h ${String(minutes).padStart(2, "0")}`;
-};
+const projectSeconds = (project: Project) => projectTrackedSeconds(project);
 
 const formatDate = (value?: string) => {
   if (!value) return "Non planifié";
@@ -460,15 +431,6 @@ const planningSummaryMetrics = computed<SummaryMetric[]>(() => {
   const project = selectedProject.value;
   if (!project) return [];
   return [
-    {
-      key: "time",
-      label: "Temps investi",
-      value: formatDuration(projectSeconds(project)),
-      detail: "Temps enregistré dans la timesheet",
-      icon: "timer",
-      tone: "primary",
-      wide: true,
-    },
     {
       key: "start",
       label: "Début",
@@ -653,7 +615,7 @@ const createFromQuote = async (quote: Quote) => {
     toast.add({
       severity: "success",
       summary: "Projet créé",
-      detail: "Le devis et la timesheet sont liés.",
+      detail: "Le devis est lié au projet.",
       life: 2600,
     });
   } catch (error: any) {
@@ -1005,6 +967,7 @@ const finishProject = async () => {
   if (!project) return;
   const today = todayIsoDate();
   const choice = finishProjectBillingChoice.value;
+  if (project.activeStartedAt) await projectsStore.stopTimer(project.id);
   const milestones = project.milestones.map((milestone) => {
     const isWorkflowStep = ["work", "approval", "delivery"].includes(
       milestone.kind || "",
@@ -1021,12 +984,8 @@ const finishProject = async () => {
   });
   await projectsStore.updateProject(project.id, {
     milestones,
-    status:
-      choice === "no_invoice"
-        ? "closed"
-        : choice === "already_invoiced"
-          ? "invoiced"
-          : "ready_to_invoice",
+    status: choice === "no_invoice" ? "closed" : "delivered",
+    activeStartedAt: "",
     closedAt: choice === "no_invoice" ? project.closedAt || today : "",
     billingWaivedExVat:
       choice === "no_invoice"
@@ -1056,87 +1015,33 @@ const finishProject = async () => {
 
 const updateStatus = async (status: ProjectStatus) => {
   if (!selectedProject.value) return;
-  const isClosed = ["paid", "closed"].includes(status);
+  if (status === "closed" && selectedProject.value.activeStartedAt) {
+    await projectsStore.stopTimer(selectedProject.value.id);
+  }
   await projectsStore.updateProject(selectedProject.value.id, {
     status,
-    closedAt: isClosed ? selectedProject.value.closedAt || todayIsoDate() : "",
-    health:
-      status === "blocked"
-        ? "blocked"
-        : selectedProject.value.health === "blocked"
-          ? "watch"
-          : selectedProject.value.health,
+    closedAt:
+      status === "closed" ? selectedProject.value.closedAt || todayIsoDate() : "",
   });
 };
 
-const projectNotes = computed(() => selectedProject.value?.projectNotes || []);
+const notesChanged = computed(
+  () => notesDraft.value !== (selectedProject.value?.notes || ""),
+);
 
-const addProjectNote = async () => {
-  if (!selectedProject.value || !newProjectNote.value.trim()) return;
-  const now = new Date().toISOString();
-  const note = {
-    id: crypto.randomUUID(),
-    content: newProjectNote.value.trim(),
-    createdAt: now,
-    updatedAt: now,
-  };
+const saveNotes = async () => {
+  if (!selectedProject.value || !notesChanged.value) return;
   await projectsStore.updateProject(selectedProject.value.id, {
-    projectNotes: [note, ...projectNotes.value],
-    notes: "",
+    notes: notesDraft.value,
   });
-  projectNoteDrafts[note.id] = note.content;
-  newProjectNote.value = "";
-  toast.add({ severity: "success", summary: "Note ajoutée", life: 2000 });
-};
-
-const hasProjectNoteChanges = (note: Project["projectNotes"][number]) =>
-  (projectNoteDrafts[note.id] ?? note.content) !== note.content;
-
-const updateProjectNoteDraft = (noteId: string, value: string | undefined) => {
-  projectNoteDrafts[noteId] = value || "";
-};
-
-const saveProjectNote = async (note: Project["projectNotes"][number]) => {
-  if (!selectedProject.value || !hasProjectNoteChanges(note)) return;
-  const content = projectNoteDrafts[note.id] ?? "";
-  const nextNotes = projectNotes.value.map((item) =>
-    item.id === note.id
-      ? { ...item, content, updatedAt: new Date().toISOString() }
-      : item,
-  );
-  await projectsStore.updateProject(selectedProject.value.id, {
-    projectNotes: nextNotes,
-    notes: "",
-  });
-  toast.add({ severity: "success", summary: "Note mise à jour", life: 2000 });
-};
-
-const confirmDeleteProjectNote = (noteId: string) => {
-  if (!selectedProject.value) return;
-  const projectId = selectedProject.value.id;
-  confirm.require({
-    message: "Voulez-vous vraiment supprimer cette note ?",
-    header: "Supprimer la note",
-    icon: "info",
-    rejectProps: { label: "Annuler", severity: "secondary", outlined: true },
-    acceptProps: { label: "Supprimer", severity: "danger" },
-    accept: async () => {
-      const nextNotes = projectNotes.value.filter((note) => note.id !== noteId);
-      await projectsStore.updateProject(projectId, {
-        projectNotes: nextNotes,
-        notes: "",
-      });
-      delete projectNoteDrafts[noteId];
-      toast.add({ severity: "info", summary: "Note supprimée", life: 2000 });
-    },
-  });
+  toast.add({ severity: "success", summary: "Notes enregistrées", life: 2000 });
 };
 
 const deleteSelected = () => {
   const project = selectedProject.value;
   if (!project) return;
   confirm.require({
-    message: `Supprimer "${project.title}" ? La timesheet liée ne sera pas supprimée automatiquement.`,
+    message: `Supprimer "${project.title}" ? Son suivi du temps sera supprimé avec lui.`,
     header: "Supprimer le projet",
     icon: "pi pi-exclamation-triangle",
     rejectProps: { label: "Annuler", severity: "secondary", outlined: true },
@@ -1207,13 +1112,6 @@ const detachQuoteFromSelectedProject = (quote: Quote) => {
   });
 };
 
-const openTimesheet = () => {
-  const timesheet = selectedTimesheet.value;
-  if (!timesheet) return;
-  timesheetsStore.selectTimesheet(timesheet.id);
-  router.push({ name: "timesheets" });
-};
-
 const openClient = () => {
   if (!selectedProject.value?.clientId) return;
   clientsStore.selectClient(selectedProject.value.clientId);
@@ -1221,18 +1119,9 @@ const openClient = () => {
 };
 
 watch(
-  () =>
-    [selectedProject.value?.id, selectedProject.value?.projectNotes] as const,
+  () => [selectedProject.value?.id, selectedProject.value?.notes] as const,
   () => {
-    const currentIds = new Set(projectNotes.value.map((note) => note.id));
-    for (const note of projectNotes.value) {
-      if (projectNoteDrafts[note.id] === undefined)
-        projectNoteDrafts[note.id] = note.content;
-    }
-    for (const id of Object.keys(projectNoteDrafts)) {
-      if (!currentIds.has(id)) delete projectNoteDrafts[id];
-    }
-    newProjectNote.value = "";
+    notesDraft.value = selectedProject.value?.notes || "";
   },
   { immediate: true },
 );
@@ -1312,7 +1201,7 @@ watch(routeProjectId, () => {
 
 const projectMenu = ref<InstanceType<typeof Menu> | null>(null);
 
-// Les raccourcis client / devis / timesheet vivent dans le rail (un clic, toujours
+// Les raccourcis client / devis vivent dans le rail (un clic, toujours
 // visibles) : le menu ne porte que ce qui n'a pas sa place ailleurs.
 const projectMenuItems = computed(() => [
   {
@@ -1335,9 +1224,6 @@ onMounted(async () => {
     clientsStore.clients.length
       ? Promise.resolve()
       : clientsStore.fetchClients(),
-    timesheetsStore.timesheets.length
-      ? Promise.resolve()
-      : timesheetsStore.fetchTimesheets(),
   ]);
   loadFromRoute();
 });
@@ -1376,11 +1262,11 @@ onMounted(async () => {
             </h1>
             <Tag
               :value="
-                projectMacroStatusMeta[projectMacroStatus(selectedProject)]
+                projectStatusMeta[selectedProject.status]
                   .label
               "
               :class="
-                projectMacroStatusMeta[projectMacroStatus(selectedProject)]
+                projectStatusMeta[selectedProject.status]
                   .tagClass
               "
               rounded
@@ -1451,7 +1337,7 @@ onMounted(async () => {
 
       <div class="flex flex-wrap items-center gap-2">
         <Button
-          v-if="!['paid', 'closed'].includes(selectedProject.status)"
+          v-if="selectedProject.status === 'in_progress'"
           label="Terminer le travail"
           class="!rounded-xl"
           @click="openFinishProjectDialog"
@@ -1463,19 +1349,19 @@ onMounted(async () => {
           >
         </Button>
         <Select
-          :model-value="projectMacroStatus(selectedProject)"
-          :options="projectMacroStatusOptions"
+          :model-value="selectedProject.status"
+          :options="projectStatusOptions"
           option-label="label"
           option-value="value"
           class="w-40"
-          @update:model-value="updateStatus(projectStatusForMacro($event))"
+          @update:model-value="updateStatus($event)"
         >
           <template #value="{ value }">
             <Tag
               v-if="value"
-              :value="projectMacroStatusMeta[value as ProjectMacroStatus].label"
+              :value="projectStatusMeta[value as ProjectStatus].label"
               :class="
-                projectMacroStatusMeta[value as ProjectMacroStatus].tagClass
+                projectStatusMeta[value as ProjectStatus].tagClass
               "
               rounded
             />
@@ -1484,7 +1370,7 @@ onMounted(async () => {
             <Tag
               :value="option.label"
               :class="
-                projectMacroStatusMeta[option.value as ProjectMacroStatus]
+                projectStatusMeta[option.value as ProjectStatus]
                   .tagClass
               "
               rounded
@@ -1526,6 +1412,8 @@ onMounted(async () => {
       class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
     >
       <div class="flex flex-col gap-6">
+        <ProjectTimeTracker :project="selectedProject" />
+
         <div
           class="rounded-3xl border border-surface-dark/5 bg-surface-card p-4 sm:p-6"
         >
@@ -2162,18 +2050,6 @@ onMounted(async () => {
                 ></template
               >
             </Button>
-            <Button
-              label="Timesheet"
-              :disabled="!selectedTimesheet"
-              class="!justify-start !rounded-xl !border !border-emerald-500/15 !bg-emerald-500/10 !text-emerald-600 hover:!border-emerald-500/30 hover:!bg-emerald-500/15 disabled:!bg-emerald-500/5 disabled:!opacity-50"
-              @click="openTimesheet"
-            >
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >timer</span
-                ></template
-              >
-            </Button>
           </div>
         </div>
 
@@ -2193,12 +2069,6 @@ onMounted(async () => {
               selectedNextMilestone?.label || "Toutes les étapes sont validées."
             }}
           </p>
-          <p
-            v-if="selectedProject.blockedReason"
-            class="mt-3 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-700"
-          >
-            {{ selectedProject.blockedReason }}
-          </p>
         </div>
 
         <div
@@ -2213,75 +2083,22 @@ onMounted(async () => {
               >
               Notes
             </h3>
-            <span
-              class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary"
-              >{{ projectNotes.length }}</span
-            >
-          </div>
-          <div class="mb-4 flex gap-2">
-            <InputText
-              v-model="newProjectNote"
-              placeholder="Ajouter une note projet..."
-              class="flex-1 !text-sm !rounded-xl"
-              @keydown.enter="addProjectNote"
-            />
             <Button
-              aria-label="Ajouter"
-              :disabled="!newProjectNote.trim()"
-              class="!h-10 !w-10 !rounded-xl"
-              @click="addProjectNote"
-            >
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >add</span
-                ></template
-              >
-            </Button>
+              v-if="notesChanged"
+              label="Enregistrer"
+              size="small"
+              class="!rounded-lg"
+              @click="saveNotes"
+            />
           </div>
-          <div class="space-y-3">
-            <div
-              v-for="note in projectNotes"
-              :key="note.id"
-              class="group flex items-start gap-2 rounded-xl border border-surface-dark/8 bg-white p-3 text-sm text-surface-dark/70 transition-all hover:border-primary/20 hover:bg-primary/5"
-            >
-              <Textarea
-                :model-value="projectNoteDrafts[note.id] ?? note.content"
-                auto-resize
-                rows="2"
-                class="flex-1 !border-0 !bg-transparent !p-0 !text-sm !leading-relaxed !shadow-none focus:!ring-0"
-                @update:model-value="updateProjectNoteDraft(note.id, $event)"
-              />
-              <div
-                class="flex flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100"
-              >
-                <button
-                  type="button"
-                  aria-label="Enregistrer"
-                  title="Enregistrer"
-                  :disabled="!hasProjectNoteChanges(note)"
-                  class="flex h-7 w-7 items-center justify-center rounded-full text-surface-dark/35 transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-25"
-                  @click="saveProjectNote(note)"
-                >
-                  <span class="material-symbols-outlined text-xs">save</span>
-                </button>
-                <button
-                  type="button"
-                  aria-label="Supprimer"
-                  title="Supprimer"
-                  class="flex h-7 w-7 items-center justify-center rounded-full text-surface-dark/35 transition-colors hover:bg-red-50 hover:text-red-500"
-                  @click="confirmDeleteProjectNote(note.id)"
-                >
-                  <span class="material-symbols-outlined text-xs">delete</span>
-                </button>
-              </div>
-            </div>
-            <div
-              v-if="projectNotes.length === 0"
-              class="py-8 text-center text-xs italic text-surface-dark/40"
-            >
-              Aucune note pour l'instant.
-            </div>
-          </div>
+          <Textarea
+            v-model="notesDraft"
+            rows="6"
+            auto-resize
+            class="w-full !text-sm"
+            placeholder="Notes libres sur le projet : décisions, accès, points à ne pas oublier…"
+            @blur="saveNotes"
+          />
         </div>
       </aside>
     </section>

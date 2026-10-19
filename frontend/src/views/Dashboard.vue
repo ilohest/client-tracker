@@ -7,7 +7,6 @@ import WelcomeCard from "../components/dashboard/WelcomeCard.vue";
 import NotesWidget from "../components/widgets/NotesWidget.vue";
 import { useProjectsStore } from "../stores/projectsStore";
 import { useQuotesStore } from "../stores/quotesStore";
-import { useTimesheetsStore } from "../stores/timesheetsStore";
 import { quoteStatusMeta } from "../lib/clientPresets";
 import { formatCurrency, formatQuoteDate } from "../utils/quote";
 import {
@@ -18,12 +17,10 @@ import {
 const router = useRouter();
 const projectsStore = useProjectsStore();
 const quotesStore = useQuotesStore();
-const timesheetsStore = useTimesheetsStore();
 
 onMounted(() => {
   if (!projectsStore.projects.length) void projectsStore.fetchProjects();
   if (!quotesStore.quotes.length) void quotesStore.fetchQuotes();
-  if (!timesheetsStore.timesheets.length) void timesheetsStore.fetchTimesheets();
 });
 
 const quotes = computed(() => quotesStore.quotes);
@@ -95,10 +92,7 @@ const signedValue = computed(() =>
     0,
   ),
 );
-const openTimesheetsCount = computed(() => timesheetsStore.openTimesheets.length);
-const runningTimesheet = computed(() =>
-  timesheetsStore.openTimesheets.find((timesheet) => timesheet.activeStartedAt),
-);
+const runningProject = computed(() => projectsStore.runningProject);
 
 const recentQuotes = computed(() =>
   [...quotes.value]
@@ -107,7 +101,7 @@ const recentQuotes = computed(() =>
 );
 const activeProjects = computed(() =>
   projectsStore.projects
-    .filter((project) => !["paid", "closed"].includes(project.status))
+    .filter((project) => project.status !== "closed")
     .sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || ""))),
 );
 const activeProjectsPreview = computed(() => activeProjects.value.slice(0, 4));
@@ -148,9 +142,9 @@ const createClient = () => {
   router.push({ path: "/clients", query: { new: "1" } });
 };
 
-const openTimesheets = () => {
-  if (runningTimesheet.value) timesheetsStore.selectTimesheet(runningTimesheet.value.id);
-  router.push("/timesheets");
+const openProjects = () => {
+  if (runningProject.value) openProject(runningProject.value.id);
+  else router.push("/projects");
 };
 </script>
 
@@ -182,28 +176,19 @@ const openTimesheets = () => {
               <span class="text-xs font-bold leading-tight text-surface-dark">Clients</span>
             </button>
             <button
-              class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-emerald-500/15 bg-emerald-500/10 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-emerald-500/30 hover:bg-emerald-500/15 hover:shadow-sm"
-              @click="openTimesheets"
-            >
-              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 text-emerald-600">
-                <span class="material-symbols-outlined text-xl">timer</span>
-              </span>
-              <span class="min-w-0">
-                <span class="block text-xs font-bold leading-tight text-surface-dark">Timesheets</span>
-                <span class="mt-1 block line-clamp-2 text-[11px] leading-snug text-surface-dark/50">
-                  <template v-if="runningTimesheet">Timer actif · {{ runningTimesheet.title }}</template>
-                  <template v-else>{{ openTimesheetsCount }} projet{{ openTimesheetsCount > 1 ? "s" : "" }} ouvert{{ openTimesheetsCount > 1 ? "s" : "" }}</template>
-                </span>
-              </span>
-            </button>
-            <button
               class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-amber-500/15 bg-amber-500/10 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-amber-500/30 hover:bg-amber-500/15 hover:shadow-sm"
-              @click="router.push('/projects')"
+              @click="openProjects"
             >
               <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 text-amber-600">
                 <span class="material-symbols-outlined text-xl">workspaces</span>
               </span>
-              <span class="text-xs font-bold leading-tight text-surface-dark">Projets</span>
+              <span class="min-w-0">
+                <span class="block text-xs font-bold leading-tight text-surface-dark">Projets</span>
+                <span class="mt-1 block line-clamp-2 text-[11px] leading-snug text-surface-dark/50">
+                  <template v-if="runningProject">Chrono actif · {{ runningProject.title }}</template>
+                  <template v-else>{{ activeProjects.length }} en cours</template>
+                </span>
+              </span>
             </button>
           </div>
         </div>

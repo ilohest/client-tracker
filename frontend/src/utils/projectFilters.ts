@@ -2,52 +2,21 @@ import type { LocationQuery, LocationQueryRaw } from 'vue-router';
 import type { Project, ProjectStatus, Quote } from '@client-tracker/contracts';
 import { toDateObj } from '@/utils/date';
 
-/**
- * Statut « macro » : les dix statuts du schéma se lisent mal en liste. On les
- * regroupe en quatre états qui répondent à la seule question utile devant le
- * tableau — qu'est-ce qui avance, qu'est-ce qui attend, qu'est-ce qui est à
- * facturer, qu'est-ce qui est fini.
- */
-export type ProjectMacroStatus = 'active' | 'waiting' | 'ready' | 'closed';
-
-export interface ProjectMacroStatusMeta {
+export interface ProjectStatusMeta {
   label: string;
   tagClass: string;
   icon: string;
 }
 
-export const projectMacroStatusMeta: Record<ProjectMacroStatus, ProjectMacroStatusMeta> = {
-  active: { label: 'Actif', tagClass: '!bg-blue-500/12 !text-blue-700', icon: 'play_circle' },
-  waiting: { label: 'En attente', tagClass: '!bg-amber-500/15 !text-amber-700', icon: 'pause_circle' },
-  ready: { label: 'À facturer', tagClass: '!bg-emerald-500/12 !text-emerald-700', icon: 'request_quote' },
-  closed: { label: 'Clos', tagClass: '!bg-surface-dark/8 !text-surface-dark', icon: 'archive' },
+export const projectStatusMeta: Record<ProjectStatus, ProjectStatusMeta> = {
+  in_progress: { label: 'En cours', tagClass: '!bg-blue-500/12 !text-blue-700', icon: 'play_circle' },
+  delivered: { label: 'Livré', tagClass: '!bg-emerald-500/12 !text-emerald-700', icon: 'inventory_2' },
+  closed: { label: 'Clôturé', tagClass: '!bg-surface-dark/8 !text-surface-dark', icon: 'archive' },
 };
 
-export const projectMacroStatusOptions: Array<{ label: string; value: ProjectMacroStatus }> = (
-  Object.keys(projectMacroStatusMeta) as ProjectMacroStatus[]
-).map((value) => ({ label: projectMacroStatusMeta[value].label, value }));
-
-export const projectMacroStatus = (project: Project): ProjectMacroStatus => {
-  if (['paid', 'closed'].includes(project.status)) return 'closed';
-  if (project.status === 'ready_to_invoice') return 'ready';
-  if (
-    project.status === 'invoiced' ||
-    project.status === 'blocked' ||
-    project.health === 'blocked' ||
-    ['deposit_pending', 'client_review'].includes(project.status)
-  ) {
-    return 'waiting';
-  }
-  return 'active';
-};
-
-/** Statut concret écrit en base quand on change le statut macro depuis l'UI. */
-export const projectStatusForMacro = (macro: ProjectMacroStatus): ProjectStatus => {
-  if (macro === 'waiting') return 'blocked';
-  if (macro === 'ready') return 'ready_to_invoice';
-  if (macro === 'closed') return 'closed';
-  return 'in_progress';
-};
+export const projectStatusOptions: Array<{ label: string; value: ProjectStatus }> = (
+  Object.keys(projectStatusMeta) as ProjectStatus[]
+).map((value) => ({ label: projectStatusMeta[value].label, value }));
 
 /** Part de jalons terminés, en pourcentage entier. */
 export const projectProgress = (project: Project): number => {
@@ -65,16 +34,16 @@ export const projectDoneMilestones = (project: Project): number =>
 /** Une échéance dépassée sur un projet non clos est le signal à traiter en premier. */
 export const isProjectOverdue = (project: Project): boolean => {
   if (!project.dueDate) return false;
-  if (projectMacroStatus(project) === 'closed') return false;
+  if (project.status === 'closed') return false;
   return project.dueDate < new Date().toISOString().slice(0, 10);
 };
 
-export type ProjectSortField = 'title' | 'status' | 'progress' | 'budget' | 'dueDate' | 'updatedAt';
+export type ProjectSortField = 'title' | 'status' | 'time' | 'budget' | 'dueDate' | 'updatedAt';
 export type ProjectSortDirection = 'asc' | 'desc';
 
 export interface ProjectListState {
   search: string;
-  status: ProjectMacroStatus | '';
+  status: ProjectStatus | '';
   clientId: string;
   dateRange: Date[] | null;
   sortField: ProjectSortField;
@@ -84,7 +53,7 @@ export interface ProjectListState {
 const SORT_FIELDS: ProjectSortField[] = [
   'title',
   'status',
-  'progress',
+  'time',
   'budget',
   'dueDate',
   'updatedAt',
@@ -103,14 +72,14 @@ const asString = (value: LocationQuery[string]): string =>
   typeof value === 'string' ? value : '';
 
 export const readProjectListQuery = (query: LocationQuery): ProjectListState => {
-  const status = asString(query.statut) as ProjectMacroStatus;
+  const status = asString(query.statut) as ProjectStatus;
   const start = parseIsoDay(asString(query.du));
   const end = parseIsoDay(asString(query.au));
   const sortField = asString(query.tri) as ProjectSortField;
 
   return {
     search: asString(query.q),
-    status: projectMacroStatusOptions.some((option) => option.value === status) ? status : '',
+    status: projectStatusOptions.some((option) => option.value === status) ? status : '',
     clientId: asString(query.client),
     dateRange: start ? (end ? [start, end] : [start]) : null,
     sortField: SORT_FIELDS.includes(sortField) ? sortField : 'dueDate',
@@ -144,7 +113,7 @@ export const filterProjects = (
   const endFilter = filterEnd ? toIsoDay(filterEnd) : startFilter;
 
   return projects.filter((project) => {
-    if (state.status && projectMacroStatus(project) !== state.status) return false;
+    if (state.status && project.status !== state.status) return false;
     if (state.clientId && project.clientId !== state.clientId) return false;
     if (startFilter) {
       const startedAt = project.startedAt || '';
@@ -158,7 +127,7 @@ export const filterProjects = (
       project.description,
       project.nextAction,
       ...quotesByProject(project).map((quote) => quote.quoteRef),
-      projectMacroStatusMeta[projectMacroStatus(project)].label,
+      projectStatusMeta[project.status].label,
     ]
       .filter(Boolean)
       .join(' ')
@@ -182,13 +151,13 @@ export const sortProjectList = (
       case 'status':
         return (
           factor *
-          projectMacroStatusMeta[projectMacroStatus(a)].label.localeCompare(
-            projectMacroStatusMeta[projectMacroStatus(b)].label,
+          projectStatusMeta[a.status].label.localeCompare(
+            projectStatusMeta[b.status].label,
             'fr',
           )
         );
-      case 'progress':
-        return factor * (projectProgress(a) - projectProgress(b));
+      case 'time':
+        return factor * (Number(a.totalTrackedSeconds || 0) - Number(b.totalTrackedSeconds || 0));
       case 'budget':
         return factor * (budgetOf(a) - budgetOf(b));
       case 'updatedAt':

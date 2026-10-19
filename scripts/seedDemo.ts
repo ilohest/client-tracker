@@ -29,7 +29,6 @@ import type {
   QuoteTemplateInput,
   QuoteInput,
   ProjectInput,
-  TimesheetInput,
   QuotePart,
   ProjectMilestone,
 } from '@client-tracker/contracts';
@@ -220,7 +219,7 @@ async function main() {
   await wipeCollection('quotes', uid);
   await wipeCollection('quoteTemplates', uid);
   await wipeCollection('projects', uid);
-  await wipeCollection('timesheets', uid);
+  await wipeCollection('timesheets', uid); // collection supprimée : nettoyage des anciennes données de démo
 
   console.log('Ecriture du profil...');
   const profile: UserProfile = {
@@ -728,15 +727,12 @@ async function main() {
         title: 'Plateforme SaaS Kalimo',
         description: 'Développement complet d’une plateforme SaaS de gestion RH pour PME : auth, dashboard, facturation par abonnement.',
         notes: '',
-        projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        timesheetId: '',
         clientId: clientIds.kalimo,
         clientName: kalimo.name,
         color: '#6366f1',
         status: 'in_progress',
-        health: 'ok',
         budgetExVat: kalimoQuote.subtotal,
         invoicedExVat: 16000,
         paidExVat: 14000,
@@ -744,7 +740,6 @@ async function main() {
         startedAt: dateOnly(2026, 1, 15),
         dueDate: dateOnly(2026, 7, 31),
         closedAt: '',
-        blockedReason: '',
         nextAction: 'Finaliser les retours de la beta privée avant le lancement public.',
         milestones: [
           milestone('Cadrage & architecture', 'done', 'work', dateOnly(2026, 1, 30)),
@@ -764,15 +759,12 @@ async function main() {
         title: 'Refonte Studio Torres Yoga',
         description: 'Site Squarespace pour un studio de yoga à Madrid.',
         notes: '',
-        projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        timesheetId: '',
         clientId: clientIds.studio,
         clientName: studio.name,
         color: '#0ea5e9',
         status: 'closed',
-        health: 'ok',
         budgetExVat: studioQuote.subtotal,
         invoicedExVat: studioQuote.subtotal,
         paidExVat: studioQuote.subtotal,
@@ -780,7 +772,6 @@ async function main() {
         startedAt: dateOnly(2026, 1, 25),
         dueDate: '',
         closedAt: dateOnly(2026, 3, 10),
-        blockedReason: '',
         nextAction: '',
         milestones: [
           milestone('Devis accepté', 'done', 'quote_accepted', dateOnly(2026, 1, 20)),
@@ -799,15 +790,12 @@ async function main() {
         title: 'Site vitrine sur mesure - Cabinet Willems & Associés',
         description: 'Site vitrine développé sur mesure (hors CMS) pour un cabinet d’avocats.',
         notes: '',
-        projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        timesheetId: '',
         clientId: clientIds.willems,
         clientName: willems.name,
         color: '#14b8a6',
         status: 'closed',
-        health: 'ok',
         budgetExVat: willemsQuote.subtotal,
         invoicedExVat: willemsQuote.subtotal,
         paidExVat: willemsQuote.subtotal,
@@ -815,7 +803,6 @@ async function main() {
         startedAt: dateOnly(2026, 2, 10),
         dueDate: '',
         closedAt: dateOnly(2026, 4, 5),
-        blockedReason: '',
         nextAction: '',
         milestones: [
           milestone('Devis accepté', 'done', 'quote_accepted', dateOnly(2026, 2, 5)),
@@ -834,15 +821,12 @@ async function main() {
         title: 'Refonte Boulangerie du Parc',
         description: 'Boutique en ligne Shopify avec système de précommande.',
         notes: '',
-        projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        timesheetId: '',
         clientId: clientIds.boulangerie,
         clientName: boulangerie.name,
         color: '#e96a5f',
         status: 'in_progress',
-        health: 'ok',
         budgetExVat: boulangerieQuote.subtotal,
         invoicedExVat: boulangerieQuote.subtotal * 0.5,
         paidExVat: boulangerieQuote.subtotal * 0.5,
@@ -850,7 +834,6 @@ async function main() {
         startedAt: dateOnly(2026, 5, 25),
         dueDate: dateOnly(2026, 8, 15),
         closedAt: '',
-        blockedReason: '',
         nextAction: 'Recevoir les photos des produits pour intégration.',
         milestones: [
           milestone('Devis accepté', 'done', 'quote_accepted', dateOnly(2026, 5, 18)),
@@ -869,15 +852,12 @@ async function main() {
         title: 'Intégration API ERP ↔ plateforme B2B - NordPlast Industries',
         description: 'Connexion de l’ERP interne de NordPlast Industries à la plateforme B2B de leurs distributeurs : synchronisation des commandes et des stocks.',
         notes: '',
-        projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        timesheetId: '',
         clientId: clientIds.nordplast,
         clientName: nordplast.name,
         color: '#f59e0b',
         status: 'in_progress',
-        health: 'watch',
         budgetExVat: nordplastQuote.subtotal,
         invoicedExVat: nordplastQuote.subtotal * 0.4,
         paidExVat: nordplastQuote.subtotal * 0.4,
@@ -885,7 +865,6 @@ async function main() {
         startedAt: dateOnly(2026, 6, 15),
         dueDate: dateOnly(2026, 7, 20),
         closedAt: '',
-        blockedReason: 'En attente des accès API sandbox de l’ERP côté client.',
         nextAction: 'Relancer NordPlast pour obtenir les credentials API sandbox.',
         milestones: [
           milestone('Devis accepté', 'done', 'quote_accepted', dateOnly(2026, 6, 10)),
@@ -902,6 +881,9 @@ async function main() {
   for (const { key, quoteId, input, createdAt, updatedAt } of projectDefs) {
     const ref = await addDoc(collection(db, 'projects'), {
       ...input,
+      sessions: [],
+      totalTrackedSeconds: 0,
+      activeStartedAt: '',
       userId: uid,
       createdAt,
       updatedAt,
@@ -910,101 +892,36 @@ async function main() {
     await updateDoc(doc(db, 'quotes', quoteId), { projectId: ref.id });
   }
 
-  console.log('Creation des suivis de temps...');
-  const timesheetDefs: Array<{
-    input: TimesheetInput;
-    totalTrackedSeconds: number;
-    sessions: Array<{ title: string; start: string; end: string; hours: number }>;
-    createdAt: string;
-    updatedAt: string;
-  }> = [
-    {
-      createdAt: iso(2026, 1, 16),
-      updatedAt: iso(2026, 6, 20),
-      input: {
-        title: 'Plateforme SaaS Kalimo',
-        projectId: projectRefs.kalimo,
-        sourceType: 'quote',
-        quoteId: kalimoQuoteRef.id,
-        quoteRef: kalimoQuote.quoteRef,
-        clientId: clientIds.kalimo,
-        clientName: kalimo.name,
-        color: '#6366f1',
-        hourlyRate: 55,
-        fixedPriceExVat: kalimoQuote.subtotal,
-        projectStartDate: dateOnly(2026, 1, 15),
-        status: 'open',
-      },
-      sessions: [
-        { title: 'Architecture technique & setup', start: iso(2026, 1, 20, 9), end: iso(2026, 1, 20, 17), hours: 8 },
-        { title: 'Authentification & gestion des utilisateurs', start: iso(2026, 3, 5, 9), end: iso(2026, 3, 5, 18), hours: 9 },
-        { title: 'Dashboard & fonctionnalités coeur', start: iso(2026, 5, 4, 9), end: iso(2026, 5, 4, 18), hours: 9 },
-        { title: 'Intégration Stripe & abonnements', start: iso(2026, 6, 10, 9), end: iso(2026, 6, 10, 17), hours: 8 },
-      ],
-      totalTrackedSeconds: 3600 * (8 + 9 + 9 + 8),
-    },
-    {
-      createdAt: iso(2026, 5, 26),
-      updatedAt: iso(2026, 6, 24),
-      input: {
-        title: 'Refonte Boulangerie du Parc',
-        projectId: projectRefs.boulangerie,
-        sourceType: 'quote',
-        quoteId: boulangerieQuoteRef.id,
-        quoteRef: boulangerieQuote.quoteRef,
-        clientId: clientIds.boulangerie,
-        clientName: boulangerie.name,
-        color: '#e96a5f',
-        hourlyRate: 55,
-        fixedPriceExVat: boulangerieQuote.subtotal,
-        projectStartDate: dateOnly(2026, 5, 25),
-        status: 'open',
-      },
-      sessions: [
-        { title: 'Maquettes & direction artistique', start: iso(2026, 5, 26, 9), end: iso(2026, 5, 26, 15), hours: 6 },
-        { title: 'Intégration thème Shopify', start: iso(2026, 6, 24, 9), end: iso(2026, 6, 24, 15), hours: 6 },
-      ],
-      totalTrackedSeconds: 3600 * 12,
-    },
-    {
-      createdAt: iso(2026, 6, 16),
-      updatedAt: iso(2026, 6, 20),
-      input: {
-        title: 'Intégration API ERP ↔ plateforme B2B - NordPlast',
-        projectId: projectRefs.nordplast,
-        sourceType: 'quote',
-        quoteId: nordplastQuoteRef.id,
-        quoteRef: nordplastQuote.quoteRef,
-        clientId: clientIds.nordplast,
-        clientName: nordplast.name,
-        color: '#f59e0b',
-        hourlyRate: 55,
-        fixedPriceExVat: nordplastQuote.subtotal,
-        projectStartDate: dateOnly(2026, 6, 15),
-        status: 'open',
-      },
-      sessions: [
-        { title: 'Analyse des flux ERP existants', start: iso(2026, 6, 16, 9), end: iso(2026, 6, 16, 13), hours: 4 },
-        { title: 'Cadrage du connecteur API', start: iso(2026, 6, 20, 9), end: iso(2026, 6, 20, 13), hours: 4 },
-      ],
-      totalTrackedSeconds: 3600 * 8,
-    },
-  ];
+  console.log('Enregistrement du temps passe...');
+  const sessionDefs: Record<string, Array<{ title: string; start: string; end: string; hours: number }>> = {
+    kalimo: [
+      { title: 'Architecture technique & setup', start: iso(2026, 1, 20, 9), end: iso(2026, 1, 20, 17), hours: 8 },
+      { title: 'Authentification & gestion des utilisateurs', start: iso(2026, 3, 5, 9), end: iso(2026, 3, 5, 18), hours: 9 },
+      { title: 'Dashboard & fonctionnalités coeur', start: iso(2026, 5, 4, 9), end: iso(2026, 5, 4, 18), hours: 9 },
+      { title: 'Intégration Stripe & abonnements', start: iso(2026, 6, 10, 9), end: iso(2026, 6, 10, 17), hours: 8 },
+    ],
+    boulangerie: [
+      { title: 'Maquettes & direction artistique', start: iso(2026, 5, 26, 9), end: iso(2026, 5, 26, 15), hours: 6 },
+      { title: 'Intégration thème Shopify', start: iso(2026, 6, 24, 9), end: iso(2026, 6, 24, 15), hours: 6 },
+    ],
+    nordplast: [
+      { title: 'Analyse des flux ERP existants', start: iso(2026, 6, 16, 9), end: iso(2026, 6, 16, 13), hours: 4 },
+      { title: 'Cadrage du connecteur API', start: iso(2026, 6, 20, 9), end: iso(2026, 6, 20, 13), hours: 4 },
+    ],
+  };
 
-  for (const { input, sessions, totalTrackedSeconds, createdAt, updatedAt } of timesheetDefs) {
-    await addDoc(collection(db, 'timesheets'), {
-      ...input,
-      userId: uid,
-      totalTrackedSeconds,
-      sessions: sessions.map((s) => ({
-        id: createEntityId(),
-        title: s.title,
-        startedAt: s.start,
-        endedAt: s.end,
-        durationSeconds: 3600 * s.hours,
-      })),
-      createdAt,
-      updatedAt,
+  for (const [key, sessions] of Object.entries(sessionDefs)) {
+    await updateDoc(doc(db, 'projects', projectRefs[key]), {
+      sessions: sessions
+        .map((session) => ({
+          id: createEntityId(),
+          title: session.title,
+          startedAt: session.start,
+          endedAt: session.end,
+          durationSeconds: 3600 * session.hours,
+        }))
+        .reverse(),
+      totalTrackedSeconds: sessions.reduce((total, session) => total + 3600 * session.hours, 0),
     });
   }
 

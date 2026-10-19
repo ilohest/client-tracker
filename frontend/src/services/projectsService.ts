@@ -214,20 +214,6 @@ const ensureMinimumFinancialMilestones = (
   ];
 };
 
-const normalizeProjectNotes = (item: Project): Project['projectNotes'] => {
-  if (item.projectNotes?.length) return item.projectNotes;
-  if (!item.notes?.trim()) return [];
-  const createdAt = toIsoDate(item.createdAt) || new Date().toISOString().slice(0, 10);
-  return [
-    {
-      id: crypto.randomUUID(),
-      content: item.notes,
-      createdAt,
-      updatedAt: item.updatedAt ? toIsoDate(item.updatedAt) : '',
-    },
-  ];
-};
-
 const normalizeProjectSupplements = (item: Project): Project['projectSupplements'] =>
   (item.projectSupplements || []).map((supplement) => ({
     id: supplement.id || crypto.randomUUID(),
@@ -241,15 +227,12 @@ const normalizeProject = (item: Project): Project => ({
   ...item,
   description: item.description || '',
   notes: item.notes || '',
-  projectNotes: normalizeProjectNotes(item),
   projectSupplements: normalizeProjectSupplements(item),
   sourceType: item.sourceType || 'custom',
-  timesheetId: item.timesheetId || '',
   clientId: item.clientId || '',
   clientName: item.clientName || '',
   color: item.color || '#e96a5f',
   status: item.status || 'in_progress',
-  health: item.health || 'ok',
   budgetExVat: Number(item.budgetExVat || 0),
   invoicedExVat: Number(item.invoicedExVat || 0),
   paidExVat: Number(item.paidExVat || 0),
@@ -258,8 +241,10 @@ const normalizeProject = (item: Project): Project => ({
   startedAt: item.startedAt || toIsoDate(item.createdAt),
   dueDate: item.dueDate || '',
   closedAt: item.closedAt || '',
-  blockedReason: item.blockedReason || '',
   nextAction: item.nextAction || '',
+  sessions: item.sessions || [],
+  totalTrackedSeconds: Number(item.totalTrackedSeconds || 0),
+  activeStartedAt: item.activeStartedAt || '',
   milestones: ensureMinimumFinancialMilestones(
     ensureCoreWorkflowMilestones(
       ensureDeliveryMilestone(
@@ -287,6 +272,9 @@ export const projectsService = {
     const docRef = await addDoc(collection(db, 'projects'), {
       ...payload,
       userId,
+      sessions: [],
+      totalTrackedSeconds: 0,
+      activeStartedAt: '',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -295,6 +283,9 @@ export const projectsService = {
       id: docRef.id,
       userId,
       ...payload,
+      sessions: [],
+      totalTrackedSeconds: 0,
+      activeStartedAt: '',
       createdAt: now,
       updatedAt: now,
     });

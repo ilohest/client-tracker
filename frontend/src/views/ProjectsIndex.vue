@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import type { Project, ProjectInput, Quote } from "@client-tracker/contracts";
+import type { Project, ProjectInput, ProjectStatus, Quote } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import ConfirmDialog from "primevue/confirmdialog";
 import DatePicker from "primevue/datepicker";
@@ -17,17 +17,15 @@ import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
 import { useProjectsStore } from "@/stores/projectsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
-import { useTimesheetsStore } from "@/stores/timesheetsStore";
 import { formatCurrency } from "@/utils/quote";
-import type { ProjectMacroStatus, ProjectSortField } from "@/utils/projectFilters";
+import { formatDuration, projectBudgetHours, projectTrackedSeconds } from "@/utils/timeTracking";
+import TimeCalendar from "@/components/projects/TimeCalendar.vue";
+import type { ProjectSortField } from "@/utils/projectFilters";
 import {
   buildProjectList,
   isProjectOverdue,
-  projectDoneMilestones,
-  projectMacroStatus,
-  projectMacroStatusMeta,
-  projectMacroStatusOptions,
-  projectProgress,
+  projectStatusMeta,
+  projectStatusOptions,
   readProjectListQuery,
   toIsoDay,
   writeProjectListQuery,
@@ -47,7 +45,6 @@ const authStore = useAuthStore();
 const projectsStore = useProjectsStore();
 const quotesStore = useQuotesStore();
 const clientsStore = useClientsStore();
-const timesheetsStore = useTimesheetsStore();
 const confirm = useConfirm();
 const toast = useToast();
 
@@ -56,7 +53,7 @@ const currentYearStart = `${currentYear}-01-01`;
 
 const initialState = readProjectListQuery(route.query);
 const search = ref(initialState.search);
-const filterStatus = ref<ProjectMacroStatus | "">(initialState.status);
+const filterStatus = ref<ProjectStatus | "">(initialState.status);
 const filterClientId = ref(initialState.clientId);
 const filterDateRange = ref<Date[] | null>(initialState.dateRange);
 const sortField = ref<ProjectSortField>(initialState.sortField);
@@ -104,9 +101,6 @@ onMounted(async () => {
     projectsStore.fetchProjects(),
     quotesStore.fetchQuotes(),
     clientsStore.fetchClients(),
-    timesheetsStore.timesheets.length
-      ? Promise.resolve()
-      : timesheetsStore.fetchTimesheets(),
   ]);
 });
 
@@ -177,7 +171,7 @@ const activeFilters = computed(() => {
     chips.push({
       key: "statut",
       label: "Statut",
-      value: projectMacroStatusMeta[filterStatus.value].label,
+      value: projectStatusMeta[filterStatus.value].label,
       clear: () => (filterStatus.value = ""),
     });
   }
@@ -230,18 +224,46 @@ function formatDate(value?: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-const projectSeconds = (project: Project) => {
-  const timesheet = project.timesheetId
-    ? timesheetsStore.timesheets.find((item) => item.id === project.timesheetId)
-    : timesheetsStore.timesheets.find((item) => item.projectId === project.id);
-  return Number(timesheet?.totalTrackedSeconds || 0);
+const nowTick = ref(Date.now());
+let tickInterval: ReturnType<typeof setInterval> | null = null;
+onMounted(() => {
+  tickInterval = setInterval(() => {
+    nowTick.value = Date.now();
+  }, 1000);
+});
+onBeforeUnmount(() => {
+  if (tickInterval) clearInterval(tickInterval);
+});
+
+const projectSeconds = (project: Project) => projectTrackedSeconds(project, nowTick.value);
+
+const timeRatio = (project: Project) => {
+  const hours = projectBudgetHours(project);
+  return hours > 0 ? projectSeconds(project) / 3600 / hours : 0;
+};
+const timeBarClass = (project: Project) => {
+  const ratio = timeRatio(project);
+  if (ratio >= 1) return "bg-red-500";
+  if (ratio >= 0.82) return "bg-amber-500";
+  return "bg-emerald-500";
 };
 
-const formatDuration = (seconds: number) => {
-  const hours = Math.floor(Math.max(0, seconds) / 3600);
-  const minutes = Math.floor((Math.max(0, seconds) % 3600) / 60);
-  return `${hours}h ${String(minutes).padStart(2, "0")}`;
+const toggleProjectTimer = async (project: Project) => {
+  try {
+    if (project.activeStartedAt) await projectsStore.stopTimer(project.id);
+    else await projectsStore.startTimer(project.id);
+  } catch (error) {
+    console.error(error);
+    toast.add({
+      severity: "error",
+      summary: "Chrono indisponible",
+      detail: "L'enregistrement du temps a échoué.",
+      life: 4200,
+    });
+  }
 };
+
+const viewMode = ref<"list" | "calendar">("list");
 
 const openProject = (id: string) => {
   void router.push({ name: "project-detail", params: { id }, query: listQuery.value });
@@ -259,15 +281,12 @@ const saveProject = async (form: ProjectFormValue) => {
     title: form.title.trim(),
     description: form.description.trim(),
     notes: "",
-    projectNotes: [],
     projectSupplements: [],
     sourceType: "custom",
-    timesheetId: "",
     clientId: form.clientId,
     clientName: client?.name || "",
     color: form.color,
     status: "in_progress",
-    health: "ok",
     budgetExVat: Number(form.budgetExVat || 0),
     invoicedExVat: 0,
     paidExVat: 0,
@@ -276,7 +295,6 @@ const saveProject = async (form: ProjectFormValue) => {
     startedAt: dateToIso(form.startedAt),
     dueDate: dateToIso(form.dueDate),
     closedAt: "",
-    blockedReason: "",
     nextAction: "",
     milestones: [
       {
@@ -372,7 +390,7 @@ const saveProject = async (form: ProjectFormValue) => {
 const createFromQuote = async (quote: Quote) => {
   try {
     const color = colorPool[projectsStore.projects.length % colorPool.length];
-    const { project } = await projectsStore.createFromQuote(
+    const project = await projectsStore.createFromQuote(
       quote,
       Number(authStore.userProfile?.hourlyRate || 0),
       color,
@@ -380,7 +398,7 @@ const createFromQuote = async (quote: Quote) => {
     toast.add({
       severity: "success",
       summary: "Projet créé depuis le devis",
-      detail: "Le devis et la timesheet sont liés.",
+      detail: "Le devis est lié au projet.",
       life: 2800,
     });
     if (project?.id) openProject(project.id);
@@ -438,7 +456,7 @@ const openRowMenu = (event: Event, projectId: string) => {
 const columns: Array<{ field: ProjectSortField | null; label: string; align?: "right" }> = [
   { field: "title", label: "Projet" },
   { field: "status", label: "Statut" },
-  { field: "progress", label: "Avancement" },
+  { field: "time", label: "Temps" },
   { field: "budget", label: "Budget HT", align: "right" },
   { field: "dueDate", label: "Échéance" },
   { field: "updatedAt", label: "Modifié" },
@@ -481,9 +499,29 @@ const formatRelativeDays = (value: unknown): string => {
           </p>
         </div>
       </div>
-      <Button label="Nouveau projet" @click="openCreateDialog">
-        <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
-      </Button>
+      <div class="flex items-center gap-3">
+        <div v-if="hasAnyProject" class="flex rounded-xl border border-surface-dark/10 bg-white p-1">
+          <button
+            type="button"
+            class="rounded-lg px-3 py-1.5 text-xs font-bold transition-colors"
+            :class="viewMode === 'list' ? 'bg-primary text-white' : 'text-surface-dark/55 hover:bg-surface-dark/5'"
+            @click="viewMode = 'list'"
+          >
+            Liste
+          </button>
+          <button
+            type="button"
+            class="rounded-lg px-3 py-1.5 text-xs font-bold transition-colors"
+            :class="viewMode === 'calendar' ? 'bg-primary text-white' : 'text-surface-dark/55 hover:bg-surface-dark/5'"
+            @click="viewMode = 'calendar'"
+          >
+            Calendrier
+          </button>
+        </div>
+        <Button label="Nouveau projet" @click="openCreateDialog">
+          <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
+        </Button>
+      </div>
     </div>
 
     <div v-if="hasAnyProject" class="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -552,7 +590,7 @@ const formatRelativeDays = (value: unknown): string => {
         <InputText v-model="search" placeholder="Rechercher un projet" />
         <Select
           v-model="filterStatus"
-          :options="projectMacroStatusOptions"
+          :options="projectStatusOptions"
           option-label="label"
           option-value="value"
           placeholder="Tous les statuts"
@@ -561,8 +599,8 @@ const formatRelativeDays = (value: unknown): string => {
           <template #value="{ value }">
             <Tag
               v-if="value"
-              :value="projectMacroStatusMeta[value as ProjectMacroStatus].label"
-              :class="projectMacroStatusMeta[value as ProjectMacroStatus].tagClass"
+              :value="projectStatusMeta[value as ProjectStatus].label"
+              :class="projectStatusMeta[value as ProjectStatus].tagClass"
               rounded
             />
             <span v-else class="text-surface-dark/50">Tous les statuts</span>
@@ -570,7 +608,7 @@ const formatRelativeDays = (value: unknown): string => {
           <template #option="{ option }">
             <Tag
               :value="option.label"
-              :class="projectMacroStatusMeta[option.value as ProjectMacroStatus].tagClass"
+              :class="projectStatusMeta[option.value as ProjectStatus].tagClass"
               rounded
             />
           </template>
@@ -633,7 +671,7 @@ const formatRelativeDays = (value: unknown): string => {
       </span>
       <h2 class="font-heading text-lg font-bold text-surface-dark">Suivez votre premier projet</h2>
       <p class="max-w-md text-sm text-surface-dark/55">
-        Un devis accepté devient un projet en un clic, avec ses jalons de facturation déjà posés.
+        Un devis accepté devient un projet en un clic, avec ses jalons de facturation déjà posés et un chrono prêt à démarrer.
         Vous pouvez aussi créer un projet hors devis.
       </p>
       <Button class="mt-3" label="Nouveau projet" @click="openCreateDialog">
@@ -663,6 +701,13 @@ const formatRelativeDays = (value: unknown): string => {
         label="Effacer les filtres"
         @click="clearAllFilters"
       />
+    </section>
+
+    <section
+      v-else-if="sortedProjects.length && viewMode === 'calendar'"
+      class="rounded-3xl border border-surface-dark/5 bg-surface-card p-6 shadow-sm"
+    >
+      <TimeCalendar :projects="sortedProjects" @select="openProject" />
     </section>
 
     <section
@@ -716,7 +761,8 @@ const formatRelativeDays = (value: unknown): string => {
                 <div class="flex items-center gap-2.5">
                   <span
                     class="h-2.5 w-2.5 shrink-0 rounded-full"
-                    :style="{ backgroundColor: project.color }"
+                    :class="project.activeStartedAt ? 'animate-pulse ring-4 ring-emerald-500/25' : ''"
+                    :style="{ backgroundColor: project.activeStartedAt ? '#10b981' : project.color }"
                     aria-hidden="true"
                   ></span>
                   <div class="min-w-0">
@@ -739,32 +785,31 @@ const formatRelativeDays = (value: unknown): string => {
               </td>
               <td class="px-4 py-3">
                 <Tag
-                  :value="projectMacroStatusMeta[projectMacroStatus(project)].label"
-                  :class="projectMacroStatusMeta[projectMacroStatus(project)].tagClass"
+                  :value="projectStatusMeta[project.status].label"
+                  :class="projectStatusMeta[project.status].tagClass"
                   rounded
                 />
               </td>
               <td class="px-4 py-3">
-                <div class="flex w-[130px] items-center gap-2">
-                  <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-dark/8">
+                <div class="flex w-[150px] flex-col gap-1">
+                  <span class="text-[13px] font-semibold text-surface-dark">
+                    {{ formatDuration(projectSeconds(project), true) }}
+                    <span v-if="projectBudgetHours(project)" class="font-normal text-surface-dark/45">
+                      / {{ Math.round(projectBudgetHours(project)) }}h
+                    </span>
+                  </span>
+                  <div v-if="projectBudgetHours(project)" class="h-1.5 overflow-hidden rounded-full bg-surface-dark/8">
                     <div
-                      class="h-full rounded-full bg-primary transition-[width]"
-                      :style="{ width: `${projectProgress(project)}%` }"
+                      class="h-full rounded-full transition-[width]"
+                      :class="timeBarClass(project)"
+                      :style="{ width: `${Math.min(timeRatio(project) * 100, 100)}%` }"
                     ></div>
                   </div>
-                  <span class="w-14 shrink-0 text-right text-xs text-surface-dark/55">
-                    {{ projectDoneMilestones(project) }}/{{
-                      (project.milestones || []).length
-                    }}
-                  </span>
                 </div>
               </td>
               <td class="whitespace-nowrap px-4 py-3 text-right">
                 <div class="font-semibold text-surface-dark">
                   {{ formatCurrency(projectTotalBudget(project)) }}
-                </div>
-                <div class="mt-px text-xs text-surface-dark/45">
-                  {{ formatDuration(projectSeconds(project)) }}
                 </div>
               </td>
               <td
@@ -781,15 +826,34 @@ const formatRelativeDays = (value: unknown): string => {
               <td class="whitespace-nowrap px-4 py-3 text-[13px] text-surface-dark/70">
                 {{ formatRelativeDays(project.updatedAt || project.createdAt) }}
               </td>
-              <td class="w-12 py-3 pr-6 text-right">
-                <button
-                  type="button"
-                  class="rounded-lg p-1.5 text-surface-dark/35 opacity-0 transition hover:bg-surface-dark/6 hover:text-surface-dark focus-visible:opacity-100 group-hover:opacity-100"
-                  :aria-label="`Actions sur le projet ${project.title}`"
-                  @click.stop="openRowMenu($event, project.id)"
-                >
-                  <span class="material-symbols-outlined text-lg">more_vert</span>
-                </button>
+              <td class="w-24 py-3 pr-6 text-right">
+                <div class="flex items-center justify-end gap-1">
+                  <button
+                    v-if="project.status !== 'closed'"
+                    type="button"
+                    class="flex h-8 w-8 items-center justify-center rounded-full transition"
+                    :class="
+                      project.activeStartedAt
+                        ? 'bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25'
+                        : 'text-surface-dark/35 opacity-0 hover:bg-primary/10 hover:text-primary focus-visible:opacity-100 group-hover:opacity-100'
+                    "
+                    :title="project.activeStartedAt ? 'Arrêter le chrono' : 'Lancer le chrono'"
+                    :aria-label="project.activeStartedAt ? 'Arrêter le chrono' : 'Lancer le chrono'"
+                    @click.stop="toggleProjectTimer(project)"
+                  >
+                    <span class="material-symbols-outlined text-xl">
+                      {{ project.activeStartedAt ? "stop_circle" : "play_circle" }}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-lg p-1.5 text-surface-dark/35 opacity-0 transition hover:bg-surface-dark/6 hover:text-surface-dark focus-visible:opacity-100 group-hover:opacity-100"
+                    :aria-label="`Actions sur le projet ${project.title}`"
+                    @click.stop="openRowMenu($event, project.id)"
+                  >
+                    <span class="material-symbols-outlined text-lg">more_vert</span>
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -804,7 +868,6 @@ const formatRelativeDays = (value: unknown): string => {
           projet{{ sortedProjects.length > 1 ? "s" : "" }} sur
           {{ projectsStore.projects.length }}
         </span>
-        <span>Entrée pour ouvrir un projet</span>
       </div>
     </section>
 

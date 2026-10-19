@@ -47,7 +47,7 @@ export const clientProjects = (client: Client, projects: Project[]): Project[] =
 
 export const clientActiveProjects = (client: Client, projects: Project[]): Project[] =>
   clientProjects(client, projects).filter(
-    (project) => !['paid', 'closed'].includes(project.status),
+    (project) => project.status !== 'closed',
   );
 
 export type ClientActivityTone = 'danger' | 'warning' | 'info' | 'success' | 'muted';
@@ -85,20 +85,8 @@ export const clientActivitySignals = (
   const activeProjects = clientActiveProjects(client, projects);
   const signals: ClientActivitySignal[] = [];
 
-  const blockedCount = activeProjects.filter(
-    (project) => project.status === 'blocked' || project.health === 'blocked',
-  ).length;
-  if (blockedCount) {
-    signals.push({
-      key: 'blocked',
-      label: `${blockedCount} projet${blockedCount > 1 ? 's' : ''} bloqué${blockedCount > 1 ? 's' : ''}`,
-      icon: 'block',
-      tone: 'danger',
-    });
-  }
-
   const readyToInvoice = relatedProjects
-    .filter((project) => project.status === 'ready_to_invoice')
+    .filter((project) => project.status === 'delivered')
     .reduce(
       (total, project) =>
         total + projectToInvoiceExVat(project, projectActiveQuotes(project, quotes)),
@@ -124,16 +112,6 @@ export const clientActivitySignals = (
       label: `${formatActivityMoney(toReceive)} à encaisser`,
       icon: 'payments',
       tone: 'warning',
-    });
-  }
-
-  const reviewCount = activeProjects.filter((project) => project.status === 'client_review').length;
-  if (reviewCount) {
-    signals.push({
-      key: 'review',
-      label: `Validation client attendue${reviewCount > 1 ? ` · ${reviewCount} projets` : ''}`,
-      icon: 'rate_review',
-      tone: 'info',
     });
   }
 

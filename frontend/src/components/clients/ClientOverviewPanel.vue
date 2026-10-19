@@ -18,8 +18,7 @@ import {
 import {
   isProjectOverdue,
   projectDoneMilestones,
-  projectMacroStatus,
-  projectMacroStatusMeta,
+  projectStatusMeta,
   projectProgress,
 } from '@/utils/projectFilters';
 import {
@@ -432,8 +431,8 @@ const confirmDeleteClientNote = (noteId: string) => {
                 </td>
                 <td class="client-list-cell">
                   <Tag
-                    :value="projectMacroStatusMeta[projectMacroStatus(project)].label"
-                    :class="projectMacroStatusMeta[projectMacroStatus(project)].tagClass"
+                    :value="projectStatusMeta[project.status].label"
+                    :class="projectStatusMeta[project.status].tagClass"
                     rounded
                   />
                 </td>

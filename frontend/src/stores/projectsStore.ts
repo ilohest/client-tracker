@@ -1,8 +1,7 @@
 import { defineStore } from 'pinia';
-import type { Project, ProjectInput, Quote, TimesheetInput } from '@client-tracker/contracts';
+import type { Project, ProjectInput, ProjectSession, Quote } from '@client-tracker/contracts';
 import { projectsService } from '@/services/projectsService';
 import { useQuotesStore } from '@/stores/quotesStore';
-import { useTimesheetsStore } from '@/stores/timesheetsStore';
 import { toDateObj } from '@/utils/date';
 import { calculatePaymentScheduleStepAmounts } from '@/utils/quote';
 
@@ -15,6 +14,8 @@ interface ProjectsState {
 
 const sortProjects = (projects: Project[]): Project[] =>
   [...projects].sort((a, b) => {
+    const liveScore = Number(Boolean(b.activeStartedAt)) - Number(Boolean(a.activeStartedAt));
+    if (liveScore !== 0) return liveScore;
     const statusScore = Number(b.status === 'in_progress') - Number(a.status === 'in_progress');
     if (statusScore !== 0) return statusScore;
     const dateA = toDateObj(a.updatedAt || a.createdAt)?.getTime() || 0;
@@ -111,10 +112,13 @@ export const useProjectsStore = defineStore('projects', {
       return state.projects.find((project) => project.id === state.selectedProjectId) || null;
     },
     activeProjects(state): Project[] {
-      return state.projects.filter((project) => !['paid', 'closed'].includes(project.status));
+      return state.projects.filter((project) => project.status !== 'closed');
     },
     closedProjects(state): Project[] {
-      return state.projects.filter((project) => ['paid', 'closed'].includes(project.status));
+      return state.projects.filter((project) => project.status === 'closed');
+    },
+    runningProject(state): Project | null {
+      return state.projects.find((project) => project.activeStartedAt) || null;
     },
   },
 
@@ -178,15 +182,12 @@ export const useProjectsStore = defineStore('projects', {
         title,
         description: quote.projectSummary || '',
         notes: '',
-        projectNotes: [],
         projectSupplements: [],
         sourceType: 'quote',
-        timesheetId: '',
         clientId: quote.clientId || '',
         clientName: quote.clientName || '',
         color,
-        status: 'proposal_accepted',
-        health: 'ok',
+        status: 'in_progress',
         budgetExVat: Number(quote.subtotal || 0),
         invoicedExVat: 0,
         paidExVat: 0,
@@ -195,33 +196,60 @@ export const useProjectsStore = defineStore('projects', {
         startedAt: acceptedDate,
         dueDate: '',
         closedAt: '',
-        blockedReason: '',
         nextAction: "Envoyer la facture d'acompte",
         milestones: createMilestonesFromQuote(quote, acceptedDate),
       });
 
       const quotesStore = useQuotesStore();
       await quotesStore.setQuoteProjectId(quote.id, project.id);
+      return project;
+    },
 
-      const timesheetsStore = useTimesheetsStore();
-      const timesheetPayload: TimesheetInput = {
-        projectId: project.id,
-        title,
-        sourceType: 'quote',
-        quoteId: quote.id,
-        quoteRef: quote.quoteRef || '',
-        clientId: quote.clientId || '',
-        clientName: quote.clientName || '',
-        color,
-        hourlyRate,
-        fixedPriceExVat: Number(quote.subtotal || 0),
-        projectStartDate: acceptedDate,
-        status: 'open',
-        activeStartedAt: '',
+    // --- Chrono (anciennement timesheets) ---
+    async startTimer(id: string) {
+      const running = this.projects.find((project) => project.activeStartedAt && project.id !== id);
+      if (running) await this.stopTimer(running.id);
+
+      const project = this.projects.find((entry) => entry.id === id);
+      if (!project || project.activeStartedAt) return;
+      const startedAt = new Date().toISOString();
+      const payload: Partial<Project> = { activeStartedAt: startedAt };
+      if (!project.startedAt) payload.startedAt = startedAt.slice(0, 10);
+      await this.updateProject(id, payload);
+    },
+
+    async stopTimer(id: string, title = '') {
+      const project = this.projects.find((entry) => entry.id === id);
+      if (!project?.activeStartedAt) return;
+
+      const endedAt = new Date().toISOString();
+      const durationSeconds = Math.max(
+        0,
+        Math.round((new Date(endedAt).getTime() - new Date(project.activeStartedAt).getTime()) / 1000),
+      );
+      const session: ProjectSession = {
+        id: crypto.randomUUID(),
+        title: title.trim(),
+        startedAt: project.activeStartedAt,
+        endedAt,
+        durationSeconds,
       };
-      const timesheet = await timesheetsStore.createTimesheet(timesheetPayload);
-      await this.updateProject(project.id, { timesheetId: timesheet.id });
-      return { project: { ...project, timesheetId: timesheet.id }, timesheet };
+      await this.updateProject(id, {
+        activeStartedAt: '',
+        sessions: [session, ...(project.sessions || [])],
+        totalTrackedSeconds: Number(project.totalTrackedSeconds || 0) + durationSeconds,
+      });
+    },
+
+    // Remplace la liste des sessions et recalcule le total (ajout manuel, édition, suppression).
+    async setSessions(id: string, sessions: ProjectSession[]) {
+      const sorted = [...sessions].sort(
+        (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+      );
+      await this.updateProject(id, {
+        sessions: sorted,
+        totalTrackedSeconds: sorted.reduce((total, session) => total + Number(session.durationSeconds || 0), 0),
+      });
     },
 
     // Lie un devis accepté existant (avenant) à un projet déjà en cours : le
