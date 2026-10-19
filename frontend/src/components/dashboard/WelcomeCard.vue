@@ -19,7 +19,7 @@ const greeting = computed(() =>
 </script>
 
 <template>
-  <div class="flex flex-col justify-center gap-1 px-1 py-2">
+  <div class="flex flex-col gap-1 px-1">
     <span class="text-xs font-medium capitalize text-surface-dark/45">{{ today }}</span>
     <h2 class="font-heading text-2xl font-semibold leading-tight text-surface-dark">
       {{ greeting }}, {{ userName }}
