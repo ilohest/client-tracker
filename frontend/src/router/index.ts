@@ -76,12 +76,6 @@ const router = createRouter({
            meta: { title: 'Projet' }
         },
         {
-           path: 'stats',
-           name: 'stats',
-           component: () => import('../views/StatsWorkspace.vue'),
-           meta: { title: 'Stats' }
-        },
-        {
            path: 'quote-templates',
            name: 'quote-templates',
            component: () => import('../views/QuoteTemplatesIndex.vue'),

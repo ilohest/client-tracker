@@ -50,7 +50,6 @@ const mainLinks = computed(() => {
     { label: "Devis", icon: "receipt_long", to: "/quotes" },
     { label: "Projets", icon: "workspaces", to: "/projects" },
     { label: "Clients", icon: "groups", to: "/clients" },
-    { label: "Stats", icon: "monitoring", to: "/stats" },
     { label: "Templates", icon: "library_books", to: "/quote-templates" },
     { label: "Design des devis", icon: "palette", to: "/quote-design" },
     { label: "Infos profil", icon: "badge", to: "/profile" },
