@@ -19,7 +19,6 @@ import { useProjectsStore } from "@/stores/projectsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
 import { formatCurrency } from "@/utils/quote";
 import { formatDuration, projectBudgetHours, projectTrackedSeconds } from "@/utils/timeTracking";
-import TimeCalendar from "@/components/projects/TimeCalendar.vue";
 import type { ProjectSortField } from "@/utils/projectFilters";
 import {
   buildProjectList,
@@ -263,8 +262,6 @@ const toggleProjectTimer = async (project: Project) => {
   }
 };
 
-const viewMode = ref<"list" | "calendar">("list");
-
 const openProject = (id: string) => {
   void router.push({ name: "project-detail", params: { id }, query: listQuery.value });
 };
@@ -500,24 +497,6 @@ const formatRelativeDays = (value: unknown): string => {
         </div>
       </div>
       <div class="flex items-center gap-3">
-        <div v-if="hasAnyProject" class="flex rounded-xl border border-surface-dark/10 bg-white p-1">
-          <button
-            type="button"
-            class="rounded-lg px-3 py-1.5 text-xs font-bold transition-colors"
-            :class="viewMode === 'list' ? 'bg-primary text-white' : 'text-surface-dark/55 hover:bg-surface-dark/5'"
-            @click="viewMode = 'list'"
-          >
-            Liste
-          </button>
-          <button
-            type="button"
-            class="rounded-lg px-3 py-1.5 text-xs font-bold transition-colors"
-            :class="viewMode === 'calendar' ? 'bg-primary text-white' : 'text-surface-dark/55 hover:bg-surface-dark/5'"
-            @click="viewMode = 'calendar'"
-          >
-            Calendrier
-          </button>
-        </div>
         <Button label="Nouveau projet" @click="openCreateDialog">
           <template #icon><span class="material-symbols-outlined text-lg">add</span></template>
         </Button>
@@ -701,13 +680,6 @@ const formatRelativeDays = (value: unknown): string => {
         label="Effacer les filtres"
         @click="clearAllFilters"
       />
-    </section>
-
-    <section
-      v-else-if="sortedProjects.length && viewMode === 'calendar'"
-      class="rounded-3xl border border-surface-dark/5 bg-surface-card p-6 shadow-sm"
-    >
-      <TimeCalendar :projects="sortedProjects" @select="openProject" />
     </section>
 
     <section

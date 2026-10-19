@@ -194,6 +194,10 @@ const escapeHtml = (value: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
+/** Échappe puis conserve les retours à la ligne saisis dans un bloc. */
+const escapeWithBreaks = (value: string): string =>
+  escapeHtml(value).replace(/\r?\n/g, "<br>");
+
 /** Texte saisi dans une condition : conserver Entrée comme retour visuel. */
 const renderConditionText = (
   value: string,
@@ -406,7 +410,7 @@ const renderBlockTable = (
   renderVariables: (value: string) => string,
 ): string => {
   const cell = (value: string, tag: "td" | "th") =>
-    `<${tag}>${escapeHtml(renderVariables(value || ""))}</${tag}>`;
+    `<${tag}>${escapeWithBreaks(renderVariables(value || ""))}</${tag}>`;
   const head = table.hasHeader
     ? `<thead><tr>${table.columns.map((column) => cell(column, "th")).join("")}</tr></thead>`
     : "";
@@ -438,9 +442,11 @@ const renderBlocks = (
   };
 
   (blocks || []).forEach((block) => {
-    const text = escapeHtml(renderVariables(block.text || ""));
+    const text = escapeWithBreaks(renderVariables(block.text || ""));
 
     if (block.kind === "bullet" || block.kind === "numbered") {
+      // Un point vide (placeholder de l'éditeur) n'est pas rendu.
+      if (!text.trim()) return;
       const tag = block.kind === "numbered" ? "ol" : "ul";
       // Un niveau ne peut s'ouvrir que juste sous le dernier ouvert.
       const depth = Math.min(Math.max(0, block.depth || 0), openLists.length);
