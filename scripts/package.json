@@ -8,6 +8,7 @@
     "create-admin": "tsx createAdmin.ts",
     "migrate-project-quotes": "tsx migrateProjectQuotes.ts",
     "migrate-timesheets-into-projects": "tsx migrateTimesheetsIntoProjects.ts",
+    "migrate-legacy-payment-milestones": "tsx migrateLegacyPaymentMilestones.ts",
     "migrate-quote-blocks": "tsx migrateQuoteBlocks.ts",
     "migrate-condition-blocks": "tsx migrateConditionBlocks.ts",
     "remove-legacy-quote-platforms": "tsx removeLegacyQuotePlatforms.ts",
