@@ -381,6 +381,5 @@ const deleteSession = (session: ProjectSession) => {
 
 <style scoped>
 .timer-ring {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 18px 40px rgba(47, 43, 61, 0.12);
 }
 </style>

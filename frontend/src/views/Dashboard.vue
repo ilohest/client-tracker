@@ -158,28 +158,28 @@ const openProjects = () => {
           <h3 class="mb-4 font-heading text-lg font-bold text-surface-dark">Actions rapides</h3>
           <div class="grid max-w-[300px] grid-cols-2 gap-2.5">
             <button
-              class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-primary/15 bg-primary/10 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/15 hover:shadow-sm"
+              class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-surface-dark/10 bg-white p-3 text-left transition-colors hover:border-surface-dark/20 hover:bg-surface-dark/[0.02]"
               @click="createQuote"
             >
-              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 text-primary">
+              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-dark/5 text-surface-dark/60">
                 <span class="material-symbols-outlined text-xl">receipt_long</span>
               </span>
               <span class="text-xs font-bold leading-tight text-surface-dark">Devis</span>
             </button>
             <button
-              class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-indigo-500/15 bg-indigo-500/10 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-indigo-500/30 hover:bg-indigo-500/15 hover:shadow-sm"
+              class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-surface-dark/10 bg-white p-3 text-left transition-colors hover:border-surface-dark/20 hover:bg-surface-dark/[0.02]"
               @click="createClient"
             >
-              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 text-indigo-600">
+              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-dark/5 text-surface-dark/60">
                 <span class="material-symbols-outlined text-xl">groups</span>
               </span>
               <span class="text-xs font-bold leading-tight text-surface-dark">Clients</span>
             </button>
             <button
-              class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-amber-500/15 bg-amber-500/10 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-amber-500/30 hover:bg-amber-500/15 hover:shadow-sm"
+              class="flex aspect-square flex-col items-start justify-between rounded-2xl border border-surface-dark/10 bg-white p-3 text-left transition-colors hover:border-surface-dark/20 hover:bg-surface-dark/[0.02]"
               @click="openProjects"
             >
-              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 text-amber-600">
+              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-dark/5 text-surface-dark/60">
                 <span class="material-symbols-outlined text-xl">workspaces</span>
               </span>
               <span class="min-w-0">

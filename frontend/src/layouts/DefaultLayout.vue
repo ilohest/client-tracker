@@ -297,7 +297,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="min-h-screen bg-[#f8f7fa] flex flex-col">
     <aside
-      class="hidden lg:flex flex-col bg-white border-r border-surface-dark/5 fixed h-full z-20 shadow-[0_2px_10px_rgba(47,43,61,0.08)] transition-[width] duration-200"
+      class="hidden lg:flex flex-col bg-white border-r border-surface-dark/5 fixed h-full z-20 transition-[width] duration-200"
       :class="isQuotePreviewMode ? 'w-20' : 'w-64'"
     >
       <div
@@ -324,7 +324,7 @@ onBeforeUnmount(() => {
           :class="[
             isQuotePreviewMode ? 'justify-center gap-0 px-2 py-2.5' : 'gap-3 px-3 py-2',
             isNavigationLinkActive(link.to)
-              ? 'bg-primary text-white border-primary shadow-[0_3px_8px_rgba(233,106,95,0.35)]'
+              ? 'bg-surface-dark/[0.06] text-surface-dark'
               : 'text-surface-dark/70 hover:bg-surface-dark/[0.055] hover:text-surface-dark',
           ]"
           :title="isQuotePreviewMode ? link.label : undefined"
@@ -332,7 +332,7 @@ onBeforeUnmount(() => {
           <span
             class="material-symbols-outlined"
             :class="[
-              isNavigationLinkActive(link.to) ? 'text-white' : 'text-surface-dark/50',
+              isNavigationLinkActive(link.to) ? 'text-primary' : 'text-surface-dark/45',
             ]"
             >{{ link.icon }}</span
           >
@@ -358,14 +358,14 @@ onBeforeUnmount(() => {
           :class="[
             isQuotePreviewMode ? 'justify-center gap-0 px-2 py-2.5' : 'gap-3 px-3 py-2',
             isNavigationLinkActive(link.to)
-              ? 'bg-primary text-white border-primary shadow-[0_3px_8px_rgba(233,106,95,0.35)]'
+              ? 'bg-surface-dark/[0.06] text-surface-dark'
               : 'text-surface-dark/60 hover:bg-surface-dark/[0.055] hover:text-surface-dark',
           ]"
           :title="isQuotePreviewMode ? link.label : undefined"
         >
           <span
             class="material-symbols-outlined"
-            :class="isNavigationLinkActive(link.to) ? 'text-white' : 'text-surface-dark/50'"
+            :class="isNavigationLinkActive(link.to) ? 'text-primary' : 'text-surface-dark/45'"
           >{{
             link.icon
           }}</span>

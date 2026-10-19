@@ -28,8 +28,8 @@ const shouldShowChat = computed(() => {
 /* --- APPLICATION DU THEME DE POLICES --- */
 :root {
   --font-brand: "Poppins", sans-serif;
-  --font-heading: "Geist Pixel", "Poppins", sans-serif;
-  --font-body: "Raleway", sans-serif;
+  --font-heading: "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
 }
 
 body {

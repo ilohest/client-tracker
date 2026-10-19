@@ -529,7 +529,7 @@ const formatRelativeDays = (value: unknown): string => {
         <p class="text-xs font-bold uppercase tracking-wide text-surface-dark/40">
           Budget actif · {{ currentYear }}
         </p>
-        <p class="mt-2 text-2xl font-bold tabular-nums text-surface-dark">
+        <p class="mt-2 text-xl font-semibold tabular-nums text-surface-dark">
           {{ formatCurrency(totalBudget) }}
         </p>
       </div>
@@ -537,7 +537,7 @@ const formatRelativeDays = (value: unknown): string => {
         <p class="text-xs font-bold uppercase tracking-wide text-surface-dark/40">
           À facturer · {{ currentYear }}
         </p>
-        <p class="mt-2 text-2xl font-bold tabular-nums text-amber-600">
+        <p class="mt-2 text-xl font-semibold tabular-nums text-amber-600">
           {{ formatCurrency(totalToInvoice) }}
         </p>
       </div>
@@ -545,7 +545,7 @@ const formatRelativeDays = (value: unknown): string => {
         <p class="text-xs font-bold uppercase tracking-wide text-surface-dark/40">
           Facturé · {{ currentYear }}
         </p>
-        <p class="mt-2 text-2xl font-bold tabular-nums text-surface-dark">
+        <p class="mt-2 text-xl font-semibold tabular-nums text-surface-dark">
           {{ formatCurrency(totalInvoiced) }}
         </p>
       </div>
