@@ -3025,17 +3025,6 @@ const saveThenLeave = async () => {
           </template>
         </Button>
         <Button
-          v-if="isQuoteLocked && quoteId"
-          severity="secondary"
-          outlined
-          class="!rounded-xl"
-          :label="`Créer la v${form.version + 1}`"
-          title="Figer ce devis et repartir sur une nouvelle version"
-          @click="createNewVersion"
-        >
-          <template #icon><span class="material-symbols-outlined text-lg">difference</span></template>
-        </Button>
-        <Button
           text
           severity="secondary"
           class="!h-9 !w-9 !rounded-xl !p-0"
