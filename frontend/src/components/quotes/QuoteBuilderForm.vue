@@ -57,6 +57,9 @@ const props = defineProps<{
   quoteDate: Date | null;
   validUntil: Date | null;
   clientId: string;
+  /** Projet existant auquel rattacher ce devis (optionnel). */
+  projectId?: string;
+  projects?: Array<{ id: string; title: string; clientId: string; clientName: string; status: string }>;
   clientName: string;
   clientAddress: string;
   clientWebsite: string;
@@ -107,6 +110,7 @@ const emit = defineEmits<{
   "update:quoteDate": [value: Date | null];
   "update:validUntil": [value: Date | null];
   "update:clientId": [value: string];
+  "update:projectId": [value: string];
   "update:customPlatformLabel": [value: string];
   "update:language": [value: QuoteLanguage];
   "update:vatRate": [value: VatRate];
@@ -176,6 +180,20 @@ const emit = defineEmits<{
   updateAddonBlocks: [payload: { addonId: string; blocks: QuoteBlock[] }];
   duplicateAddon: [id: string];
 }>();
+
+// Projets proposés : ceux du client sélectionné (ou tous), hors clôturés, plus le projet déjà lié.
+const projectSelectOptions = computed(() =>
+  (props.projects || [])
+    .filter(
+      (project) =>
+        project.id === props.projectId ||
+        (project.status !== "closed" && (!props.clientId || project.clientId === props.clientId)),
+    )
+    .map((project) => ({
+      label: props.clientId || !project.clientName ? project.title : `${project.title} · ${project.clientName}`,
+      value: project.id,
+    })),
+);
 
 const isTemplate = computed(() => props.mode === "template");
 const isBase = computed(() => props.mode === "base");
@@ -543,6 +561,25 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
             ></Button
           >
         </div>
+      </div>
+      <div v-if="isQuote" class="lg:col-span-2">
+        <span class="text-sm font-semibold text-surface-dark block mb-2">Projet</span>
+        <Select
+          :model-value="projectId || null"
+          :options="projectSelectOptions"
+          option-label="label"
+          option-value="value"
+          filter
+          filter-by="label"
+          filter-placeholder="Rechercher un projet"
+          placeholder="Nouveau projet (créé à l'acceptation) ou projet existant"
+          show-clear
+          class="w-full"
+          @update:model-value="emit('update:projectId', $event || '')"
+        />
+        <p class="mt-1.5 text-xs text-surface-dark/50">
+          Rattache ce devis à un projet existant : avenant, ajout ou suite. Ses étapes de paiement s'ajoutent au projet quand le devis est accepté.
+        </p>
       </div>
       <button
         v-if="isQuote"

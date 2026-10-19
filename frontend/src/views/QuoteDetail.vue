@@ -1317,6 +1317,15 @@ const handleUndoShortcut = (event: KeyboardEvent) => {
 };
 
 const isNewQuoteRoute = computed(() => route.name === "quote-new");
+// Rattache le devis à un projet existant ; un projet choisi impose son client s'il n'y en a pas encore.
+const selectQuoteProject = (projectId: string) => {
+  form.projectId = projectId;
+  const project = projectsStore.projects.find((entry) => entry.id === projectId);
+  if (!project) return;
+  if (!form.clientId && project.clientId) form.clientId = project.clientId;
+  if (!form.projectName.trim()) form.projectName = project.title;
+};
+
 const routeQuoteId = computed(() =>
   typeof route.params.id === "string" ? route.params.id : "",
 );
@@ -3128,6 +3137,8 @@ const saveThenLeave = async () => {
           :quote-date="quoteDateModel"
           :valid-until="validUntilModel"
           :client-id="form.clientId"
+          :project-id="form.projectId"
+          :projects="projectsStore.projects"
           :client-name="form.clientName"
           :client-address="form.clientAddress"
           :client-website="form.clientWebsite"
@@ -3181,6 +3192,7 @@ const saveThenLeave = async () => {
           @update:quote-date="updateQuoteDate"
           @update:valid-until="updateValidUntil"
           @update:client-id="form.clientId = $event"
+          @update:project-id="selectQuoteProject"
           @update:custom-platform-label="form.customPlatformLabel = $event"
           @update:language="form.language = $event"
           @update:vat-rate="form.vatRate = $event"
