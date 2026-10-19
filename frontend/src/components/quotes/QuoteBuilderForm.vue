@@ -457,19 +457,6 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
       </div>
     </div>
 
-    <div
-      v-if="isQuote && statusLocked"
-      class="mb-6 flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-50 p-3 text-sm text-amber-800"
-    >
-      <span class="material-symbols-outlined text-lg">lock</span>
-      <p>
-        Ce devis est
-        <strong>{{ status ? quoteStatusMeta[status].label : "" }}</strong> et ne
-        devrait plus être modifié. Crée une nouvelle version pour apporter des
-        changements.
-      </p>
-    </div>
-
     <div :style="{ order: documentSectionOrder('quoteInfo') }"  data-section-id="quoteInfo" class="grid grid-cols-1 gap-4 rounded-3xl border border-surface-dark/5 bg-white p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)] lg:grid-cols-2">
       <div class="flex items-center justify-between gap-3 lg:col-span-2">
         <h3 class="font-heading font-bold text-surface-dark">
