@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, computed } from "vue";
+import { onBeforeUnmount, onMounted, ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/authStore";
 import { useClientsStore } from "@/stores/clientsStore";
@@ -257,9 +257,51 @@ const handleGlobalShortcut = (event: KeyboardEvent) => {
   }
 };
 
-onMounted(() => window.addEventListener("keydown", handleGlobalShortcut));
+// --- CHRONO DANS LE TITRE DE L'ONGLET ---
+const activeTimesheet = computed(
+  () => timesheetsStore.timesheets.find((entry) => entry.activeStartedAt) || null,
+);
+const timerNow = ref(Date.now());
+let timerTitleInterval: ReturnType<typeof setInterval> | null = null;
+
+const formatTimerTitle = (startedAt: string) => {
+  const total = Math.max(0, Math.floor((timerNow.value - new Date(startedAt).getTime()) / 1000));
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+};
+
+const syncDocumentTitle = () => {
+  const pageTitle = route.meta.title as string | undefined;
+  const base = pageTitle ? `${pageTitle} | Devisio` : "Devisio";
+  const active = activeTimesheet.value;
+  document.title = active?.activeStartedAt
+    ? `⏱ ${formatTimerTitle(active.activeStartedAt)} · ${base}`
+    : base;
+};
+
+watch(
+  () => activeTimesheet.value?.activeStartedAt,
+  (startedAt) => {
+    if (timerTitleInterval) clearInterval(timerTitleInterval);
+    timerTitleInterval = null;
+    timerNow.value = Date.now();
+    if (startedAt) {
+      timerTitleInterval = setInterval(() => {
+        timerNow.value = Date.now();
+      }, 1000);
+    }
+    syncDocumentTitle();
+  },
+);
+watch([timerNow, () => route.fullPath], syncDocumentTitle);
+
+onMounted(() => {
+  window.addEventListener("keydown", handleGlobalShortcut);
+  if (!timesheetsStore.timesheets.length) void timesheetsStore.fetchTimesheets();
+});
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleGlobalShortcut);
+  if (timerTitleInterval) clearInterval(timerTitleInterval);
   if (closeSearchTimer) clearTimeout(closeSearchTimer);
 });
 </script>
