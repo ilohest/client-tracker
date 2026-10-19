@@ -95,125 +95,6 @@ const normalizeMilestone = (milestone: Project['milestones'][number]): Project['
   };
 };
 
-const ensureDeliveryMilestone = (milestones: Project['milestones']): Project['milestones'] => {
-  if (milestones.some((milestone) => milestone.kind === 'delivery')) return milestones;
-  const firstFinalInvoiceIndex = milestones.findIndex(
-    (milestone) =>
-      milestone.kind === 'invoice_sent' &&
-      !milestone.label.toLowerCase().includes('acompte'),
-  );
-  const delivery = {
-    id: crypto.randomUUID(),
-    label: 'Livraison',
-    status: 'todo' as const,
-    date: '',
-    kind: 'delivery' as const,
-  };
-  if (firstFinalInvoiceIndex < 0) return [...milestones, delivery];
-  return [
-    ...milestones.slice(0, firstFinalInvoiceIndex),
-    delivery,
-    ...milestones.slice(firstFinalInvoiceIndex),
-  ];
-};
-
-const ensureFinalInvoiceSentMilestone = (milestones: Project['milestones']): Project['milestones'] => {
-  const normalizedMilestones = milestones.map(normalizeMilestone);
-
-  if (normalizedMilestones.some((milestone) => milestone.label === 'Facture finale envoyée')) return normalizedMilestones;
-
-  const finalPaidIndex = normalizedMilestones.findIndex((milestone) => milestone.label === 'Paiement final reçu');
-  const finalInvoiceSent = {
-    id: crypto.randomUUID(),
-    label: 'Facture finale envoyée',
-    status: 'todo' as const,
-    date: '',
-    kind: 'invoice_sent' as const,
-    paymentScheduleStepId: '',
-    paymentScheduleIndex: -1,
-  };
-
-  if (finalPaidIndex < 0) return [...normalizedMilestones, finalInvoiceSent];
-  return [
-    ...normalizedMilestones.slice(0, finalPaidIndex),
-    finalInvoiceSent,
-    ...normalizedMilestones.slice(finalPaidIndex),
-  ];
-};
-
-const ensureCoreWorkflowMilestones = (
-  milestones: Project['milestones'],
-): Project['milestones'] => {
-  if (milestones.some((milestone) => milestone.label === 'Implémentation des retours')) {
-    return milestones;
-  }
-  const approvalIndex = milestones.findIndex(
-    (milestone) => milestone.kind === 'approval' || milestone.label === 'Validation client',
-  );
-  const implementation = {
-    id: crypto.randomUUID(),
-    label: 'Implémentation des retours',
-    status: 'todo' as const,
-    date: '',
-    kind: 'work' as const,
-  };
-  if (approvalIndex < 0) return [...milestones, implementation];
-  return [
-    ...milestones.slice(0, approvalIndex + 1),
-    implementation,
-    ...milestones.slice(approvalIndex + 1),
-  ];
-};
-
-const ensureMinimumFinancialMilestones = (
-  milestones: Project['milestones'],
-): Project['milestones'] => {
-  const hasDepositInvoice = milestones.some(
-    (milestone) =>
-      milestone.kind === 'invoice_sent' &&
-      milestone.label.toLowerCase().includes('acompte'),
-  );
-  const hasDepositPayment = milestones.some(
-    (milestone) =>
-      milestone.kind === 'payment_received' &&
-      milestone.label.toLowerCase().includes('acompte'),
-  );
-  if (hasDepositInvoice && hasDepositPayment) return milestones;
-
-  const firstFinancialIndex = milestones.findIndex((milestone) =>
-    ['invoice_sent', 'payment_received'].includes(milestone.kind || ''),
-  );
-  const depositMilestones: Project['milestones'] = [];
-  if (!hasDepositInvoice) {
-    depositMilestones.push({
-      id: crypto.randomUUID(),
-      label: "Facture d'acompte envoyée",
-      status: 'todo',
-      date: '',
-      kind: 'invoice_sent',
-      paymentScheduleStepId: '',
-      paymentScheduleIndex: 0,
-    });
-  }
-  if (!hasDepositPayment) {
-    depositMilestones.push({
-      id: crypto.randomUUID(),
-      label: 'Acompte reçu',
-      status: 'todo',
-      date: '',
-      kind: 'payment_received',
-      paymentScheduleStepId: '',
-      paymentScheduleIndex: 0,
-    });
-  }
-  if (firstFinancialIndex < 0) return [...milestones, ...depositMilestones];
-  return [
-    ...milestones.slice(0, firstFinancialIndex),
-    ...depositMilestones,
-    ...milestones.slice(firstFinancialIndex),
-  ];
-};
-
 const normalizeProjectSupplements = (item: Project): Project['projectSupplements'] =>
   (item.projectSupplements || []).map((supplement) => ({
     id: supplement.id || crypto.randomUUID(),
@@ -245,15 +126,7 @@ const normalizeProject = (item: Project): Project => ({
   sessions: item.sessions || [],
   totalTrackedSeconds: Number(item.totalTrackedSeconds || 0),
   activeStartedAt: item.activeStartedAt || '',
-  milestones: ensureMinimumFinancialMilestones(
-    ensureCoreWorkflowMilestones(
-      ensureDeliveryMilestone(
-        ensureFinalInvoiceSentMilestone(
-          item.milestones?.length ? item.milestones : defaultMilestones(),
-        ),
-      ),
-    ),
-  ),
+  milestones: (item.milestones?.length ? item.milestones : defaultMilestones()).map(normalizeMilestone),
 });
 
 export const projectsService = {
