@@ -1022,10 +1022,16 @@ const hydrateFromQuote = (quote: Quote | null) => {
       form.language,
     );
     form.templateId = selectedTemplateId.value || "";
+    quoteRefManual.value = false;
     rememberAutoEmail(nextEmailDraft.subject, nextEmailDraft.body, form.language);
     newQuoteBaseline.value = cloneDraft(form);
     return;
   }
+
+  // Un devis chargé dont la référence diffère de l'automatique garde sa référence.
+  quoteRefManual.value =
+    (quote.quoteRef || "") !==
+    generateQuoteReference(quote.clientName || "", parseQuoteDate(quote.quoteDate));
 
   selectedTemplateId.value = quote.templateId || "";
   const fallbackEmail = splitLegacyEmailDraft(quote.emailDraft || "");
@@ -1439,15 +1445,40 @@ watch(
   },
 );
 
+// Numérotation automatique (date + initiales du client) tant que la référence
+// n'a pas été saisie à la main ; vider le champ rétablit l'automatique.
+const quoteRefManual = ref(false);
+const autoQuoteRef = () =>
+  generateQuoteReference(form.clientName, parseQuoteDate(form.quoteDate));
+
+const updateQuoteRef = (value: string) => {
+  const next = value.trim();
+  if (!next) {
+    quoteRefManual.value = false;
+    form.quoteRef = autoQuoteRef();
+    return;
+  }
+  form.quoteRef = value;
+  quoteRefManual.value = next !== autoQuoteRef();
+};
+
+const quoteRefConflict = computed(() => {
+  const ref = form.quoteRef.trim();
+  if (!ref) return false;
+  return quotesStore.quotes.some(
+    (entry) =>
+      entry.id !== quoteId.value &&
+      entry.versionGroupId !== form.versionGroupId &&
+      (entry.quoteRef || "").trim() === ref,
+  );
+});
+
 watch(
   () =>
     [form.clientName, form.platform, form.language, form.quoteDate] as const,
   () => {
-    if (hydratingQuote) return;
-    form.quoteRef = generateQuoteReference(
-      form.clientName,
-      parseQuoteDate(form.quoteDate),
-    );
+    if (hydratingQuote || quoteRefManual.value) return;
+    form.quoteRef = autoQuoteRef();
   },
   { immediate: true },
 );
@@ -3132,6 +3163,8 @@ const saveThenLeave = async () => {
         <div ref="quoteEditorRoot">
         <QuoteBuilderForm
           :quote-ref="form.quoteRef"
+          :quote-ref-manual="quoteRefManual"
+          :quote-ref-conflict="quoteRefConflict"
           :title="form.title"
           :project-name="form.projectName"
           :quote-date="quoteDateModel"
@@ -3187,6 +3220,7 @@ const saveThenLeave = async () => {
           :vat-amount="totals.vatAmount"
           :total-with-vat="totals.totalWithVat"
           :vat-explanation="vatExplanation"
+          @update:quote-ref="updateQuoteRef"
           @update:title="form.title = $event"
           @update:project-name="form.projectName = $event"
           @update:quote-date="updateQuoteDate"

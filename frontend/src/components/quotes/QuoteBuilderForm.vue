@@ -52,6 +52,10 @@ const props = defineProps<{
   status?: QuoteStatus;
   version?: number;
   quoteRef: string;
+  /** La référence a été saisie à la main : la numérotation automatique est suspendue. */
+  quoteRefManual?: boolean;
+  /** Une autre fiche de devis porte déjà cette référence. */
+  quoteRefConflict?: boolean;
   title: string;
   projectName: string;
   quoteDate: Date | null;
@@ -105,6 +109,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  "update:quoteRef": [value: string];
   "update:title": [value: string];
   "update:projectName": [value: string];
   "update:quoteDate": [value: Date | null];
@@ -419,11 +424,41 @@ const handleInvestmentLines = (value: QuoteInvestmentLine[]) =>
       class="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-surface-dark/5 bg-surface-card p-5 shadow-[0_8px_24px_rgba(33,35,54,0.06)]"
     >
       <div
-        class="flex h-[48px] items-center gap-3 rounded-2xl bg-white border border-surface-dark/5 px-4"
+        class="flex h-[48px] items-center gap-2 rounded-2xl bg-white border px-3"
+        :class="quoteRefConflict ? 'border-amber-400/60' : 'border-surface-dark/5'"
       >
-        <div>
-          <p class="font-heading font-bold text-surface-dark">{{ quoteRef }}</p>
-        </div>
+        <input
+          :value="quoteRef"
+          type="text"
+          spellcheck="false"
+          aria-label="Référence du devis"
+          :title="
+            quoteRefConflict
+              ? 'Cette référence est déjà utilisée par un autre devis'
+              : quoteRefManual
+                ? 'Référence personnalisée'
+                : 'Numérotation automatique — modifiable'
+          "
+          class="w-56 bg-transparent font-heading font-bold text-surface-dark outline-none placeholder:font-normal placeholder:text-surface-dark/35"
+          placeholder="Référence"
+          @input="emit('update:quoteRef', ($event.target as HTMLInputElement).value)"
+        />
+        <button
+          v-if="quoteRefManual"
+          type="button"
+          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-surface-dark/45 transition hover:bg-surface-dark/6 hover:text-surface-dark"
+          title="Revenir à la numérotation automatique"
+          aria-label="Revenir à la numérotation automatique"
+          @click="emit('update:quoteRef', '')"
+        >
+          <span class="material-symbols-outlined text-lg">restart_alt</span>
+        </button>
+        <span
+          v-if="quoteRefConflict"
+          class="material-symbols-outlined shrink-0 text-lg text-amber-600"
+          title="Cette référence est déjà utilisée par un autre devis"
+          >warning</span
+        >
         <span
           v-if="(version || 1) > 1"
           class="self-start rounded-full bg-surface-dark/8 px-2 py-0.5 text-xs font-bold text-surface-dark/70"
