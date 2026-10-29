@@ -126,6 +126,9 @@ const normalizeProject = (item: Project): Project => ({
   sessions: item.sessions || [],
   totalTrackedSeconds: Number(item.totalTrackedSeconds || 0),
   activeStartedAt: item.activeStartedAt || '',
+  activeSessionStartedAt: item.activeSessionStartedAt || '',
+  activeSessionTitle: item.activeSessionTitle || '',
+  activeSessionSeconds: Number(item.activeSessionSeconds || 0),
   milestones: (item.milestones?.length ? item.milestones : defaultMilestones()).map(normalizeMilestone),
 });
 
@@ -148,6 +151,9 @@ export const projectsService = {
       sessions: [],
       totalTrackedSeconds: 0,
       activeStartedAt: '',
+      activeSessionStartedAt: '',
+      activeSessionTitle: '',
+      activeSessionSeconds: 0,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -159,6 +165,9 @@ export const projectsService = {
       sessions: [],
       totalTrackedSeconds: 0,
       activeStartedAt: '',
+      activeSessionStartedAt: '',
+      activeSessionTitle: '',
+      activeSessionSeconds: 0,
       createdAt: now,
       updatedAt: now,
     });

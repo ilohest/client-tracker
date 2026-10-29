@@ -529,6 +529,10 @@ export const projectSchema = z.object({
   sessions: z.array(projectSessionSchema).default([]),
   totalTrackedSeconds: z.number().default(0),
   activeStartedAt: z.string().optional().default(''),
+  // Session ouverte (en cours ou en pause) : début, titre et secondes déjà cumulées avant le segment courant.
+  activeSessionStartedAt: z.string().optional().default(''),
+  activeSessionTitle: z.string().optional().default(''),
+  activeSessionSeconds: z.number().optional().default(0),
   createdAt: z.union([z.string(), z.date(), z.any()]),
   updatedAt: z.union([z.string(), z.date(), z.any()]).optional(),
 });
@@ -539,6 +543,9 @@ export const projectInputSchema = projectSchema.omit({
   sessions: true,
   totalTrackedSeconds: true,
   activeStartedAt: true,
+  activeSessionStartedAt: true,
+  activeSessionTitle: true,
+  activeSessionSeconds: true,
   createdAt: true,
   updatedAt: true,
 });

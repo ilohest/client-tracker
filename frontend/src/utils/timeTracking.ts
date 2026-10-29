@@ -1,6 +1,6 @@
 import type { Project } from '@client-tracker/contracts';
 
-type TrackedProject = Pick<Project, 'totalTrackedSeconds' | 'activeStartedAt' | 'hourlyRate' | 'budgetExVat'>;
+type TrackedProject = Pick<Project, 'totalTrackedSeconds' | 'activeStartedAt' | 'activeSessionStartedAt' | 'activeSessionSeconds' | 'hourlyRate' | 'budgetExVat'>;
 
 /** Temps total d'un projet, session en cours comprise. */
 export const projectTrackedSeconds = (project: TrackedProject | null, now = Date.now()): number => {
@@ -8,8 +8,21 @@ export const projectTrackedSeconds = (project: TrackedProject | null, now = Date
   const running = project.activeStartedAt
     ? Math.max(0, Math.round((now - new Date(project.activeStartedAt).getTime()) / 1000))
     : 0;
-  return Number(project.totalTrackedSeconds || 0) + running;
+  return Number(project.totalTrackedSeconds || 0) + Number(project.activeSessionSeconds || 0) + running;
 };
+
+/** Durée de la session ouverte (segments en pause + segment en cours). */
+export const projectOpenSessionSeconds = (project: TrackedProject | null, now = Date.now()): number => {
+  if (!project?.activeSessionStartedAt) return 0;
+  const running = project.activeStartedAt
+    ? Math.max(0, Math.round((now - new Date(project.activeStartedAt).getTime()) / 1000))
+    : 0;
+  return Number(project.activeSessionSeconds || 0) + running;
+};
+
+/** Session ouverte mais chrono arrêté. */
+export const isProjectPaused = (project: TrackedProject | null): boolean =>
+  Boolean(project?.activeSessionStartedAt && !project.activeStartedAt);
 
 /** Heures « théoriques » : budget HT / taux horaire (0 si l'un des deux manque). */
 export const projectBudgetHours = (project: TrackedProject | null): number => {

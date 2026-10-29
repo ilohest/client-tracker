@@ -956,7 +956,7 @@ const finishProject = async () => {
   if (!project) return;
   const today = todayIsoDate();
   const choice = finishProjectBillingChoice.value;
-  if (project.activeStartedAt) await projectsStore.stopTimer(project.id);
+  if (project.activeSessionStartedAt) await projectsStore.stopTimer(project.id);
   const milestones = project.milestones.map((milestone) => {
     const isWorkflowStep = ["work", "approval", "delivery"].includes(
       milestone.kind || "",
@@ -974,7 +974,6 @@ const finishProject = async () => {
   await projectsStore.updateProject(project.id, {
     milestones,
     status: choice === "no_invoice" ? "closed" : "delivered",
-    activeStartedAt: "",
     closedAt: choice === "no_invoice" ? project.closedAt || today : "",
     billingWaivedExVat:
       choice === "no_invoice"
@@ -1004,7 +1003,7 @@ const finishProject = async () => {
 
 const updateStatus = async (status: ProjectStatus) => {
   if (!selectedProject.value) return;
-  if (status === "closed" && selectedProject.value.activeStartedAt) {
+  if (status === "closed" && selectedProject.value.activeSessionStartedAt) {
     await projectsStore.stopTimer(selectedProject.value.id);
   }
   await projectsStore.updateProject(selectedProject.value.id, {

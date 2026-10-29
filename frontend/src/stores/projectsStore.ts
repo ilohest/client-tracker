@@ -206,36 +206,62 @@ export const useProjectsStore = defineStore('projects', {
     },
 
     // --- Chrono (anciennement timesheets) ---
+    // Démarre une nouvelle session, ou reprend la session en pause du projet.
     async startTimer(id: string) {
       const running = this.projects.find((project) => project.activeStartedAt && project.id !== id);
-      if (running) await this.stopTimer(running.id);
+      if (running) await this.pauseTimer(running.id);
 
       const project = this.projects.find((entry) => entry.id === id);
       if (!project || project.activeStartedAt) return;
       const startedAt = new Date().toISOString();
       const payload: Partial<Project> = { activeStartedAt: startedAt };
+      if (!project.activeSessionStartedAt) {
+        payload.activeSessionStartedAt = startedAt;
+        payload.activeSessionSeconds = 0;
+        payload.activeSessionTitle = '';
+      }
       if (!project.startedAt) payload.startedAt = startedAt.slice(0, 10);
       await this.updateProject(id, payload);
     },
 
-    async stopTimer(id: string, title = '') {
+    // Met la session en pause : le temps écoulé est cumulé, la session reste ouverte.
+    async pauseTimer(id: string, title?: string) {
       const project = this.projects.find((entry) => entry.id === id);
       if (!project?.activeStartedAt) return;
 
-      const endedAt = new Date().toISOString();
-      const durationSeconds = Math.max(
+      const segmentSeconds = Math.max(
         0,
-        Math.round((new Date(endedAt).getTime() - new Date(project.activeStartedAt).getTime()) / 1000),
+        Math.round((Date.now() - new Date(project.activeStartedAt).getTime()) / 1000),
       );
+      await this.updateProject(id, {
+        activeStartedAt: '',
+        activeSessionSeconds: Number(project.activeSessionSeconds || 0) + segmentSeconds,
+        activeSessionTitle: title !== undefined ? title.trim() : project.activeSessionTitle,
+      });
+    },
+
+    // Termine la session ouverte (en cours ou en pause) et l'enregistre.
+    async stopTimer(id: string, title?: string) {
+      const project = this.projects.find((entry) => entry.id === id);
+      if (!project?.activeSessionStartedAt) return;
+
+      const endedAt = new Date().toISOString();
+      const segmentSeconds = project.activeStartedAt
+        ? Math.max(0, Math.round((new Date(endedAt).getTime() - new Date(project.activeStartedAt).getTime()) / 1000))
+        : 0;
+      const durationSeconds = Number(project.activeSessionSeconds || 0) + segmentSeconds;
       const session: ProjectSession = {
         id: crypto.randomUUID(),
-        title: title.trim(),
-        startedAt: project.activeStartedAt,
+        title: (title ?? project.activeSessionTitle ?? '').trim(),
+        startedAt: project.activeSessionStartedAt,
         endedAt,
         durationSeconds,
       };
       await this.updateProject(id, {
         activeStartedAt: '',
+        activeSessionStartedAt: '',
+        activeSessionTitle: '',
+        activeSessionSeconds: 0,
         sessions: [session, ...(project.sessions || [])],
         totalTrackedSeconds: Number(project.totalTrackedSeconds || 0) + durationSeconds,
       });

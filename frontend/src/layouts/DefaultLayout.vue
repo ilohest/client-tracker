@@ -6,6 +6,8 @@ import { useClientsStore } from "@/stores/clientsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
 import { useQuoteTemplatesStore } from "@/stores/quoteTemplatesStore";
 import { useProjectsStore } from "@/stores/projectsStore";
+import { projectOpenSessionSeconds } from "@/utils/timeTracking";
+import type { Project } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import Avatar from "primevue/avatar";
 import Menu from "primevue/menu";
@@ -247,14 +249,14 @@ const runningProject = computed(() => projectsStore.runningProject);
 const timerNow = ref(Date.now());
 let timerTitleInterval: ReturnType<typeof setInterval> | null = null;
 
-const formatTimerTitle = (startedAt: string) => {
-  const total = Math.max(0, Math.floor((timerNow.value - new Date(startedAt).getTime()) / 1000));
+const formatTimerTitle = (project: Project) => {
+  const total = projectOpenSessionSeconds(project, timerNow.value);
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}`;
 };
 
 const stopRunningTimer = () => {
-  if (runningProject.value) void projectsStore.stopTimer(runningProject.value.id);
+  if (runningProject.value) void projectsStore.pauseTimer(runningProject.value.id);
 };
 
 const syncDocumentTitle = () => {
@@ -262,7 +264,7 @@ const syncDocumentTitle = () => {
   const base = pageTitle ? `${pageTitle} | Devisio` : "Devisio";
   const active = runningProject.value;
   document.title = active?.activeStartedAt
-    ? `⏱ ${formatTimerTitle(active.activeStartedAt)} · ${base}`
+    ? `⏱ ${formatTimerTitle(active)} · ${active.title}`
     : base;
 };
 
@@ -275,7 +277,7 @@ watch(
     if (startedAt) {
       timerTitleInterval = setInterval(() => {
         timerNow.value = Date.now();
-      }, 1000);
+      }, 15000);
     }
     syncDocumentTitle();
   },
@@ -476,16 +478,16 @@ onBeforeUnmount(() => {
               >
                 <span class="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500"></span>
                 <span class="hidden truncate sm:inline">{{ runningProject.title }}</span>
-                <span class="font-mono">{{ formatTimerTitle(runningProject.activeStartedAt) }}</span>
+                <span class="font-mono">{{ formatTimerTitle(runningProject) }}</span>
               </router-link>
               <button
                 type="button"
                 class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-emerald-500/15"
-                title="Arrêter le chrono"
-                aria-label="Arrêter le chrono"
+                title="Mettre en pause"
+                aria-label="Mettre en pause"
                 @click="stopRunningTimer"
               >
-                <span class="material-symbols-outlined text-lg">stop_circle</span>
+                <span class="material-symbols-outlined text-lg">pause_circle</span>
               </button>
             </div>
             <Avatar

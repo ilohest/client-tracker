@@ -18,7 +18,7 @@ import { useClientsStore } from "@/stores/clientsStore";
 import { useProjectsStore } from "@/stores/projectsStore";
 import { useQuotesStore } from "@/stores/quotesStore";
 import { formatCurrency } from "@/utils/quote";
-import { formatDuration, projectBudgetHours, projectTrackedSeconds } from "@/utils/timeTracking";
+import { formatDuration, isProjectPaused, projectBudgetHours, projectTrackedSeconds } from "@/utils/timeTracking";
 import type { ProjectSortField } from "@/utils/projectFilters";
 import {
   buildProjectList,
@@ -249,7 +249,7 @@ const timeBarClass = (project: Project) => {
 
 const toggleProjectTimer = async (project: Project) => {
   try {
-    if (project.activeStartedAt) await projectsStore.stopTimer(project.id);
+    if (project.activeStartedAt) await projectsStore.pauseTimer(project.id);
     else await projectsStore.startTimer(project.id);
   } catch (error) {
     console.error(error);
@@ -809,12 +809,12 @@ const formatRelativeDays = (value: unknown): string => {
                         ? 'bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25'
                         : 'text-surface-dark/35 opacity-0 hover:bg-primary/10 hover:text-primary focus-visible:opacity-100 group-hover:opacity-100'
                     "
-                    :title="project.activeStartedAt ? 'Arrêter le chrono' : 'Lancer le chrono'"
-                    :aria-label="project.activeStartedAt ? 'Arrêter le chrono' : 'Lancer le chrono'"
+                    :title="project.activeStartedAt ? 'Mettre en pause' : isProjectPaused(project) ? 'Reprendre le chrono' : 'Lancer le chrono'"
+                    :aria-label="project.activeStartedAt ? 'Mettre en pause' : isProjectPaused(project) ? 'Reprendre le chrono' : 'Lancer le chrono'"
                     @click.stop="toggleProjectTimer(project)"
                   >
                     <span class="material-symbols-outlined text-xl">
-                      {{ project.activeStartedAt ? "stop_circle" : "play_circle" }}
+                      {{ project.activeStartedAt ? "pause_circle" : "play_circle" }}
                     </span>
                   </button>
                   <button
