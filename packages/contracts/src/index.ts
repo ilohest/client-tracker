@@ -360,7 +360,7 @@ export const quoteStatusSchema = z.enum([
   'accepted', // approuvé par le client
   'refused', // refusé par le client
   'revision_requested', // le client demande des modifications
-  'superseded', // remplacé par une version plus récente
+  'pending', // en attente (décision du client ou démarrage du projet différé)
 ]);
 export const quoteDiscountTypeSchema = z.enum(['none', 'percent', 'fixed']);
 

@@ -35,7 +35,6 @@ async function main() {
     const quotesSnap = await db.collection('quotes').where('projectId', '==', projectDoc.id).get();
     const quotes = quotesSnap.docs
       .map((d) => ({ id: d.id, ...d.data() } as Doc))
-      .filter((q) => q.status !== 'superseded')
       .sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
     const firstQuote = quotes[0];
     if (!firstQuote) continue;

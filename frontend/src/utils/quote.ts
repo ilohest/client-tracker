@@ -367,3 +367,19 @@ export const createQuoteVersionInput = (quote: Quote, nextVersion: number): Quot
   versionGroupId: quote.versionGroupId || quote.id,
   projectId: quote.projectId || '',
 });
+
+/**
+ * Devis « vivants » : écarte les anciennes versions d'un devis dès qu'une version plus récente existe,
+ * sauf si la décision du client (accepté / refusé) est définitive.
+ */
+export const liveQuotes = (quotes: Quote[]): Quote[] => {
+  const latestVersion = new Map<string, number>();
+  for (const quote of quotes) {
+    const groupId = quote.versionGroupId || quote.id;
+    latestVersion.set(groupId, Math.max(latestVersion.get(groupId) ?? 0, Number(quote.version || 1)));
+  }
+  return quotes.filter((quote) => {
+    if (quote.status === 'accepted' || quote.status === 'refused') return true;
+    return Number(quote.version || 1) >= (latestVersion.get(quote.versionGroupId || quote.id) ?? 0);
+  });
+};

@@ -1,6 +1,6 @@
 import type { Project, Quote } from '@client-tracker/contracts';
 import { toDateObj } from '@/utils/date';
-import { calculatePaymentScheduleStepAmounts } from '@/utils/quote';
+import { calculatePaymentScheduleStepAmounts, liveQuotes } from '@/utils/quote';
 
 /**
  * Calculs financiers d'un projet. Les devis liés sont passés en argument plutôt
@@ -16,11 +16,9 @@ export const projectQuotes = (project: Project, quotes: Quote[]): Quote[] =>
         (toDateObj(a.createdAt)?.getTime() || 0) - (toDateObj(b.createdAt)?.getTime() || 0),
     );
 
-/** Devis liés dont le montant compte réellement (exclut les versions remplacées et les refus). */
+/** Devis liés dont le montant compte réellement (exclut les anciennes versions et les refus). */
 export const projectActiveQuotes = (project: Project, quotes: Quote[]): Quote[] =>
-  projectQuotes(project, quotes).filter(
-    (quote) => !['superseded', 'refused'].includes(quote.status),
-  );
+  liveQuotes(projectQuotes(project, quotes)).filter((quote) => quote.status !== 'refused');
 
 const quotePaymentSchedule = (quote: Quote): NonNullable<Quote['paymentSchedule']> =>
   quote.paymentSchedule?.length

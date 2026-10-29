@@ -8,7 +8,7 @@ import NotesWidget from "../components/widgets/NotesWidget.vue";
 import { useProjectsStore } from "../stores/projectsStore";
 import { useQuotesStore } from "../stores/quotesStore";
 import { quoteStatusMeta } from "../lib/clientPresets";
-import { formatCurrency, formatQuoteDate } from "../utils/quote";
+import { formatCurrency, formatQuoteDate, liveQuotes as filterLiveQuotes } from "../utils/quote";
 import {
   projectActiveQuotes,
   projectToInvoiceExVat,
@@ -24,9 +24,7 @@ onMounted(() => {
 });
 
 const quotes = computed(() => quotesStore.quotes);
-const liveQuotes = computed(() =>
-  quotes.value.filter((quote) => quote.status !== "superseded"),
-);
+const liveQuotes = computed(() => filterLiveQuotes(quotes.value));
 const signedQuotes = computed(() =>
   liveQuotes.value.filter((quote) => quote.status === "accepted"),
 );

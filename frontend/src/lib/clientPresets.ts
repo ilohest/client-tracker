@@ -57,7 +57,7 @@ export const quoteStatusMeta: Record<QuoteStatus, QuoteStatusMeta> = {
   accepted: { label: 'Accepté', tagClass: '!bg-emerald-500/12 !text-emerald-700', locked: true },
   refused: { label: 'Refusé', tagClass: '!bg-rose-500/12 !text-rose-700', locked: true },
   revision_requested: { label: 'Révision demandée', tagClass: '!bg-amber-500/15 !text-amber-700', locked: false },
-  superseded: { label: 'Remplacé', tagClass: '!bg-purple-500/12 !text-purple-700', locked: true },
+  pending: { label: 'En attente', tagClass: '!bg-slate-500/12 !text-slate-700', locked: false },
 };
 
 export const quoteStatusOptions: Array<{ label: string; value: QuoteStatus }> = (

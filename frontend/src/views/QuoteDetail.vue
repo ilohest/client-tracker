@@ -1836,18 +1836,12 @@ const createNewVersion = async () => {
     totalWithVat: versionTotals.totalWithVat,
   });
 
-  // L'ancienne version devient « Remplacé » (sauf décision finale du client).
-  if (source.status !== "accepted" && source.status !== "refused") {
-    await quotesStore.setQuoteStatus(source.id, "superseded");
-  }
-
   hydrateFromQuote(created);
   goToQuote(created.id);
   toast.add({
     severity: "success",
     summary: `Version ${nextVersion} créée`,
-    detail:
-      "Nouveau brouillon éditable — l'ancienne version est marquée « Remplacé ».",
+    detail: "Nouveau brouillon éditable.",
     life: 3500,
   });
 };

@@ -490,7 +490,7 @@ const toggleVersionHistory = (groupId: string) => {
               <td
                 class="whitespace-nowrap px-4 py-3 text-right font-semibold"
                 :class="
-                  ['draft', 'refused', 'superseded'].includes(group.latest.status)
+                  ['draft', 'refused'].includes(group.latest.status)
                     ? 'font-medium text-surface-dark/55'
                     : 'text-surface-dark'
                 "

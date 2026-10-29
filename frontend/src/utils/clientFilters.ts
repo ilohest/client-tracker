@@ -10,7 +10,7 @@ import { clientStageOptions } from '@/lib/clientPresets';
 import { formatClientAddress, formatClientFullName } from '@/utils/address';
 import { getCountryLabel } from '@/lib/countries';
 import { toDateObj } from '@/utils/date';
-import { getQuotePlatformLabel } from '@/utils/quote';
+import { getQuotePlatformLabel, liveQuotes } from '@/utils/quote';
 import {
   projectActiveQuotes,
   projectToInvoiceExVat,
@@ -40,7 +40,7 @@ export const clientSignedRevenue = (client: Client, quotes: Quote[]): number =>
     .reduce((total, quote) => total + Number(quote.totalWithVat || 0), 0);
 
 export const clientQuotes = (client: Client, quotes: Quote[]): Quote[] =>
-  quotes.filter((quote) => quote.clientId === client.id && quote.status !== 'superseded');
+  liveQuotes(quotes.filter((quote) => quote.clientId === client.id));
 
 export const clientProjects = (client: Client, projects: Project[]): Project[] =>
   projects.filter((project) => project.clientId === client.id);
@@ -116,7 +116,7 @@ export const clientActivitySignals = (
   }
 
   const pendingQuoteCount = relatedQuotes.filter((quote) =>
-    ['finalized', 'sent', 'revision_requested'].includes(quote.status),
+    ['finalized', 'sent', 'revision_requested', 'pending'].includes(quote.status),
   ).length;
   if (pendingQuoteCount) {
     signals.push({

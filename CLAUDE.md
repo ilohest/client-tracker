@@ -33,7 +33,7 @@ npm run dev                                  # dev server Vite
 
 ## Domaine
 
-- **Devis (`Quote`)** : parties (`parts`) → lignes (`sections`) → **blocs** ; conditions/roadmap/acceptance/principles ; addons ; statuts `draft → finalized → sent → accepted/refused/revision_requested/superseded` ; versioning via `versionGroupId` + `version`.
+- **Devis (`Quote`)** : parties (`parts`) → lignes (`sections`) → **blocs** ; conditions/roadmap/acceptance/principles ; addons ; statuts `draft → finalized → sent → accepted/refused/revision_requested/pending` ; versioning via `versionGroupId` + `version`.
 - **Contenu d'une ligne = liste plate de blocs** (`QuoteBlock`) : `kind` ∈ `paragraph|bullet|numbered|heading|table`, `depth` 0→3 pour l'imbrication des listes (pas de tableaux imbriqués — Firestore l'interdit), `text`, et `table` pour les blocs tableau uniquement. Édition clavier dans `QuoteBlocksEditor` : Entrée coupe le bloc, Tab/Maj+Tab indente, Retour arrière en début de bloc désindente puis fusionne, et `- ` / `1. ` / `## ` convertissent le bloc à la frappe. Le collage reconstruit l'arborescence (HTML riche prioritaire, sinon texte indenté ; TSV/markdown → tableau).
 - `part.displayStyle` : `flow` (blocs qui s'enchaînent) ou `framed` (chaque ligne = cellule bordée `.scope-cell` dans le PDF).
 - **Templates de devis (`QuoteTemplate`)** : champ `kind` — `'base'` = **Base commune** (unique, protégée, non supprimable, épinglée en tête de bibliothèque) ; `'custom'` = templates de stack. Contenu localisé fr/en/es dans `localizedContent`.
