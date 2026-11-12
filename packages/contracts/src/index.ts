@@ -380,6 +380,8 @@ export const quoteSchema = z.object({
   clientName: z.string(),
   clientAddress: z.string().optional().default(''),
   clientWebsite: z.string().optional().default(''),
+  clientCompany: z.string().optional().default(''),
+  clientVatNumber: z.string().optional().default(''),
   vatRate: vatRateSchema,
   projectSummary: z.string().default(''),
   investmentSummary: z.string().optional().default(''),
@@ -476,8 +478,15 @@ export const quoteTemplateInputSchema = quoteTemplateSchema.omit({
 export const projectStatusSchema = z.enum(['in_progress', 'delivered', 'closed']);
 export const projectSourceTypeSchema = z.enum(['quote', 'custom']);
 
+// Sous-session : un segment de temps continu entre un démarrage/reprise et une pause/arrêt.
+export const projectSessionSegmentSchema = z.object({
+  startedAt: z.string(),
+  endedAt: z.string(),
+});
+
 export const projectSessionSchema = z.object({
   id: z.string(),
+  segments: z.array(projectSessionSegmentSchema).optional().default([]),
   title: z.string().optional().default(''),
   startedAt: z.string(),
   endedAt: z.string(),
@@ -533,6 +542,7 @@ export const projectSchema = z.object({
   activeSessionStartedAt: z.string().optional().default(''),
   activeSessionTitle: z.string().optional().default(''),
   activeSessionSeconds: z.number().optional().default(0),
+  activeSessionSegments: z.array(projectSessionSegmentSchema).optional().default([]),
   createdAt: z.union([z.string(), z.date(), z.any()]),
   updatedAt: z.union([z.string(), z.date(), z.any()]).optional(),
 });
@@ -546,6 +556,7 @@ export const projectInputSchema = projectSchema.omit({
   activeSessionStartedAt: true,
   activeSessionTitle: true,
   activeSessionSeconds: true,
+  activeSessionSegments: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -595,6 +606,7 @@ export type QuoteInput = z.infer<typeof quoteInputSchema>;
 export type QuoteTemplateKind = z.infer<typeof quoteTemplateKindSchema>;
 export type QuoteTemplate = z.infer<typeof quoteTemplateSchema>;
 export type QuoteTemplateInput = z.infer<typeof quoteTemplateInputSchema>;
+export type ProjectSessionSegment = z.infer<typeof projectSessionSegmentSchema>;
 export type ProjectSession = z.infer<typeof projectSessionSchema>;
 export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 export type ProjectSourceType = z.infer<typeof projectSourceTypeSchema>;

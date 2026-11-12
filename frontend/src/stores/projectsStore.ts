@@ -207,7 +207,7 @@ export const useProjectsStore = defineStore('projects', {
 
     // --- Chrono (anciennement timesheets) ---
     // Démarre une nouvelle session, ou reprend la session en pause du projet.
-    async startTimer(id: string) {
+    async startTimer(id: string, title?: string) {
       const running = this.projects.find((project) => project.activeStartedAt && project.id !== id);
       if (running) await this.pauseTimer(running.id);
 
@@ -218,7 +218,10 @@ export const useProjectsStore = defineStore('projects', {
       if (!project.activeSessionStartedAt) {
         payload.activeSessionStartedAt = startedAt;
         payload.activeSessionSeconds = 0;
-        payload.activeSessionTitle = '';
+        payload.activeSessionTitle = (title ?? '').trim();
+        payload.activeSessionSegments = [];
+      } else if (title !== undefined) {
+        payload.activeSessionTitle = title.trim();
       }
       if (!project.startedAt) payload.startedAt = startedAt.slice(0, 10);
       await this.updateProject(id, payload);
@@ -236,6 +239,10 @@ export const useProjectsStore = defineStore('projects', {
       await this.updateProject(id, {
         activeStartedAt: '',
         activeSessionSeconds: Number(project.activeSessionSeconds || 0) + segmentSeconds,
+        activeSessionSegments: [
+          ...(project.activeSessionSegments || []),
+          { startedAt: project.activeStartedAt, endedAt: new Date().toISOString() },
+        ],
         activeSessionTitle: title !== undefined ? title.trim() : project.activeSessionTitle,
       });
     },
@@ -253,6 +260,10 @@ export const useProjectsStore = defineStore('projects', {
       const session: ProjectSession = {
         id: crypto.randomUUID(),
         title: (title ?? project.activeSessionTitle ?? '').trim(),
+        segments: [
+          ...(project.activeSessionSegments || []),
+          ...(project.activeStartedAt ? [{ startedAt: project.activeStartedAt, endedAt }] : []),
+        ],
         startedAt: project.activeSessionStartedAt,
         endedAt,
         durationSeconds,
@@ -262,6 +273,7 @@ export const useProjectsStore = defineStore('projects', {
         activeSessionStartedAt: '',
         activeSessionTitle: '',
         activeSessionSeconds: 0,
+        activeSessionSegments: [],
         sessions: [session, ...(project.sessions || [])],
         totalTrackedSeconds: Number(project.totalTrackedSeconds || 0) + durationSeconds,
       });

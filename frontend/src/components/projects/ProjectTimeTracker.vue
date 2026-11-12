@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import type { Project, ProjectSession } from "@client-tracker/contracts";
+import type { Project, ProjectSession, ProjectSessionSegment } from "@client-tracker/contracts";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import InputNumber from "primevue/inputnumber";
@@ -57,6 +57,20 @@ watch(
 const isPaused = computed(() => isProjectPaused(props.project));
 const hasOpenSession = computed(() => Boolean(props.project.activeSessionStartedAt));
 const openSessionSeconds = computed(() => projectOpenSessionSeconds(props.project, nowTick.value));
+const expandedSessions = ref<Set<string>>(new Set());
+const toggleSessionDetail = (id: string) => {
+  const next = new Set(expandedSessions.value);
+  if (!next.delete(id)) next.add(id);
+  expandedSessions.value = next;
+};
+const segmentSeconds = (segment: ProjectSessionSegment) =>
+  Math.max(0, Math.round((new Date(segment.endedAt).getTime() - new Date(segment.startedAt).getTime()) / 1000));
+// Sous-sessions de la session ouverte : segments clos + segment en cours.
+const openSessionSegments = computed<ProjectSessionSegment[]>(() => {
+  const closed = props.project.activeSessionSegments || [];
+  if (!props.project.activeStartedAt) return closed;
+  return [...closed, { startedAt: props.project.activeStartedAt, endedAt: new Date(nowTick.value).toISOString() }];
+});
 const manualSessionDialogOpen = ref(false);
 const editingSessionId = ref<string | null>(null);
 const manualSessionForm = reactive({ title: "", date: "", startTime: "09:00", hours: 1, minutes: 0 });
@@ -125,7 +139,7 @@ const toggleTimer = async () => {
     if (props.project.activeStartedAt) {
       await projectsStore.pauseTimer(props.project.id, sessionTitle.value);
     } else {
-      await projectsStore.startTimer(props.project.id);
+      await projectsStore.startTimer(props.project.id, sessionTitle.value);
     }
   } catch (error) {
     showError(error);
@@ -181,6 +195,7 @@ const saveManualSession = async () => {
   const startedAt = new Date(`${manualSessionForm.date}T${manualSessionForm.startTime}:00`);
   const session: ProjectSession = {
     id: editingSessionId.value || crypto.randomUUID(),
+    segments: [],
     title: manualSessionForm.title.trim(),
     startedAt: startedAt.toISOString(),
     endedAt: new Date(startedAt.getTime() + durationSeconds * 1000).toISOString(),
@@ -349,6 +364,21 @@ const deleteSession = (session: ProjectSession) => {
               <div class="min-w-0 flex-1">
                 <p class="truncate text-sm font-semibold text-surface-dark">{{ sessionTitle || "Session en cours" }}</p>
                 <p class="text-xs text-surface-dark/50">{{ isPaused ? "En pause" : "En cours" }} · depuis {{ formatSessionTime(project.activeSessionStartedAt) }}</p>
+                <button
+                    v-if="openSessionSegments.length > 1"
+                    type="button"
+                    class="mt-0.5 inline-flex items-center gap-0.5 text-xs font-semibold text-primary hover:underline"
+                    @click="toggleSessionDetail('open')"
+                  >
+                    <span class="material-symbols-outlined text-[16px]">{{ expandedSessions.has('open') ? 'expand_less' : 'expand_more' }}</span>
+                    {{ openSessionSegments.length }} sous-sessions
+                  </button>
+                <ul v-if="expandedSessions.has('open')" class="mt-2 flex flex-col gap-1 border-l-2 border-surface-dark/10 pl-3">
+                    <li v-for="(segment, index) in openSessionSegments" :key="index" class="flex items-center justify-between gap-3 text-xs text-surface-dark/60">
+                      <span>{{ formatSessionTime(segment.startedAt) }} → {{ formatSessionTime(segment.endedAt) }}</span>
+                      <span class="font-semibold tabular-nums">{{ formatDuration(segmentSeconds(segment), true) }}</span>
+                    </li>
+                  </ul>
               </div>
               <span class="font-mono text-sm font-bold tabular-nums text-surface-dark">{{ formatDuration(openSessionSeconds) }}</span>
             </div>
@@ -368,6 +398,21 @@ const deleteSession = (session: ProjectSession) => {
                     {{ session.title || "Session sans titre" }}
                   </p>
                   <p class="text-xs text-surface-dark/50">à {{ formatSessionTime(session.startedAt) }}</p>
+                  <button
+                    v-if="(session.segments || []).length > 1"
+                    type="button"
+                    class="mt-0.5 inline-flex items-center gap-0.5 text-xs font-semibold text-primary hover:underline"
+                    @click="toggleSessionDetail(session.id)"
+                  >
+                    <span class="material-symbols-outlined text-[16px]">{{ expandedSessions.has(session.id) ? 'expand_less' : 'expand_more' }}</span>
+                    {{ (session.segments || []).length }} sous-sessions
+                  </button>
+                  <ul v-if="expandedSessions.has(session.id)" class="mt-2 flex flex-col gap-1 border-l-2 border-surface-dark/10 pl-3">
+                    <li v-for="(segment, index) in session.segments" :key="index" class="flex items-center justify-between gap-3 text-xs text-surface-dark/60">
+                      <span>{{ formatSessionTime(segment.startedAt) }} → {{ formatSessionTime(segment.endedAt) }}</span>
+                      <span class="font-semibold tabular-nums">{{ formatDuration(segmentSeconds(segment), true) }}</span>
+                    </li>
+                  </ul>
                 </div>
                 <div class="relative shrink-0">
                   <span class="block text-sm font-bold tabular-nums text-surface-dark transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
