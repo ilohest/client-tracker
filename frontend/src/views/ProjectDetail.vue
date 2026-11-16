@@ -1017,6 +1017,7 @@ const notesChanged = computed(
   () => notesDraft.value !== (selectedProject.value?.notes || ""),
 );
 
+const notesOpen = ref(false);
 const saveNotes = async () => {
   if (!selectedProject.value || !notesChanged.value) return;
   await projectsStore.updateProject(selectedProject.value.id, {
@@ -1397,9 +1398,54 @@ onMounted(async () => {
 
     <section
       v-if="selectedProject"
-      class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
+      class="grid grid-cols-1 gap-6"
     >
       <div class="flex flex-col gap-6">
+
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-bold uppercase tracking-wide text-surface-dark/40">Raccourcis</span>
+            <Button
+              size="small"
+              label="Client"
+              :disabled="!selectedProject.clientId"
+              class="!justify-start !rounded-xl !border !border-indigo-500/15 !bg-indigo-500/10 !text-indigo-600 hover:!border-indigo-500/30 hover:!bg-indigo-500/15 disabled:!bg-indigo-500/5 disabled:!opacity-50"
+              @click="openClient"
+            >
+              <template #icon
+                ><span class="material-symbols-outlined text-lg"
+                  >groups</span
+                ></template
+              >
+            </Button>
+            <Button
+              size="small"
+              v-if="!selectedProjectQuotes.length"
+              label="Devis"
+              disabled
+              class="!justify-start !rounded-xl !border !border-primary/15 !bg-primary/10 !text-primary disabled:!bg-primary/5 disabled:!opacity-50"
+            >
+              <template #icon
+                ><span class="material-symbols-outlined text-lg"
+                  >receipt_long</span
+                ></template
+              >
+            </Button>
+            <Button
+              size="small"
+              v-for="quote in selectedProjectQuotes"
+              :key="quote.id"
+              :label="quote.quoteRef || 'Devis'"
+              class="!justify-start !rounded-xl !border !border-primary/15 !bg-primary/10 !text-primary hover:!border-primary/30 hover:!bg-primary/15"
+              @click="openQuote(quote)"
+            >
+              <template #icon
+                ><span class="material-symbols-outlined text-lg"
+                  >receipt_long</span
+                ></template
+              >
+            </Button>
+        </div>
+
         <ProjectTimeTracker :project="selectedProject" />
 
         <div
@@ -1991,70 +2037,24 @@ onMounted(async () => {
             </p>
           </div>
         </div>
-      </div>
 
-      <aside
-        class="flex flex-col gap-4 2xl:sticky 2xl:top-6 2xl:max-h-[85vh] 2xl:self-start 2xl:overflow-y-auto"
-      >
-        <div
-          class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5"
-        >
-          <h3 class="text-lg font-bold text-surface-dark">Raccourcis</h3>
-          <div class="mt-4 grid gap-2">
-            <Button
-              label="Client"
-              :disabled="!selectedProject.clientId"
-              class="!justify-start !rounded-xl !border !border-indigo-500/15 !bg-indigo-500/10 !text-indigo-600 hover:!border-indigo-500/30 hover:!bg-indigo-500/15 disabled:!bg-indigo-500/5 disabled:!opacity-50"
-              @click="openClient"
+        <div class="rounded-3xl border border-surface-dark/5 bg-surface-card px-5 py-3">
+          <div class="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              class="flex min-w-0 flex-1 items-center gap-2 py-1 text-left font-heading text-base font-bold text-surface-dark"
+              :aria-expanded="notesOpen"
+              @click="notesOpen = !notesOpen"
             >
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >groups</span
-                ></template
-              >
-            </Button>
-            <Button
-              v-if="!selectedProjectQuotes.length"
-              label="Devis"
-              disabled
-              class="!justify-start !rounded-xl !border !border-primary/15 !bg-primary/10 !text-primary disabled:!bg-primary/5 disabled:!opacity-50"
-            >
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >receipt_long</span
-                ></template
-              >
-            </Button>
-            <Button
-              v-for="quote in selectedProjectQuotes"
-              :key="quote.id"
-              :label="quote.quoteRef || 'Devis'"
-              class="!justify-start !rounded-xl !border !border-primary/15 !bg-primary/10 !text-primary hover:!border-primary/30 hover:!bg-primary/15"
-              @click="openQuote(quote)"
-            >
-              <template #icon
-                ><span class="material-symbols-outlined text-lg"
-                  >receipt_long</span
-                ></template
-              >
-            </Button>
-          </div>
-        </div>
-
-        <div
-          class="rounded-3xl border border-surface-dark/5 bg-surface-card p-5"
-        >
-          <div class="mb-4 flex items-center justify-between gap-3">
-            <h3
-              class="flex items-center gap-2 font-heading text-lg font-bold text-surface-dark"
-            >
-              <span class="material-symbols-outlined text-primary"
-                >sticky_note_2</span
-              >
+              <span class="material-symbols-outlined text-primary">sticky_note_2</span>
               Notes
-            </h3>
+              <span v-if="!notesOpen && notesDraft.trim()" class="min-w-0 truncate text-sm font-normal text-surface-dark/45">
+                {{ notesDraft.trim().split("\n")[0] }}
+              </span>
+              <span class="material-symbols-outlined ml-auto text-surface-dark/40">{{ notesOpen ? "expand_less" : "expand_more" }}</span>
+            </button>
             <Button
-              v-if="notesChanged"
+              v-if="notesOpen && notesChanged"
               label="Enregistrer"
               size="small"
               class="!rounded-lg"
@@ -2062,15 +2062,17 @@ onMounted(async () => {
             />
           </div>
           <Textarea
+            v-if="notesOpen"
             v-model="notesDraft"
             rows="6"
             auto-resize
-            class="w-full !text-sm"
+            class="mt-3 w-full !text-sm"
             placeholder="Notes libres sur le projet : décisions, accès, points à ne pas oublier…"
             @blur="saveNotes"
           />
         </div>
-      </aside>
+      </div>
+
     </section>
 
     <Dialog

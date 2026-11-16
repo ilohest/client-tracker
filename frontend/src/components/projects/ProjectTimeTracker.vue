@@ -73,6 +73,7 @@ const openSessionSegments = computed<ProjectSessionSegment[]>(() => {
 });
 const manualSessionDialogOpen = ref(false);
 const editingSessionId = ref<string | null>(null);
+const editingOpenSession = ref(false);
 const manualSessionForm = reactive({ title: "", date: "", startTime: "09:00", hours: 1, minutes: 0 });
 
 const sortedSessions = computed(() =>
@@ -134,6 +135,75 @@ const showError = (error: unknown) => {
   toast.add({ severity: "error", summary: "Chrono indisponible", detail: "L'enregistrement du temps a échoué.", life: 4200 });
 };
 
+// Le titre se sauvegarde dès qu'on quitte le champ, même pendant que le chrono tourne.
+const saveOpenTitle = async () => {
+  if (!hasOpenSession.value) return;
+  const title = sessionTitle.value.trim();
+  if (title === (props.project.activeSessionTitle || "")) return;
+  try {
+    await projectsStore.updateProject(props.project.id, { activeSessionTitle: title });
+  } catch (error) {
+    showError(error);
+  }
+};
+
+const openEditOpenSessionDialog = () => {
+  const startedAt = new Date(props.project.activeSessionStartedAt);
+  const total = openSessionSeconds.value;
+  editingSessionId.value = null;
+  editingOpenSession.value = true;
+  manualSessionForm.title = sessionTitle.value;
+  manualSessionForm.date = toDateInputValue(startedAt);
+  manualSessionForm.startTime = `${String(startedAt.getHours()).padStart(2, "0")}:${String(startedAt.getMinutes()).padStart(2, "0")}`;
+  manualSessionForm.hours = Math.floor(total / 3600);
+  manualSessionForm.minutes = Math.floor((total % 3600) / 60);
+  manualSessionDialogOpen.value = true;
+};
+
+const saveOpenSessionEdit = async () => {
+  if (!manualSessionForm.date || !manualSessionForm.startTime) return;
+  const total = openSessionSeconds.value;
+  const newTotal =
+    Math.max(0, Number(manualSessionForm.hours || 0)) * 3600 + Math.max(0, Number(manualSessionForm.minutes || 0)) * 60;
+  // Durée inchangée à la minute près : on ne touche pas aux secondes (évite d'arrondir).
+  const unchanged = Math.floor(total / 60) === Math.floor(newTotal / 60);
+  const patch: Partial<Project> = {
+    activeSessionTitle: manualSessionForm.title.trim(),
+    activeSessionStartedAt: new Date(`${manualSessionForm.date}T${manualSessionForm.startTime}:00`).toISOString(),
+  };
+  if (!unchanged) {
+    patch.activeSessionSeconds = Math.max(0, Number(props.project.activeSessionSeconds || 0) + (newTotal - total));
+  }
+  try {
+    await projectsStore.updateProject(props.project.id, patch);
+    sessionTitle.value = manualSessionForm.title.trim();
+    manualSessionDialogOpen.value = false;
+    editingOpenSession.value = false;
+    toast.add({ severity: "success", summary: "Session modifiée", life: 2400 });
+  } catch (error) {
+    showError(error);
+  }
+};
+
+const discardOpenSession = () => {
+  confirm.require({
+    message: "Abandonner la session en cours ? Le temps écoulé ne sera pas enregistré.",
+    header: "Supprimer la session en cours",
+    icon: "pi pi-exclamation-triangle",
+    rejectProps: { label: "Annuler", severity: "secondary", outlined: true },
+    acceptProps: { label: "Supprimer", severity: "danger" },
+    accept: async () => {
+      try {
+        await projectsStore.discardTimer(props.project.id);
+        sessionTitle.value = "";
+        toast.add({ severity: "secondary", summary: "Session supprimée", life: 2400 });
+      } catch (error) {
+        showError(error);
+      }
+    },
+  });
+};
+
 const toggleTimer = async () => {
   try {
     if (props.project.activeStartedAt) {
@@ -158,6 +228,7 @@ const finishSession = async () => {
 const openManualSessionDialog = () => {
   const now = new Date();
   editingSessionId.value = null;
+  editingOpenSession.value = false;
   manualSessionForm.title = "";
   manualSessionForm.date = toDateInputValue(now);
   manualSessionForm.startTime = `${String(now.getHours()).padStart(2, "0")}:00`;
@@ -169,6 +240,7 @@ const openManualSessionDialog = () => {
 const openEditSessionDialog = (session: ProjectSession) => {
   const startedAt = new Date(session.startedAt);
   editingSessionId.value = session.id;
+  editingOpenSession.value = false;
   manualSessionForm.title = session.title || "";
   manualSessionForm.date = toDateInputValue(startedAt);
   manualSessionForm.startTime = `${String(startedAt.getHours()).padStart(2, "0")}:${String(startedAt.getMinutes()).padStart(2, "0")}`;
@@ -178,6 +250,7 @@ const openEditSessionDialog = (session: ProjectSession) => {
 };
 
 const saveManualSession = async () => {
+  if (editingOpenSession.value) return saveOpenSessionEdit();
   const durationSeconds =
     Math.max(0, Number(manualSessionForm.hours || 0)) * 3600 +
     Math.max(0, Number(manualSessionForm.minutes || 0)) * 60;
@@ -304,7 +377,13 @@ const deleteSession = (session: ProjectSession) => {
         <p v-if="hasOpenSession" class="mt-5 text-xs font-bold uppercase tracking-wide text-surface-dark/45">
           Session {{ isPaused ? "en pause" : "en cours" }} · <span class="font-mono">{{ formatDuration(openSessionSeconds) }}</span>
         </p>
-        <InputText v-model="sessionTitle" class="mt-3 w-full max-w-xs" placeholder="Titre de cette session (optionnel)" />
+        <InputText
+          v-model="sessionTitle"
+          class="mt-3 w-full max-w-xs"
+          placeholder="Titre de cette session (optionnel)"
+          @blur="saveOpenTitle"
+          @keydown.enter="($event.target as HTMLInputElement).blur()"
+        />
         <Button
           v-if="hasOpenSession && !isClosed"
           class="mt-3 !h-12 !w-full !max-w-xs !justify-center !rounded-2xl !font-bold"
@@ -355,7 +434,7 @@ const deleteSession = (session: ProjectSession) => {
           <div v-if="sortedSessions.length || hasOpenSession" class="flex max-h-[26rem] flex-col gap-4 overflow-y-auto pr-1">
             <div
               v-if="hasOpenSession"
-              class="flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/5 px-3.5 py-2.5"
+              class="group flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/5 px-3.5 py-2.5"
             >
               <span
                 class="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -380,7 +459,27 @@ const deleteSession = (session: ProjectSession) => {
                     </li>
                   </ul>
               </div>
-              <span class="font-mono text-sm font-bold tabular-nums text-surface-dark">{{ formatDuration(openSessionSeconds) }}</span>
+              <div class="relative shrink-0">
+                <span class="block font-mono text-sm font-bold tabular-nums text-surface-dark transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">{{ formatDuration(openSessionSeconds) }}</span>
+                <div v-if="!isClosed" class="absolute inset-y-0 right-0 flex items-center bg-primary/5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <button
+                    type="button"
+                    class="flex h-8 w-8 items-center justify-center rounded-lg text-surface-dark/45 hover:bg-surface-dark/5 hover:text-surface-dark"
+                    title="Modifier la session en cours"
+                    @click="openEditOpenSessionDialog"
+                  >
+                    <span class="material-symbols-outlined text-[18px]">edit</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-8 w-8 items-center justify-center rounded-lg text-red-500/75 hover:bg-red-500/10 hover:text-red-600"
+                    title="Supprimer la session en cours"
+                    @click="discardOpenSession"
+                  >
+                    <span class="material-symbols-outlined text-[18px]">delete</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <section v-for="group in sessionsByDay" :key="group.key" class="flex flex-col gap-1.5">
@@ -450,7 +549,7 @@ const deleteSession = (session: ProjectSession) => {
       <Dialog
         v-model:visible="manualSessionDialogOpen"
         modal
-        :header="editingSessionId ? 'Modifier la session' : 'Ajouter une session'"
+        :header="editingSessionId || editingOpenSession ? 'Modifier la session' : 'Ajouter une session'"
         :style="{ width: 'min(560px, 92vw)' }"
       >
         <div class="grid gap-4">
@@ -522,13 +621,13 @@ const deleteSession = (session: ProjectSession) => {
         <template #footer>
           <Button label="Annuler" severity="secondary" outlined @click="manualSessionDialogOpen = false" />
           <Button
-            :label="editingSessionId ? undefined : 'Ajouter la session'"
-            :aria-label="editingSessionId ? 'Enregistrer' : undefined"
-            :title="editingSessionId ? 'Enregistrer' : undefined"
+            :label="editingSessionId || editingOpenSession ? undefined : 'Ajouter la session'"
+            :aria-label="editingSessionId || editingOpenSession ? 'Enregistrer' : undefined"
+            :title="editingSessionId || editingOpenSession ? 'Enregistrer' : undefined"
             @click="saveManualSession"
           >
             <template #icon>
-              <span class="material-symbols-outlined text-lg">{{ editingSessionId ? "save" : "add" }}</span>
+              <span class="material-symbols-outlined text-lg">{{ editingSessionId || editingOpenSession ? "save" : "add" }}</span>
             </template>
           </Button>
         </template>

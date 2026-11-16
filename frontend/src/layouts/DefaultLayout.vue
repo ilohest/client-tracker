@@ -259,8 +259,15 @@ const stopRunningTimer = () => {
   if (runningProject.value) void projectsStore.pauseTimer(runningProject.value.id);
 };
 
+// Sur la page détail d'un projet, l'onglet porte le nom du projet (chrono en pause ou arrêté compris).
+const currentProjectTitle = computed(() =>
+  route.name === "project-detail"
+    ? projectsStore.projects.find((project) => project.id === route.params.id)?.title || ""
+    : "",
+);
+
 const syncDocumentTitle = () => {
-  const pageTitle = route.meta.title as string | undefined;
+  const pageTitle = currentProjectTitle.value || (route.meta.title as string | undefined);
   const base = pageTitle ? `${pageTitle} | Devisio` : "Devisio";
   const active = runningProject.value;
   document.title = active?.activeStartedAt
@@ -282,7 +289,8 @@ watch(
     syncDocumentTitle();
   },
 );
-watch([timerNow, () => route.fullPath], syncDocumentTitle);
+watch([timerNow, () => route.fullPath, currentProjectTitle], syncDocumentTitle);
+onMounted(syncDocumentTitle);
 
 onMounted(() => {
   window.addEventListener("keydown", handleGlobalShortcut);

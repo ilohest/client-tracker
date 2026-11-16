@@ -279,6 +279,17 @@ export const useProjectsStore = defineStore('projects', {
       });
     },
 
+    // Abandonne la session ouverte sans l'enregistrer (comme « Supprimer » sur une entrée en cours).
+    async discardTimer(id: string) {
+      await this.updateProject(id, {
+        activeStartedAt: '',
+        activeSessionStartedAt: '',
+        activeSessionTitle: '',
+        activeSessionSeconds: 0,
+        activeSessionSegments: [],
+      });
+    },
+
     // Remplace la liste des sessions et recalcule le total (ajout manuel, édition, suppression).
     async setSessions(id: string, sessions: ProjectSession[]) {
       const sorted = [...sessions].sort(
