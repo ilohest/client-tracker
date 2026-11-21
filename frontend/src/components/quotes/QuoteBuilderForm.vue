@@ -280,9 +280,11 @@ const documentItems = computed(() => {
   const effectiveOrder = configuredOrder.length <= 3
     ? [...canonicalOrder, ...custom.map((item) => item.id)]
     : configuredOrder;
+  // « Informations du devis » reste épinglée en tête du formulaire (juste après le bloc Template).
   const order = [
-    ...effectiveOrder.filter((id) => known.has(id)),
-    ...[...known.keys()].filter((id) => !effectiveOrder.includes(id)),
+    "quoteInfo",
+    ...effectiveOrder.filter((id) => known.has(id) && id !== "quoteInfo"),
+    ...[...known.keys()].filter((id) => id !== "quoteInfo" && !effectiveOrder.includes(id)),
   ];
   return order.map((id) => known.get(id)!).filter(Boolean);
 });
@@ -328,7 +330,7 @@ const moveDocumentItem = (id: string, direction: -1 | 1) => {
   const order = documentItems.value.map((item) => item.id);
   const index = order.indexOf(id);
   const target = index + direction;
-  if (target < 0 || target >= order.length) return;
+  if (target < 1 || target >= order.length) return; // l'index 0 est réservé à quoteInfo
   [order[index], order[target]] = [order[target], order[index]];
   emit("update:documentOrder", order);
 };

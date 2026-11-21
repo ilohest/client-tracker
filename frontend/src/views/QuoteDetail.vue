@@ -143,6 +143,8 @@ const createDraft = (): QuoteDraft => ({
   clientName: "",
   clientAddress: "",
   clientWebsite: "",
+  clientCompany: "",
+  clientVatNumber: "",
   vatRate: 21,
   projectSummary: "",
   investmentSummary: "",
@@ -376,6 +378,8 @@ const createDraftFromTemplate = (
     clientName: "",
     clientAddress: "",
     clientWebsite: "",
+    clientCompany: "",
+    clientVatNumber: "",
     vatRate: 21,
     projectSummary: localizedContent.projectSummary,
     investmentSummary: "",
@@ -605,6 +609,8 @@ const normalizeDraft = (draft: QuoteDraft) => ({
   clientName: draft.clientName,
   clientAddress: draft.clientAddress,
   clientWebsite: draft.clientWebsite,
+  clientCompany: draft.clientCompany,
+  clientVatNumber: draft.clientVatNumber,
   vatRate: draft.vatRate,
   projectSummary: draft.projectSummary,
   investmentSummary: draft.investmentSummary || "",
@@ -775,12 +781,16 @@ const syncClientFields = (
     form.clientName = "";
     form.clientAddress = "";
     form.clientWebsite = "";
+    form.clientCompany = "";
+    form.clientVatNumber = "";
     form.vatRate = 21;
     return;
   }
   form.clientName = formatClientFullName(client);
   form.clientAddress = formatClientAddress(client);
   form.clientWebsite = client.website || "";
+  form.clientCompany = client.companyName?.trim() || "";
+  form.clientVatNumber = client.vatNumber?.trim() || "";
   if (includeLanguage) form.language = client.language;
   form.vatRate = computeVatRateForClient(client, authStore.userProfile);
 };
@@ -793,6 +803,8 @@ const getLiveClientFields = (clientId: string | undefined, fallback: Quote) => {
       clientName: fallback.clientName,
       clientAddress: fallback.clientAddress,
       clientWebsite: fallback.clientWebsite,
+      clientCompany: fallback.clientCompany,
+      clientVatNumber: fallback.clientVatNumber,
       vatRate: fallback.vatRate,
     };
   }
@@ -800,6 +812,8 @@ const getLiveClientFields = (clientId: string | undefined, fallback: Quote) => {
     clientName: formatClientFullName(client),
     clientAddress: formatClientAddress(client),
     clientWebsite: client.website || "",
+    clientCompany: client.companyName?.trim() || "",
+    clientVatNumber: client.vatNumber?.trim() || "",
     vatRate: computeVatRateForClient(client, authStore.userProfile),
   };
 };
@@ -863,6 +877,8 @@ const baselineDraft = computed<QuoteDraft>(() => {
     clientName: liveClientFields.clientName,
     clientAddress: liveClientFields.clientAddress,
     clientWebsite: liveClientFields.clientWebsite,
+    clientCompany: liveClientFields.clientCompany,
+    clientVatNumber: liveClientFields.clientVatNumber,
     vatRate: liveClientFields.vatRate,
     projectSummary: current.projectSummary,
     investmentSummary: current.investmentSummary || "",
@@ -1069,6 +1085,8 @@ const hydrateFromQuote = (quote: Quote | null) => {
     clientName: liveClientFields.clientName,
     clientAddress: liveClientFields.clientAddress,
     clientWebsite: liveClientFields.clientWebsite,
+    clientCompany: liveClientFields.clientCompany,
+    clientVatNumber: liveClientFields.clientVatNumber,
     vatRate: liveClientFields.vatRate,
     projectSummary: quote.projectSummary,
     investmentSummary: quote.investmentSummary || "",
@@ -2058,6 +2076,8 @@ const applySelectedTemplate = (templateId?: string | null) => {
     clientName: form.clientName,
     clientAddress: form.clientAddress,
     clientWebsite: form.clientWebsite,
+    clientCompany: form.clientCompany,
+    clientVatNumber: form.clientVatNumber,
     quoteDate: form.quoteDate,
     validUntil: form.validUntil,
     quoteRef: form.quoteRef,
@@ -2611,8 +2631,9 @@ const documentSections = computed(() => {
   const configured = form.documentOrder || [];
   const effective = configured.length <= 3 ? known : configured;
   const order = [
-    ...effective.filter((id) => known.includes(id)),
-    ...known.filter((id) => !effective.includes(id)),
+    "quoteInfo",
+    ...effective.filter((id) => known.includes(id) && id !== "quoteInfo"),
+    ...known.filter((id) => id !== "quoteInfo" && !effective.includes(id)),
   ];
 
   return order.map((id) => ({
@@ -2639,7 +2660,8 @@ const dropDocumentSection = (targetId: string) => {
   const draggedId = draggedDocumentSectionId.value;
   draggedDocumentSectionId.value = null;
   documentSectionDropTargetId.value = null;
-  if (!draggedId || draggedId === targetId) return;
+  // « Informations du devis » est épinglée en tête : ni déplaçable, ni détrônée.
+  if (!draggedId || draggedId === targetId || draggedId === "quoteInfo" || targetId === "quoteInfo") return;
 
   const order = documentSections.value.map((section) => section.id);
   const draggedIndex = order.indexOf(draggedId);
