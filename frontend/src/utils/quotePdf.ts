@@ -187,6 +187,9 @@ const LOCALE_BY_LANG: Record<QuoteLanguage, Locale> = {
   es: "es-ES",
 };
 
+const cssString = (value: string): string =>
+  `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]+/g, " ")}"`;
+
 const escapeHtml = (value: string): string =>
   String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -875,11 +878,25 @@ const buildClientAddressHtml = (quote: Quote, t: DocLabels): string => {
           : line,
       )
     : [];
+  const company = quote.clientCompany?.trim() || "";
+  const person = quote.clientName?.trim() || "";
+  const vatNumber = quote.clientVatNumber?.trim() || "";
+  // Seules les lignes renseignées sont affichées : aucun champ vide.
   const rows = [
-    quote.clientName?.trim()
-      ? `<div class="client-name">${escapeHtml(quote.clientName.trim())}</div>`
+    company || person
+      ? `<div class="client-name">${escapeHtml(company || person)}</div>`
       : "",
-    displayAddressLines.length ? `` : "",
+    company && person
+      ? `<div class="client-contact">${escapeHtml(person)}</div>`
+      : "",
+    displayAddressLines.length
+      ? `<div class="client-address">${displayAddressLines
+          .map((line) => `<span>${escapeHtml(line)}</span>`)
+          .join("")}</div>`
+      : "",
+    vatNumber
+      ? `<div class="client-contact"><span>${escapeHtml(t.vat)}</span> ${escapeHtml(vatNumber)}</div>`
+      : "",
   ].filter(Boolean);
   return rows.join("");
 };
@@ -993,7 +1010,7 @@ export const renderQuoteDocumentHtml = (
   const projectSummary = quote.projectSummary?.trim() || "";
   const technologies = quote.customPlatformLabel?.trim() || "";
   const proposal = projectSummary || technologies
-    ? `<section class="doc-section avoid-break">
+    ? `<section class="doc-section">
         <h2>${escapeHtml(t.proposal)}</h2>
         ${projectSummary ? `<div class="project-description">${renderRichText(renderVariables(projectSummary))}</div>` : ""}
         ${technologies ? `<div class="technology-line"><span class="technology-label">${escapeHtml(t.technologies)}</span><span>${escapeHtml(renderVariables(technologies))}</span></div>` : ""}
@@ -1056,7 +1073,6 @@ export const renderQuoteDocumentHtml = (
     quote.acceptance || [],
     {
       relaxedTitles: true,
-      pageBreakBefore: true,
       signatureLabels: { date: t.clientDate, signature: t.clientSignature },
     },
     renderVariables,
@@ -1078,7 +1094,6 @@ export const renderQuoteDocumentHtml = (
       relaxedTitles: true,
       bulletEntries: true,
       principleCards: true,
-      pageBreakBefore: true,
     },
     renderVariables,
   );
@@ -1152,9 +1167,7 @@ export const renderQuoteDocumentHtml = (
     .map((id) => documentBlocks.get(id) || "")
     .join("");
 
-  const footerWebsite = escapeHtml(
-    normalizeWebsiteDisplay(profile?.website || ""),
-  );
+  const footerWebsiteText = normalizeWebsiteDisplay(profile?.website || "");
 
   return `<!doctype html>
 <html lang="${lang}">
@@ -1196,14 +1209,14 @@ export const renderQuoteDocumentHtml = (
     color: var(--title);
   }
   a { color: inherit; text-decoration: none; }
-  .sender a, .doc-meta a, .print-footer a { color: inherit; }
+  .sender a, .doc-meta a { color: inherit; }
   p { margin: 0 0 8px; }
   ul { margin: 6px 0 8px; padding-left: 18px; }
   ul.sub { margin: 4px 0 4px; }
   li { margin: 2px 0; }
   /* Dans la description projet, Entrée crée un <p> (avec respiration) et
      Maj + Entrée un <br> (simple retour à la ligne). */
-  .project-description p { margin: 0 0 11px; }
+  .project-description p { margin: 0 0 11px; orphans: 3; widows: 3; }
   .project-description p:last-child { margin-bottom: 0; }
   .project-description ul,
   .project-description ol { margin: 5px 0 11px; padding-left: 20px; }
@@ -1227,64 +1240,6 @@ export const renderQuoteDocumentHtml = (
     padding: 14mm 16mm 24mm;
   }
 
-  .print-header,
-  .print-footer {
-    position: fixed;
-    left: 16mm;
-    right: 16mm;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    color: var(--muted);
-    font-size: 7.5pt;
-    line-height: 1;
-    background: #fff;
-  }
-  .print-header {
-    top: 7mm;
-    justify-content: flex-end;
-    text-align: right;
-  }
-  .print-footer {
-    bottom: 7mm;
-    justify-content: space-between;
-    border-top: 1px solid var(--line);
-    padding-top: 3mm;
-  }
-  .print-page-footers {
-    display: none;
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    min-height: 100%;
-    overflow: visible;
-    pointer-events: none;
-  }
-  .print-page-footer {
-    position: absolute;
-    left: 16mm;
-    right: 16mm;
-    z-index: 110;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-top: 1px solid var(--line);
-    padding-top: 3mm;
-    color: var(--muted);
-    font-size: 7.5pt;
-    line-height: 1;
-    background: #fff;
-  }
-  .first-page-header-mask {
-    position: absolute;
-    z-index: 120;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 18mm;
-    background: #fff;
-  }
 
   /* ---- En-tête / letterhead ---- */
   .letterhead { display: flex; gap: 12mm; align-items: flex-start; margin-bottom: 12mm; }
@@ -1302,9 +1257,8 @@ export const renderQuoteDocumentHtml = (
   .doc-meta .meta-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px; align-items: baseline; font-size: 9pt; padding: 3px 0; color: var(--meta-text); }
   .doc-meta .meta-label { color: var(--meta-label); font-size: 7.4pt; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; white-space: nowrap; }
   .doc-meta .meta-value { color: #fff; font-weight: 500; text-align: right; }
-  .doc-meta .client-row { align-items: start; padding-top: 0; }
-  .doc-meta .client { display: grid; gap: 5px; font-size: 10pt; color: #fff; line-height: 1.35; text-align: right; }
-  .doc-meta .client-name { font-weight: 700; }
+  .doc-meta .client { display: grid; gap: 5px; font-size: 9pt; color: #fff; line-height: inherit; text-align: right; }
+  .doc-meta .client-name { font-weight: 500; }
   .doc-meta .client-address { display: flex; flex-direction: column; gap: 2px; color: rgba(255,255,255,.88); }
   .doc-meta .client-contact { color: rgba(255,255,255,.88); }
   .doc-meta .client-contact span { color: var(--meta-label); font-size: 7.4pt; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
@@ -1426,29 +1380,29 @@ export const renderQuoteDocumentHtml = (
   .principle-card-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8mm;
-    align-items: start;
-    padding-top: 5mm;
+    gap: 4mm;
+    align-items: stretch;
+    padding-top: 3mm;
   }
   .principle-card {
     position: relative;
-    min-height: 52mm;
-    border: 1px solid rgba(35, 38, 47, .14);
-    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2mm;
+    border: 1px solid rgba(35, 38, 47, .10);
+    border-left: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+    border-radius: 8px;
     background: color-mix(in srgb, var(--soft) 58%, #fff 42%);
-    padding: 12mm 5mm 5mm;
+    padding: 3.5mm 4mm 4mm;
     break-inside: avoid;
     page-break-inside: avoid;
     text-align: left;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     word-break: normal;
-    hyphens: auto;
+    hyphens: manual;
   }
-  .principle-card.no-seal {
-    padding-top: 8mm;
-  }
-  .principle-card.has-seal {
-    padding-top: 12mm;
+  .principle-card:last-child:nth-child(3n + 1) {
+    grid-column: 1 / -1;
   }
   .principle-card h3 {
     font-family: ${bodyFontStack};
@@ -1467,9 +1421,11 @@ export const renderQuoteDocumentHtml = (
     font-size: 8.4pt;
     font-style: ${bodyFontStyle.style};
     font-weight: ${bodyFontStyle.weight};
-    line-height: 1.24;
+    line-height: 1.34;
     text-align: left;
   }
+  .principle-card-body > :first-child { margin-top: 0; }
+  .principle-card-body > :last-child { margin-bottom: 0; }
   .principle-card-body ul {
     margin: 3px 0 0;
     padding-left: 12px;
@@ -1483,28 +1439,19 @@ export const renderQuoteDocumentHtml = (
     padding-left: 10px;
   }
   .principle-seal {
-    position: absolute;
-    z-index: 1;
-    left: 50%;
-    max-width: 82%;
-    padding: 2px 8px 3px;
-    border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 1px 7px 2px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 8%, #fff 92%);
+    background: color-mix(in srgb, var(--accent) 10%, #fff 90%);
     color: var(--accent);
-    font-size: 8.2pt;
+    font-size: 7.6pt;
     font-weight: 700;
-    line-height: 1.15;
+    line-height: 1.2;
     letter-spacing: .02em;
     text-transform: lowercase;
     white-space: nowrap;
   }
-  .principle-seal-0 { top: -3.2mm; transform: translateX(-50%); }
-  .principle-seal-1 { top: -2.6mm; transform: translateX(-50%); }
-  .principle-seal-2 { top: -3mm; transform: translateX(-50%); }
-  .principle-seal-3 { top: -2.4mm; transform: translateX(-50%); }
-  .principle-seal-4 { top: -3.3mm; transform: translateX(-50%); }
-  .principle-seal-5 { top: -2.7mm; transform: translateX(-50%); }
   .has-signature-block .signature-anchor {
     break-after: avoid;
     page-break-after: avoid;
@@ -1603,14 +1550,47 @@ export const renderQuoteDocumentHtml = (
 
   .avoid-break { break-inside: avoid; }
 
-  @page { size: A4; margin: 0; }
+  /* En-tête (référence) et pied (site + n° de page) : marges de page natives,
+     donc numérotation exacte sans estimation. */
+  @page {
+    size: A4;
+    margin: 22mm 16mm 26mm;
+    @top-right {
+      content: ${cssString(quote.quoteRef)};
+      color: ${mutedColor};
+      font: 7.5pt ${bodyFontStack};
+      vertical-align: bottom;
+      padding-bottom: 6mm;
+    }
+    @bottom-left {
+      content: ${cssString(footerWebsiteText)};
+      width: 50%;
+      color: ${mutedColor};
+      font: 7.5pt ${bodyFontStack};
+      vertical-align: bottom;
+      padding-bottom: 9mm;
+      background: linear-gradient(${lineColor}, ${lineColor}) left calc(100% - 13mm) / 100% 1px no-repeat;
+    }
+    @bottom-right {
+      content: counter(page) "/" counter(pages);
+      width: 50%;
+      text-align: right;
+      color: ${mutedColor};
+      font: 7.5pt ${bodyFontStack};
+      vertical-align: bottom;
+      padding-bottom: 9mm;
+      background: linear-gradient(${lineColor}, ${lineColor}) left calc(100% - 13mm) / 100% 1px no-repeat;
+    }
+  }
+  @page :first {
+    @top-right { content: none; }
+  }
 
   @media screen {
     body { background: #eceef1; padding: 84px 0 24px; }
     body.embedded-preview { background: #fff; padding: 0; }
     .page { background: #fff; padding: 20mm 16mm 24mm; box-shadow: 0 8px 40px rgba(0,0,0,.12); border-radius: 4px; }
     body.embedded-preview .page { box-shadow: none; border-radius: 0; }
-    .print-header, .print-footer, .print-page-footers, .first-page-header-mask { display: none; }
     .preview-toolbar {
       position: fixed;
       top: 0;
@@ -1650,24 +1630,12 @@ export const renderQuoteDocumentHtml = (
 
   @media print {
     .preview-toolbar { display: none; }
-    .print-header,
-    .print-footer {
-      display: flex !important;
-      position: fixed !important;
-      left: 16mm;
-      right: 16mm;
-      background: #fff;
-      z-index: 100;
-    }
-    .print-footer {
-      display: none !important;
-    }
-    .print-page-footers { display: block !important; }
     .page {
-      padding-top: 22mm;
-      padding-bottom: 26mm;
-      -webkit-box-decoration-break: clone;
-      box-decoration-break: clone;
+      width: auto;
+      max-width: none;
+      min-height: 0;
+      margin: 0;
+      padding: 0;
     }
   }
 </style>
@@ -1685,13 +1653,7 @@ export const renderQuoteDocumentHtml = (
       : ""
   }
 
-  <div class="print-header">${escapeHtml(quote.quoteRef)}</div>
-  <footer class="print-footer">
-    <span>${footerWebsite}</span>
-  </footer>
-
   <main class="page">
-    <div class="first-page-header-mask" aria-hidden="true"></div>
     <header class="letterhead">
       <div class="sender">
         ${logo}
@@ -1714,79 +1676,6 @@ export const renderQuoteDocumentHtml = (
 
     ${documentContent}
   </main>
-  <div class="print-page-footers" data-website="${footerWebsite}" aria-hidden="true"></div>
-
-  <script>
-    const renderPrintPageFooters = () => {
-      const page = document.querySelector('.page');
-      const footers = document.querySelector('.print-page-footers');
-      if (!page || !footers) return;
-
-      footers.innerHTML = '';
-
-      const measure = document.createElement('div');
-      measure.style.position = 'absolute';
-      measure.style.left = '-9999px';
-      measure.style.top = '0';
-      measure.style.width = '1px';
-      measure.style.height = '297mm';
-      document.body.appendChild(measure);
-      const pageHeightPx = measure.getBoundingClientRect().height || 1122;
-      measure.remove();
-
-      // Mesurer uniquement le contenu métier. Le body contient aussi les pieds
-      // de page générés et provoquerait une croissance à chaque recalcul.
-      const contentHeight = page.scrollHeight;
-      // Reproduire l’espace réellement ajouté par chaque saut forcé. Compter
-      // simplement les classes surestime le total lorsqu’un bloc tombe déjà
-      // naturellement au début d’une page.
-      const pageTop = page.getBoundingClientRect().top;
-      const forcedBreakOffsets = Array.from(
-        page.querySelectorAll('.page-break-before'),
-      )
-        .map((element) => element.getBoundingClientRect().top - pageTop)
-        .sort((a, b) => a - b);
-      let insertedBreakSpace = 0;
-      forcedBreakOffsets.forEach((rawOffset) => {
-        const adjustedOffset = rawOffset + insertedBreakSpace;
-        const remainder = adjustedOffset % pageHeightPx;
-        if (remainder > 1 && pageHeightPx - remainder > 1) {
-          insertedBreakSpace += pageHeightPx - remainder;
-        }
-      });
-      const measuredPageCount = Math.max(
-        1,
-        Math.ceil((contentHeight + insertedBreakSpace + 1) / pageHeightPx),
-      );
-      // L'acceptation est volontairement isolée sur une dernière feuille.
-      // Chromium n'intègre pas cette feuille créée par fragmentation dans le
-      // scrollHeight du conteneur : on la compte explicitement.
-      const hasDedicatedAcceptancePage = Boolean(
-        page.querySelector('.page-break-before.has-signature-block'),
-      );
-      const pageCount = measuredPageCount + (hasDedicatedAcceptancePage ? 1 : 0);
-      const website = footers.getAttribute('data-website') || '';
-      for (let index = 0; index < pageCount; index += 1) {
-        const footer = document.createElement('div');
-        footer.className = 'print-page-footer';
-        footer.style.top = String(index * 297 + 287) + 'mm';
-
-        const site = document.createElement('span');
-        site.textContent = website;
-        const number = document.createElement('span');
-        number.textContent = String(index + 1) + '/' + String(pageCount);
-
-        footer.append(site, number);
-        footers.appendChild(footer);
-      }
-    };
-
-    window.addEventListener('load', async () => {
-      try { if (document.fonts && document.fonts.ready) { await document.fonts.ready; } } catch (e) {}
-      requestAnimationFrame(() => requestAnimationFrame(renderPrintPageFooters));
-    });
-    window.addEventListener('beforeprint', renderPrintPageFooters);
-  </script>
 </body>
 </html>`;
 };
