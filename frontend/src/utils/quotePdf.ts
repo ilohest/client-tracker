@@ -1555,6 +1555,9 @@ export const renderQuoteDocumentHtml = (
   @page {
     size: A4;
     margin: 22mm 16mm 26mm;
+    /* Boîtes déclarées (vides) : le navigateur n'imprime plus sa date et le titre du document. */
+    @top-left { content: ""; }
+    @top-center { content: ""; }
     @top-right {
       content: ${cssString(quote.quoteRef)};
       color: ${mutedColor};
@@ -1583,7 +1586,9 @@ export const renderQuoteDocumentHtml = (
     }
   }
   @page :first {
-    @top-right { content: none; }
+    @top-left { content: ""; }
+    @top-center { content: ""; }
+    @top-right { content: ""; }
   }
 
   @media screen {
